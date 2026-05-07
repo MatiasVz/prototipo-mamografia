@@ -1,0 +1,7 @@
+# Documentación local para tesis / IA / evidencias
+docs/
+.env
+venv/
+__pycache__/
+*.pyc
+.vscode/
