@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Inicio | {{ config.APP_NAME }}{% endblock %}
+
+{% block content %}
+  <section class="page-heading" aria-labelledby="page-title">
+    <p class="eyebrow">Modulo de carga</p>
+    <h1 id="page-title">Carga de mamografias</h1>
+    <p>
+      Base inicial del prototipo web para registrar y preparar mamografias antes
+      de la seleccion de ROI y el procesamiento en segundo plano.
+    </p>
+  </section>
+
+  <section class="workflow" aria-label="Flujo inicial del modulo">
+    <article class="workflow-step">
+      <span class="workflow-step__number">1</span>
+      <h2>Cargar imagen</h2>
+      <p>Preparado para incorporar archivos de mamografia en formatos comunes y DICOM.</p>
+    </article>
+    <article class="workflow-step">
+      <span class="workflow-step__number">2</span>
+      <h2>Registrar caso</h2>
+      <p>El siguiente incremento conectara la carga con PostgreSQL para trazabilidad.</p>
+    </article>
+    <article class="workflow-step">
+      <span class="workflow-step__number">3</span>
+      <h2>Confirmar ROI</h2>
+      <p>La confirmacion y recorte de ROI se agregaran en un modulo posterior.</p>
+    </article>
+  </section>
+{% endblock %}

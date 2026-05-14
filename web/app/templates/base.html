@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}{{ config.APP_NAME }}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="app-header__content">
+        <a class="app-brand" href="{{ url_for('main.index') }}">Prototipo Mamografico</a>
+        <nav class="app-nav" aria-label="Navegacion principal">
+          <a href="{{ url_for('main.index') }}">Inicio</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="app-main">
+      {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  </body>
+</html>
