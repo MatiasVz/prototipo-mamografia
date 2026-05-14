@@ -1,0 +1,151 @@
+:root {
+  color-scheme: light;
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-text: #172033;
+  --color-muted: #667085;
+  --color-border: #d7dde8;
+  --color-primary: #1264a3;
+  --color-primary-dark: #0b4f82;
+  --shadow-soft: 0 14px 40px rgba(23, 32, 51, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-header__content {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 18px 24px;
+}
+
+.app-brand {
+  color: var(--color-primary-dark);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.app-nav {
+  display: flex;
+  gap: 16px;
+}
+
+.app-nav a {
+  color: var(--color-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.app-main {
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 48px 24px;
+}
+
+.page-heading {
+  max-width: 760px;
+}
+
+.eyebrow {
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.page-heading h1 {
+  font-size: 42px;
+  line-height: 1.1;
+  margin: 0 0 16px;
+}
+
+.page-heading p {
+  color: var(--color-muted);
+  font-size: 18px;
+  margin: 0;
+}
+
+.workflow {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 36px;
+}
+
+.workflow-step {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-soft);
+  min-height: 180px;
+  padding: 24px;
+}
+
+.workflow-step__number {
+  align-items: center;
+  background: #e7f1fa;
+  border: 1px solid #c6dfef;
+  border-radius: 999px;
+  color: var(--color-primary-dark);
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 700;
+  height: 32px;
+  justify-content: center;
+  margin-bottom: 18px;
+  width: 32px;
+}
+
+.workflow-step h2 {
+  font-size: 20px;
+  margin: 0 0 10px;
+}
+
+.workflow-step p {
+  color: var(--color-muted);
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .app-header__content {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .app-main {
+    padding: 34px 18px;
+  }
+
+  .page-heading h1 {
+    font-size: 34px;
+  }
+
+  .workflow {
+    grid-template-columns: 1fr;
+  }
+}
