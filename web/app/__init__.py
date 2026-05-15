@@ -11,6 +11,8 @@ def create_app(config_class=Config):
     app.config.from_object(config_class)
 
     db.init_app(app)
+    from . import models  # noqa: F401
+
     register_routes(app)
     register_cli_commands(app)
 
