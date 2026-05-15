@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Cargar mamografia | {{ config.APP_NAME }}{% endblock %}
+
+{% block content %}
+  <section class="page-heading" aria-labelledby="upload-title">
+    <p class="eyebrow">Carga de archivo</p>
+    <h1 id="upload-title">Cargar mamografia</h1>
+    <p>
+      Selecciona una imagen mamografica para iniciar el registro del caso en el
+      prototipo. La validacion tecnica y el almacenamiento se agregaran en las
+      siguientes issues del modulo.
+    </p>
+  </section>
+
+  <section class="upload-layout" aria-label="Formulario de carga de mamografias">
+    <form
+      class="upload-form"
+      action="{{ url_for('upload.upload_mammogram') }}"
+      method="post"
+      enctype="multipart/form-data"
+    >
+      <div class="form-field">
+        <label for="mammogram_file">Archivo de mamografia</label>
+        <input
+          id="mammogram_file"
+          name="mammogram_file"
+          type="file"
+          accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff,.dcm,application/dicom"
+          data-file-input
+        >
+        <p class="field-help" data-file-name>
+          Formatos iniciales: PNG, JPG, JPEG, BMP, TIF, TIFF y DICOM.
+        </p>
+      </div>
+
+      <div class="form-field">
+        <label for="input_mode">Modalidad de entrada</label>
+        <select id="input_mode" name="input_mode">
+          <option value="mamografia_completa">Mamografia completa</option>
+        </select>
+        <p class="field-help">
+          La carga directa de ROI se implementara en una issue posterior.
+        </p>
+      </div>
+
+      <button class="button button--primary" type="submit">Enviar al backend</button>
+    </form>
+
+    <aside class="format-panel" aria-labelledby="formats-title">
+      <h2 id="formats-title">Formatos aceptados</h2>
+      <ul class="format-list">
+        {% for format in accepted_formats %}
+          <li>{{ format }}</li>
+        {% endfor %}
+      </ul>
+    </aside>
+  </section>
+{% endblock %}

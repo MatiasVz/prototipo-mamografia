@@ -64,6 +64,29 @@ a {
   padding: 48px 24px;
 }
 
+.flash-messages {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.flash-message {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-primary);
+  border-radius: 8px;
+  color: var(--color-text);
+  padding: 14px 16px;
+}
+
+.flash-message--success {
+  border-left-color: #16835a;
+}
+
+.flash-message--warning {
+  border-left-color: #b26a00;
+}
+
 .page-heading {
   max-width: 760px;
 }
@@ -87,6 +110,36 @@ a {
   color: var(--color-muted);
   font-size: 18px;
   margin: 0;
+}
+
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.button {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 18px;
+}
+
+.button--primary {
+  background: var(--color-primary);
+  color: #ffffff;
+}
+
+.button--primary:hover,
+.button--primary:focus {
+  background: var(--color-primary-dark);
 }
 
 .workflow {
@@ -130,6 +183,79 @@ a {
   margin: 0;
 }
 
+.upload-layout {
+  align-items: start;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  margin-top: 36px;
+}
+
+.upload-form,
+.format-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-soft);
+  padding: 24px;
+}
+
+.upload-form {
+  display: grid;
+  gap: 22px;
+}
+
+.form-field {
+  display: grid;
+  gap: 8px;
+}
+
+.form-field label {
+  font-weight: 700;
+}
+
+.form-field input,
+.form-field select {
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  font: inherit;
+  min-height: 44px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.field-help {
+  color: var(--color-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.format-panel h2 {
+  font-size: 20px;
+  margin: 0 0 16px;
+}
+
+.format-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.format-list li {
+  background: #e7f1fa;
+  border: 1px solid #c6dfef;
+  border-radius: 999px;
+  color: var(--color-primary-dark);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
 @media (max-width: 760px) {
   .app-header__content {
     align-items: flex-start;
@@ -146,6 +272,10 @@ a {
   }
 
   .workflow {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-layout {
     grid-template-columns: 1fr;
   }
 }
