@@ -87,6 +87,10 @@ a {
   border-left-color: #b26a00;
 }
 
+.flash-message--error {
+  border-left-color: #c0392b;
+}
+
 .page-heading {
   max-width: 760px;
 }
