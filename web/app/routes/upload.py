@@ -6,6 +6,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     url_for,
 )
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,6 +16,7 @@ from ..extensions import db
 from ..models import Case
 from ..services.case_registration_service import register_mammogram_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
+from ..services.preview_service import ensure_preview_for_case
 
 
 upload_bp = Blueprint("upload", __name__, url_prefix="/mamografias")
@@ -71,12 +73,31 @@ def case_detail(case_id):
     if case is None:
         abort(404)
 
+    preview = _get_case_preview(case)
+
     return render_template(
         "case_detail.html",
         case=case,
         created_at=_format_datetime(case.created_at),
         file_size=_format_file_size(case.file_size_bytes),
+        preview_is_generated=preview.is_generated if preview else False,
+        preview_url=url_for("upload.case_preview", case_id=case.id) if preview else None,
     )
+
+
+@upload_bp.get("/casos/<int:case_id>/vista-previa")
+def case_preview(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    preview = _get_case_preview(case)
+
+    if preview is None:
+        abort(404)
+
+    return send_file(preview.absolute_path, mimetype=preview.mimetype)
 
 
 @upload_bp.app_errorhandler(RequestEntityTooLarge)
@@ -115,3 +136,14 @@ def _format_file_size(size_bytes):
         return f"{size_bytes / 1024:.2f} KB"
 
     return f"{size_bytes} bytes"
+
+
+def _get_case_preview(case):
+    try:
+        return ensure_preview_for_case(case, current_app.config["UPLOAD_FOLDER"])
+    except OSError:
+        current_app.logger.exception(
+            "No se pudo generar la vista previa del caso %s.",
+            case.id,
+        )
+        return None
