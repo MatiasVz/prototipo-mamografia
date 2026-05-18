@@ -2,4 +2,5 @@ Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
 Pillow==10.4.0
 psycopg[binary]==3.2.3
+pydicom==2.4.4
 python-dotenv==1.0.1
