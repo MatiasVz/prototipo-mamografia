@@ -31,7 +31,7 @@ def register_cli_commands(app):
             input_mode=InputMode.MAMMOGRAM,
             original_filename="mamografia_prueba.png",
             original_file_path="storage/uploads/case_sample/original.png",
-            file_type="image/png",
+            file_type="image",
             file_size_bytes=1024,
             status=CaseStatus.REGISTERED,
         )
@@ -53,7 +53,51 @@ def register_cli_commands(app):
             return
 
         for case in cases:
-            click.echo(
-                f"id={case.id} filename={case.original_filename} "
-                f"type={case.file_type} status={case.status}"
-            )
+            click.echo(_format_case_summary(case))
+
+    @app.cli.command("case-show")
+    @click.argument("case_id", type=int)
+    def case_show(case_id):
+        """Show one registered case by ID for verification evidence."""
+        case = db.session.get(Case, case_id)
+
+        if case is None:
+            raise click.ClickException(f"No existe un caso registrado con id={case_id}.")
+
+        for field_name, value in _case_detail_rows(case):
+            click.echo(f"{field_name}: {value}")
+
+
+def _format_case_summary(case):
+    return (
+        f"id={case.id} "
+        f"fecha={_format_timestamp(case.created_at)} "
+        f"modalidad={case.input_mode} "
+        f"filename={case.original_filename} "
+        f"path={case.original_file_path} "
+        f"type={case.file_type} "
+        f"size_bytes={case.file_size_bytes} "
+        f"status={case.status}"
+    )
+
+
+def _case_detail_rows(case):
+    return (
+        ("id", case.id),
+        ("created_at", _format_timestamp(case.created_at)),
+        ("updated_at", _format_timestamp(case.updated_at)),
+        ("input_mode", case.input_mode),
+        ("original_filename", case.original_filename),
+        ("original_file_path", case.original_file_path),
+        ("file_type", case.file_type),
+        ("file_size_bytes", case.file_size_bytes),
+        ("status", case.status),
+        ("error_message", case.error_message or ""),
+    )
+
+
+def _format_timestamp(value):
+    if value is None:
+        return ""
+
+    return value.isoformat()

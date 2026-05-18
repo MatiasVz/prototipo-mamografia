@@ -3,9 +3,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from ..extensions import db
-from ..models import Case, CaseStatus, InputMode
+from ..services.case_registration_service import register_mammogram_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
-from ..services.storage_service import store_original_file
 
 
 upload_bp = Blueprint("upload", __name__, url_prefix="/mamografias")
@@ -25,26 +24,11 @@ def upload_mammogram():
 
         if validation_result.is_valid:
             try:
-                case = Case(
-                    input_mode=InputMode.MAMMOGRAM,
-                    original_filename=mammogram_file.filename,
-                    original_file_path="",
-                    file_type=validation_result.file_type,
-                    file_size_bytes=validation_result.size_bytes or 0,
-                    status=CaseStatus.REGISTERED,
-                )
-                db.session.add(case)
-                db.session.flush()
-
-                stored_file = store_original_file(
+                registration = register_mammogram_upload(
                     mammogram_file,
-                    case.id,
-                    validation_result.extension,
+                    validation_result,
                     current_app.config["UPLOAD_FOLDER"],
                 )
-                case.original_filename = stored_file.original_filename
-                case.original_file_path = stored_file.relative_path
-                db.session.commit()
             except (OSError, SQLAlchemyError):
                 db.session.rollback()
                 current_app.logger.exception("No se pudo almacenar la mamografia.")
@@ -53,10 +37,12 @@ def upload_mammogram():
                     "error",
                 )
             else:
+                case = registration.case
                 metadata_message = _format_metadata_message(validation_result.metadata)
                 flash(
-                    f"{validation_result.message} Caso #{case.id} registrado en "
-                    f"{stored_file.relative_path}." + metadata_message,
+                    f"{validation_result.message} ID del caso: {case.id}. "
+                    f"Ruta registrada: {case.original_file_path}. "
+                    f"Estado inicial: {case.status}." + metadata_message,
                     "success",
                 )
         else:
