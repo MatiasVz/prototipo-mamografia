@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Detalle del caso #{{ case.id }} | {{ config.APP_NAME }}{% endblock %}
+
+{% block content %}
+  <section class="page-heading case-heading" aria-labelledby="case-title">
+    <p class="eyebrow">Caso registrado</p>
+    <h1 id="case-title">Caso #{{ case.id }}</h1>
+    <p>
+      Informacion registrada para la mamografia cargada en el prototipo.
+    </p>
+  </section>
+
+  <section class="case-detail-layout" aria-label="Detalle del caso cargado">
+    <article class="case-detail-panel" aria-labelledby="case-data-title">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Datos del caso</p>
+          <h2 id="case-data-title">Registro de carga</h2>
+        </div>
+        <span class="status-badge">{{ case.status }}</span>
+      </div>
+
+      <dl class="detail-list">
+        <div>
+          <dt>ID del caso</dt>
+          <dd>{{ case.id }}</dd>
+        </div>
+        <div>
+          <dt>Nombre original</dt>
+          <dd>{{ case.original_filename }}</dd>
+        </div>
+        <div>
+          <dt>Tipo detectado</dt>
+          <dd>{{ case.file_type }}</dd>
+        </div>
+        <div>
+          <dt>Tamano</dt>
+          <dd>{{ file_size }}</dd>
+        </div>
+        <div>
+          <dt>Fecha de carga</dt>
+          <dd>{{ created_at }}</dd>
+        </div>
+        <div>
+          <dt>Modalidad</dt>
+          <dd>{{ case.input_mode }}</dd>
+        </div>
+        <div>
+          <dt>Ruta registrada</dt>
+          <dd class="detail-path">{{ case.original_file_path }}</dd>
+        </div>
+      </dl>
+    </article>
+
+    <aside class="case-next-step" aria-labelledby="roi-title">
+      <p class="eyebrow">Siguiente etapa</p>
+      <h2 id="roi-title">ROI pendiente</h2>
+      <p>
+        La confirmacion de ROI quedara asociada a este caso en una issue posterior.
+      </p>
+      <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
+        Cargar otra mamografia
+      </a>
+    </aside>
+  </section>
+{% endblock %}
