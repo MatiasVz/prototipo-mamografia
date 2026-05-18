@@ -6,6 +6,7 @@ from werkzeug.datastructures import FileStorage
 from ..extensions import db
 from ..models import Case, CaseStatus, InputMode
 from .file_validation import FileValidationResult
+from .preview_service import ensure_preview_for_stored_file
 from .storage_service import StoredFile, store_original_file
 
 
@@ -46,6 +47,7 @@ def register_mammogram_upload(
         case.file_type = validation_result.file_type or ""
         case.file_size_bytes = stored_file.size_bytes
         case.status = CaseStatus.REGISTERED
+        ensure_preview_for_stored_file(stored_file)
         db.session.commit()
     except (OSError, SQLAlchemyError):
         db.session.rollback()
@@ -58,8 +60,11 @@ def register_mammogram_upload(
 
 def _remove_stored_file(stored_file: StoredFile):
     try:
-        stored_file.absolute_path.unlink(missing_ok=True)
         case_directory = stored_file.absolute_path.parent
+        for stored_path in case_directory.iterdir():
+            if stored_path.is_file():
+                stored_path.unlink()
+
         if case_directory.exists() and not any(case_directory.iterdir()):
             case_directory.rmdir()
     except OSError:

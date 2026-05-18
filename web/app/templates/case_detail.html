@@ -53,15 +53,39 @@
       </dl>
     </article>
 
-    <aside class="case-next-step" aria-labelledby="roi-title">
-      <p class="eyebrow">Siguiente etapa</p>
-      <h2 id="roi-title">ROI pendiente</h2>
-      <p>
-        La confirmacion de ROI quedara asociada a este caso en una issue posterior.
-      </p>
-      <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
-        Cargar otra mamografia
-      </a>
-    </aside>
+    <div class="case-sidebar">
+      <section class="case-preview-panel" aria-labelledby="preview-title">
+        <p class="eyebrow">Vista previa</p>
+        {% if preview_url %}
+          <h2 id="preview-title">Imagen cargada</h2>
+          <div class="preview-frame">
+            <img src="{{ preview_url }}" alt="Vista previa del caso #{{ case.id }}">
+          </div>
+          <p class="preview-note">
+            {% if preview_is_generated %}
+              Archivo compatible generado como preview.png.
+            {% else %}
+              Archivo original compatible con visualizacion web.
+            {% endif %}
+          </p>
+        {% else %}
+          <h2 id="preview-title">No disponible</h2>
+          <p class="preview-note">
+            La vista previa inicial aplica para PNG, JPG, JPEG, BMP, TIF y TIFF.
+          </p>
+        {% endif %}
+      </section>
+
+      <aside class="case-next-step" aria-labelledby="roi-title">
+        <p class="eyebrow">Siguiente etapa</p>
+        <h2 id="roi-title">ROI pendiente</h2>
+        <p>
+          La confirmacion de ROI quedara asociada a este caso en una issue posterior.
+        </p>
+        <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
+          Cargar otra mamografia
+        </a>
+      </aside>
+    </div>
   </section>
 {% endblock %}
