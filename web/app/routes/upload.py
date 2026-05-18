@@ -17,6 +17,10 @@ from ..models import Case
 from ..services.case_registration_service import register_mammogram_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
 from ..services.preview_service import ensure_preview_for_case
+from ..services.upload_error_service import (
+    safe_register_request_size_error,
+    safe_register_upload_error,
+)
 
 
 upload_bp = Blueprint("upload", __name__, url_prefix="/mamografias")
@@ -59,6 +63,16 @@ def upload_mammogram():
                 )
                 return redirect(url_for("upload.case_detail", case_id=case.id))
         else:
+            error_case = safe_register_upload_error(
+                mammogram_file,
+                validation_result,
+                current_app.logger,
+            )
+            current_app.logger.warning(
+                "Error de carga registrado. case_id=%s message=%s",
+                error_case.id if error_case else "no_registrado",
+                validation_result.message,
+            )
             flash(validation_result.message, "error")
 
         return redirect(url_for("upload.upload_mammogram"))
@@ -103,8 +117,15 @@ def case_preview(case_id):
 
 @upload_bp.app_errorhandler(RequestEntityTooLarge)
 def handle_request_entity_too_large(error):
-    max_size = current_app.config["MAX_CONTENT_LENGTH"] / (1024 * 1024)
-    flash(f"El archivo supera el tamano maximo permitido de {max_size:.0f} MB.", "error")
+    max_size = current_app.config["MAX_CONTENT_LENGTH"]
+    message = f"El archivo supera el tamano maximo permitido de {_format_file_size(max_size)}."
+    error_case = safe_register_request_size_error(message, current_app.logger)
+    current_app.logger.warning(
+        "Error de tamano de carga registrado. case_id=%s message=%s",
+        error_case.id if error_case else "no_registrado",
+        message,
+    )
+    flash(message, "error")
     return redirect(url_for("upload.upload_mammogram"))
 
 
