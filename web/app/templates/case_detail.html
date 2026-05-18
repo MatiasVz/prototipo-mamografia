@@ -61,18 +61,10 @@
           <div class="preview-frame">
             <img src="{{ preview_url }}" alt="Vista previa del caso #{{ case.id }}">
           </div>
-          <p class="preview-note">
-            {% if preview_is_generated %}
-              Archivo compatible generado como preview.png.
-            {% else %}
-              Archivo original compatible con visualizacion web.
-            {% endif %}
-          </p>
+          <p class="preview-note">{{ preview_message }}</p>
         {% else %}
           <h2 id="preview-title">No disponible</h2>
-          <p class="preview-note">
-            La vista previa inicial aplica para PNG, JPG, JPEG, BMP, TIF y TIFF.
-          </p>
+          <p class="preview-note">{{ preview_message }}</p>
         {% endif %}
       </section>
 
