@@ -80,6 +80,7 @@ def case_detail(case_id):
         case=case,
         created_at=_format_datetime(case.created_at),
         file_size=_format_file_size(case.file_size_bytes),
+        preview_message=_get_preview_message(case, preview),
         preview_is_generated=preview.is_generated if preview else False,
         preview_url=url_for("upload.case_preview", case_id=case.id) if preview else None,
     )
@@ -141,9 +142,28 @@ def _format_file_size(size_bytes):
 def _get_case_preview(case):
     try:
         return ensure_preview_for_case(case, current_app.config["UPLOAD_FOLDER"])
-    except OSError:
+    except (AttributeError, OSError, TypeError, ValueError):
         current_app.logger.exception(
             "No se pudo generar la vista previa del caso %s.",
             case.id,
         )
         return None
+
+
+def _get_preview_message(case, preview):
+    if preview is not None:
+        if case.file_type == "dicom":
+            return "Vista previa DICOM generada como preview.png."
+
+        if preview.is_generated:
+            return "Archivo compatible generado como preview.png."
+
+        return "Archivo original compatible con visualizacion web."
+
+    if case.file_type == "dicom":
+        return (
+            "No se pudo generar una vista previa para este DICOM. "
+            "El caso se conserva registrado para continuar el flujo."
+        )
+
+    return "La vista previa inicial aplica para PNG, JPG, JPEG, BMP, TIF, TIFF y DICOM."
