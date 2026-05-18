@@ -11,6 +11,7 @@ class StoredFile:
     stored_filename: str
     absolute_path: Path
     relative_path: str
+    size_bytes: int
 
 
 def store_original_file(file_storage: FileStorage, case_id: int, extension: str, upload_folder: str):
@@ -23,12 +24,14 @@ def store_original_file(file_storage: FileStorage, case_id: int, extension: str,
 
     file_storage.stream.seek(0)
     file_storage.save(absolute_path)
+    size_bytes = absolute_path.stat().st_size
 
     return StoredFile(
         original_filename=_clean_original_filename(file_storage.filename),
         stored_filename=stored_filename,
         absolute_path=absolute_path,
         relative_path=_to_relative_storage_path(absolute_path),
+        size_bytes=size_bytes,
     )
 
 
