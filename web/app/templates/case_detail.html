@@ -62,6 +62,20 @@
           <dt>Tamano ROI</dt>
           <dd>{{ roi_file_size }}</dd>
         </div>
+        <div>
+          <dt>Archivo PGM</dt>
+          <dd>{{ case.simulation_input_filename or "Pendiente de generar" }}</dd>
+        </div>
+        <div>
+          <dt>Ruta PGM</dt>
+          <dd class="detail-path">
+            {{ case.simulation_input_file_path or "Pendiente de generar" }}
+          </dd>
+        </div>
+        <div>
+          <dt>Tamano PGM</dt>
+          <dd>{{ simulation_input_file_size }}</dd>
+        </div>
       </dl>
     </article>
 
@@ -110,6 +124,25 @@
             </button>
           </form>
         {% endif %}
+        <div class="case-preparation-step">
+          <p class="eyebrow">Preparacion</p>
+          <h3>{{ simulation_status_title }}</h3>
+          <p>{{ simulation_status_message }}</p>
+          {% if can_prepare_simulation_input %}
+            <form
+              action="{{ url_for('upload.prepare_case_simulation_input', case_id=case.id) }}"
+              method="post"
+            >
+              <button class="button button--primary" type="submit">
+                {% if case.simulation_input_file_path %}
+                  Regenerar PGM
+                {% else %}
+                  Generar PGM
+                {% endif %}
+              </button>
+            </form>
+          {% endif %}
+        </div>
         <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
           Cargar otra mamografia
         </a>

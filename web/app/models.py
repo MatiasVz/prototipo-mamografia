@@ -72,6 +72,10 @@ class Case(db.Model):
     roi_file_path = db.Column(db.String(500), nullable=True)
     roi_file_type = db.Column(db.String(50), nullable=True)
     roi_size_bytes = db.Column(db.BigInteger, nullable=True)
+    simulation_input_filename = db.Column(db.String(255), nullable=True)
+    simulation_input_file_path = db.Column(db.String(500), nullable=True)
+    simulation_input_file_type = db.Column(db.String(50), nullable=True)
+    simulation_input_size_bytes = db.Column(db.BigInteger, nullable=True)
     status = db.Column(
         db.String(30),
         nullable=False,
@@ -90,6 +94,10 @@ class Case(db.Model):
         roi_file_path=None,
         roi_file_type=None,
         roi_size_bytes=None,
+        simulation_input_filename=None,
+        simulation_input_file_path=None,
+        simulation_input_file_type=None,
+        simulation_input_size_bytes=None,
         status=CaseStatus.REGISTERED,
         error_message=None,
     ):
@@ -102,6 +110,10 @@ class Case(db.Model):
         setattr(self, "roi_file_path", roi_file_path)
         setattr(self, "roi_file_type", roi_file_type)
         setattr(self, "roi_size_bytes", roi_size_bytes)
+        setattr(self, "simulation_input_filename", simulation_input_filename)
+        setattr(self, "simulation_input_file_path", simulation_input_file_path)
+        setattr(self, "simulation_input_file_type", simulation_input_file_type)
+        setattr(self, "simulation_input_size_bytes", simulation_input_size_bytes)
         setattr(self, "status", status)
         setattr(self, "error_message", error_message)
 
@@ -119,6 +131,10 @@ class Case(db.Model):
             "roi_file_path": self.roi_file_path,
             "roi_file_type": self.roi_file_type,
             "roi_size_bytes": self.roi_size_bytes,
+            "simulation_input_filename": self.simulation_input_filename,
+            "simulation_input_file_path": self.simulation_input_file_path,
+            "simulation_input_file_type": self.simulation_input_file_type,
+            "simulation_input_size_bytes": self.simulation_input_size_bytes,
             "status": self.status,
             "error_message": self.error_message,
         }

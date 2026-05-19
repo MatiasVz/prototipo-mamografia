@@ -20,6 +20,7 @@ from ..services.case_registration_service import register_case_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
 from ..services.preview_service import ensure_preview_for_case, ensure_preview_for_path
 from ..services.roi_service import RoiCrop, crop_roi_for_case
+from ..services.simulation_preparation_service import prepare_simulation_input_for_case
 from ..services.storage_service import get_case_roi_directory
 from ..services.upload_error_service import (
     safe_register_request_size_error,
@@ -101,16 +102,46 @@ def case_detail(case_id):
         created_at=_format_datetime(case.created_at),
         file_size=_format_file_size(case.file_size_bytes),
         roi_file_size=_format_optional_file_size(case.roi_size_bytes),
+        simulation_input_file_size=_format_optional_generated_file_size(
+            case.simulation_input_size_bytes,
+        ),
         input_mode_label=_format_input_mode(case.input_mode),
         can_confirm_roi=_can_confirm_roi(case),
         can_crop_roi=_can_crop_roi(case, preview),
+        can_prepare_simulation_input=_can_prepare_simulation_input(case),
         roi_status_title=_get_roi_status_title(case),
         roi_status_message=_get_roi_status_message(case),
+        simulation_status_title=_get_simulation_status_title(case),
+        simulation_status_message=_get_simulation_status_message(case),
         roi_preview_url=_get_roi_preview_url(case),
         preview_message=_get_preview_message(case, preview),
         preview_is_generated=preview.is_generated if preview else False,
         preview_url=url_for("upload.case_preview", case_id=case.id) if preview else None,
     )
+
+
+@upload_bp.post("/casos/<int:case_id>/simulacion/preparar-pgm")
+def prepare_case_simulation_input(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    try:
+        prepare_simulation_input_for_case(case, current_app.config["UPLOAD_FOLDER"])
+        db.session.commit()
+    except (OSError, SQLAlchemyError, ValueError) as exc:
+        db.session.rollback()
+        current_app.logger.warning(
+            "No se pudo preparar el PGM del caso %s: %s",
+            case.id,
+            exc,
+        )
+        flash(str(exc), "error")
+    else:
+        flash("Archivo PGM generado para la simulacion.", "success")
+
+    return redirect(url_for("upload.case_detail", case_id=case.id))
 
 
 @upload_bp.route("/casos/<int:case_id>/roi/recortar", methods=["GET", "POST"])
@@ -306,6 +337,13 @@ def _format_optional_file_size(size_bytes):
     return _format_file_size(size_bytes)
 
 
+def _format_optional_generated_file_size(size_bytes):
+    if size_bytes is None:
+        return "Pendiente de generar"
+
+    return _format_file_size(size_bytes)
+
+
 def _format_input_mode(input_mode):
     if input_mode == InputMode.ROI:
         return "ROI recortada"
@@ -326,8 +364,8 @@ def _get_roi_status_title(case):
 def _get_roi_status_message(case):
     if case.status == CaseStatus.ROI_CONFIRMED:
         return (
-            "La ROI esta confirmada y queda lista para la preparacion de imagen "
-            "en una issue posterior."
+            "La ROI esta confirmada y queda lista para preparar la entrada PGM "
+            "de simulacion."
         )
 
     if case.roi_file_path:
@@ -344,6 +382,27 @@ def _get_roi_status_message(case):
 
 def _can_confirm_roi(case):
     return bool(case.roi_file_path) and case.status != CaseStatus.ROI_CONFIRMED
+
+
+def _can_prepare_simulation_input(case):
+    return bool(case.roi_file_path) and case.status == CaseStatus.ROI_CONFIRMED
+
+
+def _get_simulation_status_title(case):
+    if case.simulation_input_file_path:
+        return "PGM generado"
+
+    return "Entrada PGM pendiente"
+
+
+def _get_simulation_status_message(case):
+    if case.simulation_input_file_path:
+        return "La ROI confirmada ya cuenta con entrada PGM para simulacion."
+
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        return "Genera el archivo PGM antes de enviar el caso a procesamiento."
+
+    return "La entrada PGM se generara despues de confirmar la ROI."
 
 
 def _can_crop_roi(case, preview):

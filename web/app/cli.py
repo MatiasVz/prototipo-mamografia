@@ -22,14 +22,20 @@ def register_cli_commands(app):
     def db_init():
         """Create configured database tables for local development."""
         db.create_all()
-        _ensure_case_roi_columns()
+        _ensure_case_tracking_columns()
         click.echo("Tablas de base de datos creadas o verificadas correctamente.")
 
     @app.cli.command("db-upgrade-roi-fields")
     def db_upgrade_roi_fields():
         """Add ROI fields to an existing local cases table."""
-        _ensure_case_roi_columns()
+        _ensure_case_tracking_columns()
         click.echo("Campos de ROI verificados correctamente en la tabla cases.")
+
+    @app.cli.command("db-upgrade-simulation-fields")
+    def db_upgrade_simulation_fields():
+        """Add simulation input fields to an existing local cases table."""
+        _ensure_case_tracking_columns()
+        click.echo("Campos de preparacion de simulacion verificados correctamente.")
 
     @app.cli.command("case-create-sample")
     def case_create_sample():
@@ -86,6 +92,8 @@ def _format_case_summary(case):
         f"size_bytes={case.file_size_bytes} "
         f"roi_path={case.roi_file_path or ''} "
         f"roi_size_bytes={case.roi_size_bytes or ''} "
+        f"simulation_input_path={case.simulation_input_file_path or ''} "
+        f"simulation_input_size_bytes={case.simulation_input_size_bytes or ''} "
         f"status={case.status}"
     )
 
@@ -104,6 +112,10 @@ def _case_detail_rows(case):
         ("roi_file_path", case.roi_file_path or ""),
         ("roi_file_type", case.roi_file_type or ""),
         ("roi_size_bytes", case.roi_size_bytes or ""),
+        ("simulation_input_filename", case.simulation_input_filename or ""),
+        ("simulation_input_file_path", case.simulation_input_file_path or ""),
+        ("simulation_input_file_type", case.simulation_input_file_type or ""),
+        ("simulation_input_size_bytes", case.simulation_input_size_bytes or ""),
         ("status", case.status),
         ("error_message", case.error_message or ""),
     )
@@ -116,12 +128,16 @@ def _format_timestamp(value):
     return value.isoformat()
 
 
-def _ensure_case_roi_columns():
-    roi_columns = {
+def _ensure_case_tracking_columns():
+    case_columns = {
         "roi_filename": "VARCHAR(255)",
         "roi_file_path": "VARCHAR(500)",
         "roi_file_type": "VARCHAR(50)",
         "roi_size_bytes": "BIGINT",
+        "simulation_input_filename": "VARCHAR(255)",
+        "simulation_input_file_path": "VARCHAR(500)",
+        "simulation_input_file_type": "VARCHAR(50)",
+        "simulation_input_size_bytes": "BIGINT",
     }
 
     with db.engine.begin() as connection:
@@ -129,7 +145,7 @@ def _ensure_case_roi_columns():
             column["name"] for column in inspect(connection).get_columns("cases")
         }
 
-        for column_name, column_type in roi_columns.items():
+        for column_name, column_type in case_columns.items():
             if column_name not in existing_columns:
                 connection.execute(
                     text(f"ALTER TABLE cases ADD COLUMN {column_name} {column_type}")
