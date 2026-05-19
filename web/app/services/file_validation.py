@@ -6,7 +6,7 @@ from pydicom.errors import InvalidDicomError
 from pydicom.filereader import dcmread
 
 
-ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "bmp", "tif", "tiff"}
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "bmp", "tif", "tiff", "pgm"}
 ALLOWED_DICOM_EXTENSIONS = {"dcm"}
 ALLOWED_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_DICOM_EXTENSIONS
 DICOM_METADATA_FIELDS = {
@@ -53,7 +53,7 @@ def validate_mammogram_file(file_storage, max_size_bytes):
         return FileValidationResult(
             is_valid=False,
             message=(
-                "Formato no permitido. Usa PNG, JPG, JPEG, BMP, TIF, TIFF o DCM."
+                "Formato no permitido. Usa PNG, JPG, JPEG, BMP, TIF, TIFF, PGM o DCM."
             ),
             extension=extension,
         )
