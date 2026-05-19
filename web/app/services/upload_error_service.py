@@ -6,12 +6,16 @@ from ..models import Case, CaseStatus, InputMode
 from .file_validation import ALLOWED_DICOM_EXTENSIONS, ALLOWED_IMAGE_EXTENSIONS
 
 
-def register_upload_error(file_storage: FileStorage | None, validation_result):
+def register_upload_error(
+    file_storage: FileStorage | None,
+    validation_result,
+    input_mode=InputMode.MAMMOGRAM,
+):
     filename = _get_filename(file_storage)
     extension = _get_extension(filename)
 
     case = Case(
-        input_mode=InputMode.MAMMOGRAM,
+        input_mode=input_mode,
         original_filename=filename,
         original_file_path="",
         file_type=_get_error_file_type(extension, validation_result),
@@ -43,9 +47,14 @@ def register_request_size_error(message: str):
     return case
 
 
-def safe_register_upload_error(file_storage: FileStorage | None, validation_result, logger):
+def safe_register_upload_error(
+    file_storage: FileStorage | None,
+    validation_result,
+    logger,
+    input_mode=InputMode.MAMMOGRAM,
+):
     try:
-        return register_upload_error(file_storage, validation_result)
+        return register_upload_error(file_storage, validation_result, input_mode)
     except SQLAlchemyError:
         db.session.rollback()
         logger.exception("No se pudo registrar el error de carga.")

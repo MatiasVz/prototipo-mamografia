@@ -7,7 +7,7 @@
     <p class="eyebrow">Caso registrado</p>
     <h1 id="case-title">Caso #{{ case.id }}</h1>
     <p>
-      Informacion registrada para la mamografia cargada en el prototipo.
+      Informacion registrada para el archivo cargado en el prototipo.
     </p>
   </section>
 
@@ -44,7 +44,7 @@
         </div>
         <div>
           <dt>Modalidad</dt>
-          <dd>{{ case.input_mode }}</dd>
+          <dd>{{ input_mode_label }}</dd>
         </div>
         <div>
           <dt>Ruta registrada</dt>
@@ -82,11 +82,8 @@
 
       <aside class="case-next-step" aria-labelledby="roi-title">
         <p class="eyebrow">Siguiente etapa</p>
-        <h2 id="roi-title">ROI pendiente</h2>
-        <p>
-          La estructura de ROI queda preparada para asociar una region de interes
-          en una issue posterior.
-        </p>
+        <h2 id="roi-title">{{ roi_status_title }}</h2>
+        <p>{{ roi_status_message }}</p>
         <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
           Cargar otra mamografia
         </a>

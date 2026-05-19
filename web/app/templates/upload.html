@@ -1,19 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}Cargar mamografia | {{ config.APP_NAME }}{% endblock %}
+{% block title %}Cargar mamografia o ROI | {{ config.APP_NAME }}{% endblock %}
 
 {% block content %}
   <section class="page-heading" aria-labelledby="upload-title">
     <p class="eyebrow">Carga de archivo</p>
-    <h1 id="upload-title">Cargar mamografia</h1>
+    <h1 id="upload-title">Cargar mamografia o ROI</h1>
     <p>
-      Selecciona una imagen mamografica para iniciar el registro del caso en el
-      prototipo. Si el archivo es valido, quedara almacenado en una carpeta
-      organizada por caso.
+      Selecciona una mamografia completa o una ROI ya recortada para iniciar el
+      registro del caso. Si el archivo es valido, quedara almacenado en una
+      carpeta organizada por caso.
     </p>
   </section>
 
-  <section class="upload-layout" aria-label="Formulario de carga de mamografias">
+  <section class="upload-layout" aria-label="Formulario de carga de mamografias o ROI">
     <form
       class="upload-form"
       action="{{ url_for('upload.upload_mammogram') }}"
@@ -21,7 +21,7 @@
       enctype="multipart/form-data"
     >
       <div class="form-field">
-        <label for="mammogram_file">Archivo de mamografia</label>
+        <label for="mammogram_file">Archivo de mamografia o ROI</label>
         <input
           id="mammogram_file"
           name="mammogram_file"
@@ -30,7 +30,7 @@
           data-file-input
         >
         <p class="field-help" data-file-name>
-          Formatos iniciales: PNG, JPG, JPEG, BMP, TIF, TIFF y DICOM.
+          Formatos aceptados: PNG, JPG, JPEG, BMP, TIF, TIFF y DICOM.
         </p>
       </div>
 
@@ -38,9 +38,10 @@
         <label for="input_mode">Modalidad de entrada</label>
         <select id="input_mode" name="input_mode">
           <option value="mamografia_completa">Mamografia completa</option>
+          <option value="roi_recortada">ROI recortada</option>
         </select>
         <p class="field-help">
-          La carga directa de ROI se implementara en una issue posterior.
+          La ROI cargada directamente quedara asociada al caso y pendiente de confirmacion.
         </p>
       </div>
 
