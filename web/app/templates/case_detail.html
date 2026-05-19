@@ -68,7 +68,15 @@
     <div class="case-sidebar">
       <section class="case-preview-panel" aria-labelledby="preview-title">
         <p class="eyebrow">Vista previa</p>
-        {% if preview_url %}
+        {% if roi_preview_url %}
+          <h2 id="preview-title">ROI asociada</h2>
+          <div class="preview-frame">
+            <img src="{{ roi_preview_url }}" alt="Vista previa de la ROI del caso #{{ case.id }}">
+          </div>
+          <p class="preview-note">
+            ROI disponible para revision y confirmacion.
+          </p>
+        {% elif preview_url %}
           <h2 id="preview-title">Imagen cargada</h2>
           <div class="preview-frame">
             <img src="{{ preview_url }}" alt="Vista previa del caso #{{ case.id }}">
@@ -84,6 +92,14 @@
         <p class="eyebrow">Siguiente etapa</p>
         <h2 id="roi-title">{{ roi_status_title }}</h2>
         <p>{{ roi_status_message }}</p>
+        {% if can_crop_roi %}
+          <a
+            class="button button--primary"
+            href="{{ url_for('upload.crop_case_roi', case_id=case.id) }}"
+          >
+            Recortar ROI
+          </a>
+        {% endif %}
         {% if can_confirm_roi %}
           <form
             action="{{ url_for('upload.confirm_case_roi', case_id=case.id) }}"

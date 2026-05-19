@@ -57,6 +57,25 @@ def store_roi_file(file_storage: FileStorage, case_id: int, extension: str, uplo
     )
 
 
+def store_generated_roi_image(image, case_id: int, upload_folder: str):
+    roi_directory = get_case_roi_directory(case_id, upload_folder)
+    roi_directory.mkdir(parents=True, exist_ok=True)
+
+    stored_filename = "roi.png"
+    absolute_path = roi_directory / stored_filename
+
+    image.save(absolute_path, format="PNG")
+    size_bytes = absolute_path.stat().st_size
+
+    return StoredFile(
+        original_filename="roi_recortada.png",
+        stored_filename=stored_filename,
+        absolute_path=absolute_path,
+        relative_path=_to_relative_storage_path(absolute_path),
+        size_bytes=size_bytes,
+    )
+
+
 def get_case_upload_directory(case_id: int, upload_folder: str):
     return Path(upload_folder) / f"case_{case_id}"
 
