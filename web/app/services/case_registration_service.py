@@ -61,9 +61,13 @@ def register_mammogram_upload(
 def _remove_stored_file(stored_file: StoredFile):
     try:
         case_directory = stored_file.absolute_path.parent
-        for stored_path in case_directory.iterdir():
+        for stored_path in case_directory.rglob("*"):
             if stored_path.is_file():
                 stored_path.unlink()
+
+        for stored_path in sorted(case_directory.rglob("*"), reverse=True):
+            if stored_path.is_dir():
+                stored_path.rmdir()
 
         if case_directory.exists() and not any(case_directory.iterdir()):
             case_directory.rmdir()

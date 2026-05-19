@@ -94,6 +94,7 @@ def case_detail(case_id):
         case=case,
         created_at=_format_datetime(case.created_at),
         file_size=_format_file_size(case.file_size_bytes),
+        roi_file_size=_format_optional_file_size(case.roi_size_bytes),
         preview_message=_get_preview_message(case, preview),
         preview_is_generated=preview.is_generated if preview else False,
         preview_url=url_for("upload.case_preview", case_id=case.id) if preview else None,
@@ -158,6 +159,13 @@ def _format_file_size(size_bytes):
         return f"{size_bytes / 1024:.2f} KB"
 
     return f"{size_bytes} bytes"
+
+
+def _format_optional_file_size(size_bytes):
+    if size_bytes is None:
+        return "Pendiente de asociar"
+
+    return _format_file_size(size_bytes)
 
 
 def _get_case_preview(case):

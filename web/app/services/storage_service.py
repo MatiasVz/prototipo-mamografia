@@ -17,6 +17,7 @@ class StoredFile:
 def store_original_file(file_storage: FileStorage, case_id: int, extension: str, upload_folder: str):
     case_directory = get_case_upload_directory(case_id, upload_folder)
     case_directory.mkdir(parents=True, exist_ok=True)
+    get_case_roi_directory(case_id, upload_folder).mkdir(parents=True, exist_ok=True)
 
     normalized_extension = extension.lower().lstrip(".")
     stored_filename = f"original.{normalized_extension}"
@@ -35,13 +36,38 @@ def store_original_file(file_storage: FileStorage, case_id: int, extension: str,
     )
 
 
+def store_roi_file(file_storage: FileStorage, case_id: int, extension: str, upload_folder: str):
+    roi_directory = get_case_roi_directory(case_id, upload_folder)
+    roi_directory.mkdir(parents=True, exist_ok=True)
+
+    normalized_extension = extension.lower().lstrip(".")
+    stored_filename = f"roi.{normalized_extension}"
+    absolute_path = roi_directory / stored_filename
+
+    file_storage.stream.seek(0)
+    file_storage.save(absolute_path)
+    size_bytes = absolute_path.stat().st_size
+
+    return StoredFile(
+        original_filename=_clean_original_filename(file_storage.filename, "roi"),
+        stored_filename=stored_filename,
+        absolute_path=absolute_path,
+        relative_path=_to_relative_storage_path(absolute_path),
+        size_bytes=size_bytes,
+    )
+
+
 def get_case_upload_directory(case_id: int, upload_folder: str):
     return Path(upload_folder) / f"case_{case_id}"
 
 
-def _clean_original_filename(filename):
+def get_case_roi_directory(case_id: int, upload_folder: str):
+    return get_case_upload_directory(case_id, upload_folder) / "roi"
+
+
+def _clean_original_filename(filename, fallback="mamografia"):
     safe_filename = secure_filename(filename or "")
-    return safe_filename or "mamografia"
+    return safe_filename or fallback
 
 
 def _to_relative_storage_path(path):
