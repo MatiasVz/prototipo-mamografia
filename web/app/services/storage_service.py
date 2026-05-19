@@ -76,6 +76,25 @@ def store_generated_roi_image(image, case_id: int, upload_folder: str):
     )
 
 
+def store_simulation_input_pgm(image, case_id: int, upload_folder: str):
+    case_directory = get_case_upload_directory(case_id, upload_folder)
+    case_directory.mkdir(parents=True, exist_ok=True)
+
+    stored_filename = "simulation_input.pgm"
+    absolute_path = case_directory / stored_filename
+
+    image.save(absolute_path, format="PPM")
+    size_bytes = absolute_path.stat().st_size
+
+    return StoredFile(
+        original_filename=stored_filename,
+        stored_filename=stored_filename,
+        absolute_path=absolute_path,
+        relative_path=_to_relative_storage_path(absolute_path),
+        size_bytes=size_bytes,
+    )
+
+
 def get_case_upload_directory(case_id: int, upload_folder: str):
     return Path(upload_folder) / f"case_{case_id}"
 
