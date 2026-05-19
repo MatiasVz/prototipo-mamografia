@@ -7,25 +7,28 @@ from ..extensions import db
 from ..models import Case, CaseStatus, InputMode
 from .file_validation import FileValidationResult
 from .preview_service import ensure_preview_for_stored_file
-from .storage_service import StoredFile, store_original_file
+from .storage_service import StoredFile, store_original_file, store_roi_file
 
 
 @dataclass
 class CaseRegistrationResult:
     case: Case
     stored_file: StoredFile
+    stored_roi_file: StoredFile | None = None
 
 
-def register_mammogram_upload(
+def register_case_upload(
     file_storage: FileStorage,
     validation_result: FileValidationResult,
     upload_folder: str,
+    input_mode: str = InputMode.MAMMOGRAM,
 ):
     stored_file = None
+    stored_roi_file = None
 
     try:
         case = Case(
-            input_mode=InputMode.MAMMOGRAM,
+            input_mode=input_mode,
             original_filename=file_storage.filename or "",
             original_file_path="",
             file_type=validation_result.file_type or "",
@@ -46,6 +49,19 @@ def register_mammogram_upload(
         case.original_file_path = stored_file.relative_path
         case.file_type = validation_result.file_type or ""
         case.file_size_bytes = stored_file.size_bytes
+
+        if input_mode == InputMode.ROI:
+            stored_roi_file = store_roi_file(
+                file_storage,
+                case.id,
+                validation_result.extension or "",
+                upload_folder,
+            )
+            case.roi_filename = stored_roi_file.original_filename
+            case.roi_file_path = stored_roi_file.relative_path
+            case.roi_file_type = validation_result.file_type or ""
+            case.roi_size_bytes = stored_roi_file.size_bytes
+
         case.status = CaseStatus.REGISTERED
         ensure_preview_for_stored_file(stored_file)
         db.session.commit()
@@ -55,7 +71,24 @@ def register_mammogram_upload(
             _remove_stored_file(stored_file)
         raise
 
-    return CaseRegistrationResult(case=case, stored_file=stored_file)
+    return CaseRegistrationResult(
+        case=case,
+        stored_file=stored_file,
+        stored_roi_file=stored_roi_file,
+    )
+
+
+def register_mammogram_upload(
+    file_storage: FileStorage,
+    validation_result: FileValidationResult,
+    upload_folder: str,
+):
+    return register_case_upload(
+        file_storage,
+        validation_result,
+        upload_folder,
+        input_mode=InputMode.MAMMOGRAM,
+    )
 
 
 def _remove_stored_file(stored_file: StoredFile):

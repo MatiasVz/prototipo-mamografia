@@ -13,8 +13,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from ..extensions import db
-from ..models import Case
-from ..services.case_registration_service import register_mammogram_upload
+from ..models import Case, InputMode
+from ..services.case_registration_service import register_case_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
 from ..services.preview_service import ensure_preview_for_case
 from ..services.upload_error_service import (
@@ -33,6 +33,12 @@ def upload_mammogram():
 
     if request.method == "POST":
         mammogram_file = request.files.get("mammogram_file")
+        input_mode = _get_requested_input_mode()
+
+        if input_mode is None:
+            flash("Modalidad de entrada no valida.", "error")
+            return redirect(url_for("upload.upload_mammogram"))
+
         validation_result = validate_mammogram_file(
             mammogram_file,
             current_app.config["MAX_CONTENT_LENGTH"],
@@ -40,33 +46,29 @@ def upload_mammogram():
 
         if validation_result.is_valid:
             try:
-                registration = register_mammogram_upload(
+                registration = register_case_upload(
                     mammogram_file,
                     validation_result,
                     current_app.config["UPLOAD_FOLDER"],
+                    input_mode=input_mode,
                 )
             except (OSError, SQLAlchemyError):
                 db.session.rollback()
-                current_app.logger.exception("No se pudo almacenar la mamografia.")
+                current_app.logger.exception("No se pudo almacenar el archivo cargado.")
                 flash(
                     "No se pudo almacenar el archivo cargado. Intenta nuevamente.",
                     "error",
                 )
             else:
                 case = registration.case
-                metadata_message = _format_metadata_message(validation_result.metadata)
-                flash(
-                    f"{validation_result.message} ID del caso: {case.id}. "
-                    f"Ruta registrada: {case.original_file_path}. "
-                    f"Estado inicial: {case.status}." + metadata_message,
-                    "success",
-                )
+                flash(_format_success_message(case, validation_result), "success")
                 return redirect(url_for("upload.case_detail", case_id=case.id))
         else:
             error_case = safe_register_upload_error(
                 mammogram_file,
                 validation_result,
                 current_app.logger,
+                input_mode=input_mode,
             )
             current_app.logger.warning(
                 "Error de carga registrado. case_id=%s message=%s",
@@ -95,6 +97,9 @@ def case_detail(case_id):
         created_at=_format_datetime(case.created_at),
         file_size=_format_file_size(case.file_size_bytes),
         roi_file_size=_format_optional_file_size(case.roi_size_bytes),
+        input_mode_label=_format_input_mode(case.input_mode),
+        roi_status_title=_get_roi_status_title(case),
+        roi_status_message=_get_roi_status_message(case),
         preview_message=_get_preview_message(case, preview),
         preview_is_generated=preview.is_generated if preview else False,
         preview_url=url_for("upload.case_preview", case_id=case.id) if preview else None,
@@ -141,6 +146,35 @@ def _format_metadata_message(metadata):
     )
 
 
+def _get_requested_input_mode():
+    input_mode = request.form.get("input_mode", InputMode.MAMMOGRAM)
+
+    if input_mode not in InputMode.values():
+        return None
+
+    return input_mode
+
+
+def _format_success_message(case, validation_result):
+    metadata_message = _format_metadata_message(validation_result.metadata)
+
+    if case.input_mode == InputMode.ROI:
+        return (
+            f"ROI recortada valida para continuar con el flujo. "
+            f"ID del caso: {case.id}. "
+            f"Ruta original registrada: {case.original_file_path}. "
+            f"Ruta ROI registrada: {case.roi_file_path}. "
+            f"Estado inicial: {case.status}."
+            " La confirmacion de ROI se implementara en una issue posterior."
+        )
+
+    return (
+        f"{validation_result.message} ID del caso: {case.id}. "
+        f"Ruta registrada: {case.original_file_path}. "
+        f"Estado inicial: {case.status}." + metadata_message
+    )
+
+
 def _format_datetime(value):
     if value is None:
         return "No registrado"
@@ -166,6 +200,33 @@ def _format_optional_file_size(size_bytes):
         return "Pendiente de asociar"
 
     return _format_file_size(size_bytes)
+
+
+def _format_input_mode(input_mode):
+    if input_mode == InputMode.ROI:
+        return "ROI recortada"
+
+    return "Mamografia completa"
+
+
+def _get_roi_status_title(case):
+    if case.roi_file_path:
+        return "ROI cargada"
+
+    return "ROI pendiente"
+
+
+def _get_roi_status_message(case):
+    if case.roi_file_path:
+        return (
+            "La ROI ya esta asociada al caso. "
+            "La confirmacion se implementara en una issue posterior."
+        )
+
+    return (
+        "La estructura de ROI queda preparada para asociar una region de interes "
+        "en una issue posterior."
+    )
 
 
 def _get_case_preview(case):
