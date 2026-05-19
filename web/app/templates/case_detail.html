@@ -7,8 +7,20 @@
     <p class="eyebrow">Caso registrado</p>
     <h1 id="case-title">Caso #{{ case.id }}</h1>
     <p>
-      Informacion registrada para el archivo cargado en el prototipo.
+      Informacion de carga, ROI y preparacion de entrada para simulacion.
     </p>
+  </section>
+
+  <section class="case-flow-status" aria-label="Estado del flujo del caso">
+    {% for step in case_flow_steps %}
+      <article class="flow-status-item flow-status-item--{{ step.state }}">
+        <span class="flow-status-item__number">{{ step.number }}</span>
+        <div>
+          <h2>{{ step.title }}</h2>
+          <p>{{ step.detail }}</p>
+        </div>
+      </article>
+    {% endfor %}
   </section>
 
   <section class="case-detail-layout" aria-label="Detalle del caso cargado">
@@ -18,7 +30,7 @@
           <p class="eyebrow">Datos del caso</p>
           <h2 id="case-data-title">Registro de carga</h2>
         </div>
-        <span class="status-badge">{{ case.status }}</span>
+        <span class="status-badge status-badge--{{ case.status }}">{{ case.status }}</span>
       </div>
 
       <dl class="detail-list">
@@ -88,7 +100,7 @@
             <img src="{{ roi_preview_url }}" alt="Vista previa de la ROI del caso #{{ case.id }}">
           </div>
           <p class="preview-note">
-            ROI disponible para revision y confirmacion.
+            ROI disponible para revision del caso.
           </p>
         {% elif preview_url %}
           <h2 id="preview-title">Imagen cargada</h2>

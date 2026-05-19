@@ -106,6 +106,7 @@ def case_detail(case_id):
             case.simulation_input_size_bytes,
         ),
         input_mode_label=_format_input_mode(case.input_mode),
+        case_flow_steps=_get_case_flow_steps(case),
         can_confirm_roi=_can_confirm_roi(case),
         can_crop_roi=_can_crop_roi(case, preview),
         can_prepare_simulation_input=_can_prepare_simulation_input(case),
@@ -349,6 +350,69 @@ def _format_input_mode(input_mode):
         return "ROI recortada"
 
     return "Mamografia completa"
+
+
+def _get_case_flow_steps(case):
+    return (
+        {
+            "number": "1",
+            "title": "Registro",
+            "detail": _format_input_mode(case.input_mode),
+            "state": "complete",
+        },
+        {
+            "number": "2",
+            "title": "ROI",
+            "detail": _get_roi_flow_detail(case),
+            "state": _get_roi_flow_state(case),
+        },
+        {
+            "number": "3",
+            "title": "PGM",
+            "detail": _get_pgm_flow_detail(case),
+            "state": _get_pgm_flow_state(case),
+        },
+    )
+
+
+def _get_roi_flow_state(case):
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        return "complete"
+
+    if case.roi_file_path:
+        return "active"
+
+    return "pending"
+
+
+def _get_roi_flow_detail(case):
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        return "ROI confirmada"
+
+    if case.roi_file_path:
+        return "Pendiente de confirmar"
+
+    return "Pendiente de asociar"
+
+
+def _get_pgm_flow_state(case):
+    if case.simulation_input_file_path:
+        return "complete"
+
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        return "active"
+
+    return "pending"
+
+
+def _get_pgm_flow_detail(case):
+    if case.simulation_input_file_path:
+        return "Entrada generada"
+
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        return "Listo para generar"
+
+    return "Pendiente de ROI"
 
 
 def _get_roi_status_title(case):
