@@ -8,7 +8,7 @@ from pydicom.uid import ExplicitVRBigEndian
 
 
 DIRECT_PREVIEW_EXTENSIONS = {"png", "jpg", "jpeg"}
-GENERATED_PREVIEW_EXTENSIONS = {"bmp", "tif", "tiff"}
+GENERATED_PREVIEW_EXTENSIONS = {"bmp", "tif", "tiff", "pgm"}
 DICOM_PREVIEW_EXTENSIONS = {"dcm"}
 PREVIEW_FILENAME = "preview.png"
 MAX_PREVIEW_SIZE = (1200, 1200)
