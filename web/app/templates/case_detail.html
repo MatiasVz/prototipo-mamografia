@@ -50,6 +50,18 @@
           <dt>Ruta registrada</dt>
           <dd class="detail-path">{{ case.original_file_path }}</dd>
         </div>
+        <div>
+          <dt>Archivo ROI</dt>
+          <dd>{{ case.roi_filename or "Pendiente de asociar" }}</dd>
+        </div>
+        <div>
+          <dt>Ruta ROI</dt>
+          <dd class="detail-path">{{ case.roi_file_path or "Pendiente de asociar" }}</dd>
+        </div>
+        <div>
+          <dt>Tamano ROI</dt>
+          <dd>{{ roi_file_size }}</dd>
+        </div>
       </dl>
     </article>
 
@@ -72,7 +84,8 @@
         <p class="eyebrow">Siguiente etapa</p>
         <h2 id="roi-title">ROI pendiente</h2>
         <p>
-          La confirmacion de ROI quedara asociada a este caso en una issue posterior.
+          La estructura de ROI queda preparada para asociar una region de interes
+          en una issue posterior.
         </p>
         <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
           Cargar otra mamografia
