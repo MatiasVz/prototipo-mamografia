@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from ..extensions import db
-from ..models import Case, InputMode
+from ..models import Case, CaseStatus, InputMode
 from ..services.case_registration_service import register_case_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
 from ..services.preview_service import ensure_preview_for_case
@@ -98,12 +98,41 @@ def case_detail(case_id):
         file_size=_format_file_size(case.file_size_bytes),
         roi_file_size=_format_optional_file_size(case.roi_size_bytes),
         input_mode_label=_format_input_mode(case.input_mode),
+        can_confirm_roi=_can_confirm_roi(case),
         roi_status_title=_get_roi_status_title(case),
         roi_status_message=_get_roi_status_message(case),
         preview_message=_get_preview_message(case, preview),
         preview_is_generated=preview.is_generated if preview else False,
         preview_url=url_for("upload.case_preview", case_id=case.id) if preview else None,
     )
+
+
+@upload_bp.post("/casos/<int:case_id>/roi/confirmar")
+def confirm_case_roi(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    if not case.roi_file_path:
+        flash("No existe una ROI asociada para confirmar en este caso.", "error")
+        return redirect(url_for("upload.case_detail", case_id=case.id))
+
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        flash("La ROI de este caso ya se encuentra confirmada.", "warning")
+        return redirect(url_for("upload.case_detail", case_id=case.id))
+
+    try:
+        case.status = CaseStatus.ROI_CONFIRMED
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("No se pudo confirmar la ROI del caso %s.", case.id)
+        flash("No se pudo confirmar la ROI. Intenta nuevamente.", "error")
+    else:
+        flash(f"ROI confirmada para el caso #{case.id}.", "success")
+
+    return redirect(url_for("upload.case_detail", case_id=case.id))
 
 
 @upload_bp.get("/casos/<int:case_id>/vista-previa")
@@ -137,12 +166,12 @@ def handle_request_entity_too_large(error):
 
 def _format_metadata_message(metadata):
     if not metadata:
-        return " La confirmacion de ROI se implementara en una issue posterior."
+        return " La ROI se asociara en una etapa posterior del flujo."
 
     readable_metadata = ", ".join(f"{key}: {value}" for key, value in metadata.items())
     return (
         f" Metadatos extraidos: {readable_metadata}. "
-        "La confirmacion de ROI se implementara en una issue posterior."
+        "La ROI se asociara en una etapa posterior del flujo."
     )
 
 
@@ -165,7 +194,7 @@ def _format_success_message(case, validation_result):
             f"Ruta original registrada: {case.original_file_path}. "
             f"Ruta ROI registrada: {case.roi_file_path}. "
             f"Estado inicial: {case.status}."
-            " La confirmacion de ROI se implementara en una issue posterior."
+            " Puedes confirmar la ROI desde el detalle del caso."
         )
 
     return (
@@ -210,6 +239,9 @@ def _format_input_mode(input_mode):
 
 
 def _get_roi_status_title(case):
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        return "ROI confirmada"
+
     if case.roi_file_path:
         return "ROI cargada"
 
@@ -217,16 +249,26 @@ def _get_roi_status_title(case):
 
 
 def _get_roi_status_message(case):
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        return (
+            "La ROI esta confirmada y queda lista para la preparacion de imagen "
+            "en una issue posterior."
+        )
+
     if case.roi_file_path:
         return (
             "La ROI ya esta asociada al caso. "
-            "La confirmacion se implementara en una issue posterior."
+            "Confirma la ROI antes de preparar la imagen para simulacion."
         )
 
     return (
         "La estructura de ROI queda preparada para asociar una region de interes "
         "en una issue posterior."
     )
+
+
+def _can_confirm_roi(case):
+    return bool(case.roi_file_path) and case.status != CaseStatus.ROI_CONFIRMED
 
 
 def _get_case_preview(case):

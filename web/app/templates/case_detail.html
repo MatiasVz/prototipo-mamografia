@@ -84,6 +84,16 @@
         <p class="eyebrow">Siguiente etapa</p>
         <h2 id="roi-title">{{ roi_status_title }}</h2>
         <p>{{ roi_status_message }}</p>
+        {% if can_confirm_roi %}
+          <form
+            action="{{ url_for('upload.confirm_case_roi', case_id=case.id) }}"
+            method="post"
+          >
+            <button class="button button--primary" type="submit">
+              Confirmar ROI
+            </button>
+          </form>
+        {% endif %}
         <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
           Cargar otra mamografia
         </a>
