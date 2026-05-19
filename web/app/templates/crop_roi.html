@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Recortar ROI del caso #{{ case.id }} | {{ config.APP_NAME }}{% endblock %}
+
+{% block content %}
+  <section class="page-heading case-heading" aria-labelledby="crop-title">
+    <p class="eyebrow">Seleccion de ROI</p>
+    <h1 id="crop-title">Recortar ROI del caso #{{ case.id }}</h1>
+    <p>
+      Delimita una region rectangular sobre la mamografia cargada.
+    </p>
+  </section>
+
+  <section
+    class="roi-crop-layout"
+    aria-label="Herramienta de recorte de ROI"
+    data-roi-crop-tool
+    data-image-src="{{ preview_url }}"
+  >
+    <form
+      class="roi-crop-form"
+      action="{{ url_for('upload.crop_case_roi', case_id=case.id) }}"
+      method="post"
+    >
+      <input type="hidden" name="x" data-roi-crop-x>
+      <input type="hidden" name="y" data-roi-crop-y>
+      <input type="hidden" name="width" data-roi-crop-width>
+      <input type="hidden" name="height" data-roi-crop-height>
+
+      <div class="roi-crop-canvas-shell">
+        <canvas data-roi-crop-canvas></canvas>
+      </div>
+
+      <p class="field-help" data-roi-crop-status>
+        Seleccion pendiente.
+      </p>
+
+      <div class="page-actions">
+        <button class="button button--primary" type="submit" data-roi-crop-submit disabled>
+          Guardar ROI
+        </button>
+        <a class="button button--secondary" href="{{ url_for('upload.case_detail', case_id=case.id) }}">
+          Volver al caso
+        </a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

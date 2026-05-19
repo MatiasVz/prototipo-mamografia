@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from flask import (
     Blueprint,
     abort,
@@ -16,7 +18,9 @@ from ..extensions import db
 from ..models import Case, CaseStatus, InputMode
 from ..services.case_registration_service import register_case_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
-from ..services.preview_service import ensure_preview_for_case
+from ..services.preview_service import ensure_preview_for_case, ensure_preview_for_path
+from ..services.roi_service import RoiCrop, crop_roi_for_case
+from ..services.storage_service import get_case_roi_directory
 from ..services.upload_error_service import (
     safe_register_request_size_error,
     safe_register_upload_error,
@@ -99,11 +103,50 @@ def case_detail(case_id):
         roi_file_size=_format_optional_file_size(case.roi_size_bytes),
         input_mode_label=_format_input_mode(case.input_mode),
         can_confirm_roi=_can_confirm_roi(case),
+        can_crop_roi=_can_crop_roi(case, preview),
         roi_status_title=_get_roi_status_title(case),
         roi_status_message=_get_roi_status_message(case),
+        roi_preview_url=_get_roi_preview_url(case),
         preview_message=_get_preview_message(case, preview),
         preview_is_generated=preview.is_generated if preview else False,
         preview_url=url_for("upload.case_preview", case_id=case.id) if preview else None,
+    )
+
+
+@upload_bp.route("/casos/<int:case_id>/roi/recortar", methods=["GET", "POST"])
+def crop_case_roi(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    preview = _get_case_preview(case)
+
+    if not _can_crop_roi(case, preview):
+        flash("Este caso no tiene una mamografia completa disponible para recortar.", "error")
+        return redirect(url_for("upload.case_detail", case_id=case.id))
+
+    if request.method == "POST":
+        try:
+            crop = _get_requested_roi_crop()
+            crop_roi_for_case(case, current_app.config["UPLOAD_FOLDER"], crop)
+            db.session.commit()
+        except (OSError, SQLAlchemyError, ValueError) as exc:
+            db.session.rollback()
+            current_app.logger.warning(
+                "No se pudo recortar la ROI del caso %s: %s",
+                case.id,
+                exc,
+            )
+            flash(str(exc), "error")
+        else:
+            flash("ROI recortada y asociada al caso correctamente.", "success")
+            return redirect(url_for("upload.case_detail", case_id=case.id))
+
+    return render_template(
+        "crop_roi.html",
+        case=case,
+        preview_url=url_for("upload.case_preview", case_id=case.id),
     )
 
 
@@ -133,6 +176,26 @@ def confirm_case_roi(case_id):
         flash(f"ROI confirmada para el caso #{case.id}.", "success")
 
     return redirect(url_for("upload.case_detail", case_id=case.id))
+
+
+@upload_bp.get("/casos/<int:case_id>/roi/vista-previa")
+def case_roi_preview(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    roi_path = _get_case_roi_path(case)
+
+    if roi_path is None or not roi_path.exists():
+        abort(404)
+
+    preview = ensure_preview_for_path(roi_path)
+
+    if preview is None:
+        abort(404)
+
+    return send_file(preview.absolute_path, mimetype=preview.mimetype)
 
 
 @upload_bp.get("/casos/<int:case_id>/vista-previa")
@@ -182,6 +245,18 @@ def _get_requested_input_mode():
         return None
 
     return input_mode
+
+
+def _get_requested_roi_crop():
+    try:
+        return RoiCrop(
+            x=int(float(request.form.get("x", ""))),
+            y=int(float(request.form.get("y", ""))),
+            width=int(float(request.form.get("width", ""))),
+            height=int(float(request.form.get("height", ""))),
+        )
+    except (TypeError, ValueError):
+        raise ValueError("Selecciona una region valida antes de guardar la ROI.")
 
 
 def _format_success_message(case, validation_result):
@@ -269,6 +344,31 @@ def _get_roi_status_message(case):
 
 def _can_confirm_roi(case):
     return bool(case.roi_file_path) and case.status != CaseStatus.ROI_CONFIRMED
+
+
+def _can_crop_roi(case, preview):
+    return case.input_mode == InputMode.MAMMOGRAM and preview is not None
+
+
+def _get_roi_preview_url(case):
+    roi_path = _get_case_roi_path(case)
+
+    if roi_path is None or not roi_path.exists():
+        return None
+
+    return url_for("upload.case_roi_preview", case_id=case.id)
+
+
+def _get_case_roi_path(case):
+    if not case.roi_file_path:
+        return None
+
+    roi_filename = Path(case.roi_file_path).name
+
+    return get_case_roi_directory(
+        case.id,
+        current_app.config["UPLOAD_FOLDER"],
+    ) / roi_filename
 
 
 def _get_case_preview(case):
