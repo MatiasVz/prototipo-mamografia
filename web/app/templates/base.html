@@ -9,10 +9,19 @@
   <body>
     <header class="app-header">
       <div class="app-header__content">
-        <a class="app-brand" href="{{ url_for('main.index') }}">Prototipo Mamografico</a>
+        <a class="app-brand" href="{{ url_for('main.index') }}">
+          <span class="app-brand__name">Prototipo Mamografico</span>
+          <span class="app-brand__sub">Simulacion mesoscopica</span>
+        </a>
         <nav class="app-nav" aria-label="Navegacion principal">
-          <a href="{{ url_for('main.index') }}">Inicio</a>
-          <a href="{{ url_for('upload.upload_mammogram') }}">Cargar mamografia</a>
+          <a
+            href="{{ url_for('main.index') }}"
+            {% if request.endpoint == 'main.index' %}aria-current="page"{% endif %}
+          >Inicio</a>
+          <a
+            href="{{ url_for('upload.upload_mammogram') }}"
+            {% if request.endpoint in ('upload.upload_mammogram', 'upload.case_detail', 'upload.crop_case_roi') %}aria-current="page"{% endif %}
+          >Cargar mamografia</a>
         </nav>
       </div>
     </header>
@@ -30,6 +39,30 @@
 
       {% block content %}{% endblock %}
     </main>
+
+    <footer class="app-footer">
+      <div class="app-footer__content">
+        <div class="app-footer__grid">
+          <div>
+            <p class="app-footer__title">Prototipo Mamografico</p>
+            <p class="app-footer__desc">
+              Prototipo academico para el analisis de lesiones mamarias a partir de
+              mamografias mediante simulacion mesoscopica. No es una herramienta de
+              diagnostico clinico.
+            </p>
+          </div>
+          <div class="app-footer__meta-block">
+            <p class="app-footer__label">Proyecto</p>
+            <p class="app-footer__meta">Tesis de Ingenieria de Software</p>
+            <p class="app-footer__label" style="margin-top:12px">Version</p>
+            <p class="app-footer__meta">Prototipo &mdash; 2026</p>
+          </div>
+        </div>
+        <p class="app-footer__notice">
+          Este sistema es exclusivamente para investigacion y no reemplaza evaluacion medica profesional.
+        </p>
+      </div>
+    </footer>
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   </body>
