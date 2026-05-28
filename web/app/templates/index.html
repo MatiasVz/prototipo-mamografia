@@ -3,35 +3,143 @@
 {% block title %}Inicio | {{ config.APP_NAME }}{% endblock %}
 
 {% block content %}
-  <section class="page-heading" aria-labelledby="page-title">
-    <p class="eyebrow">Flujo del prototipo</p>
-    <h1 id="page-title">Analisis mamografico por caso</h1>
-    <p>
-      Registra mamografias completas o ROI recortadas, confirma la region de
-      interes y prepara la entrada PGM para la simulacion mesoscopica.
-    </p>
-    <div class="page-actions">
-      <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
-        Cargar imagen o ROI
-      </a>
+  <section class="hero" aria-labelledby="page-title">
+    <div class="hero__content">
+      <p class="eyebrow">Prototipo academico de investigacion</p>
+      <h1 id="page-title">Analisis de lesiones mamarias por simulacion mesoscopica</h1>
+      <p class="hero__lead">
+        Registra una mamografia completa o una ROI recortada, delimita y confirma la
+        region de interes y prepara la entrada para el modulo de simulacion. Un flujo
+        ordenado, trazable y reproducible por caso.
+      </p>
+      <div class="page-actions">
+        <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
+          Cargar imagen o ROI
+        </a>
+      </div>
+      <ul class="hero__tags" aria-label="Caracteristicas del prototipo">
+        <li>Mamografia o ROI</li>
+        <li>Recorte y confirmacion de ROI</li>
+        <li>Preparacion de entrada PGM</li>
+        <li>Trazabilidad por caso</li>
+      </ul>
+    </div>
+    <aside class="hero__aside" aria-label="Naturaleza del prototipo">
+      <p class="hero__aside-label">Sobre el prototipo</p>
+      <p class="hero__aside-text">
+        Explora una alternativa computacional basada en mamografias frente a tecnicas
+        como DWI y ADC, que dependen de resonancia magnetica e infraestructura
+        especializada.
+      </p>
+      <p class="hero__aside-note">
+        Herramienta de investigacion. No realiza diagnostico clinico.
+      </p>
+    </aside>
+  </section>
+
+  <section class="section" aria-labelledby="context-title">
+    <div class="section-head">
+      <p class="eyebrow">Contexto</p>
+      <h2 id="context-title">Que aborda el prototipo</h2>
+      <p class="section-head__lead">
+        El analisis se concentra en una region de interes asociada a la lesion, no en la
+        mamografia completa como imagen diagnostica.
+      </p>
+    </div>
+    <div class="info-grid">
+      <article class="info-card">
+        <h3>El problema</h3>
+        <p>
+          Las tecnicas de difusion como DWI y ADC son utiles para estudiar lesiones y
+          respuesta a tratamientos, pero dependen de resonancia magnetica, infraestructura
+          especializada y costos elevados.
+        </p>
+      </article>
+      <article class="info-card">
+        <h3>La propuesta</h3>
+        <p>
+          Aplicar simulacion mesoscopica sobre una region de interes obtenida de una
+          mamografia, organizando un flujo funcional de analisis computacional accesible
+          desde el navegador.
+        </p>
+      </article>
+      <article class="info-card">
+        <h3>La salida prevista</h3>
+        <p>
+          El resultado no es otra mamografia, sino una salida computacional: mapas de
+          densidad bidimensionales y metricas numericas relativas de difusion.
+        </p>
+      </article>
     </div>
   </section>
 
-  <section class="workflow" aria-label="Flujo inicial del modulo">
-    <article class="workflow-step">
-      <span class="workflow-step__number">1</span>
-      <h2>Registrar caso</h2>
-      <p>Carga una mamografia completa, una ROI recortada o una entrada PGM.</p>
-    </article>
-    <article class="workflow-step">
-      <span class="workflow-step__number">2</span>
-      <h2>Definir ROI</h2>
-      <p>Confirma una ROI directa o recorta la region de interes desde la mamografia.</p>
-    </article>
-    <article class="workflow-step">
-      <span class="workflow-step__number">3</span>
-      <h2>Preparar PGM</h2>
-      <p>Genera la representacion preparada para el modulo de simulacion.</p>
-    </article>
+  <section class="section" aria-labelledby="pipeline-title">
+    <div class="section-head">
+      <p class="eyebrow">Flujo de analisis</p>
+      <h2 id="pipeline-title">Del caso al resultado</h2>
+      <p class="section-head__lead">
+        El prototipo construye el flujo de forma progresiva. Estas etapas ya estan
+        disponibles; las siguientes forman parte del desarrollo planificado.
+      </p>
+    </div>
+    <ol class="pipeline" aria-label="Etapas del flujo de analisis">
+      <li class="pipeline-step pipeline-step--done">
+        <span class="pipeline-step__index">1</span>
+        <span class="pipeline-step__badge">Disponible</span>
+        <h3>Registrar caso</h3>
+        <p>Carga una mamografia completa, una ROI recortada o una entrada PGM.</p>
+      </li>
+      <li class="pipeline-step pipeline-step--done">
+        <span class="pipeline-step__index">2</span>
+        <span class="pipeline-step__badge">Disponible</span>
+        <h3>Definir ROI</h3>
+        <p>Confirma una ROI directa o recorta la region de interes sobre la mamografia.</p>
+      </li>
+      <li class="pipeline-step pipeline-step--done">
+        <span class="pipeline-step__index">3</span>
+        <span class="pipeline-step__badge">Disponible</span>
+        <h3>Preparar PGM</h3>
+        <p>Genera la representacion PGM compatible con el modulo de simulacion.</p>
+      </li>
+      <li class="pipeline-step pipeline-step--next">
+        <span class="pipeline-step__index">4</span>
+        <span class="pipeline-step__badge pipeline-step__badge--next">En desarrollo</span>
+        <h3>Simular y medir</h3>
+        <p>Ejecuta la simulacion mesoscopica y calcula metricas relativas de difusion.</p>
+      </li>
+      <li class="pipeline-step pipeline-step--next">
+        <span class="pipeline-step__index">5</span>
+        <span class="pipeline-step__badge pipeline-step__badge--next">En desarrollo</span>
+        <h3>Entregar resultados</h3>
+        <p>Presenta mapas de densidad, metricas y comparacion basica de referencia.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="section" aria-labelledby="scope-title">
+    <div class="section-head">
+      <p class="eyebrow">Alcance</p>
+      <h2 id="scope-title">Que hace y que no hace</h2>
+    </div>
+    <div class="scope-grid">
+      <article class="scope-card scope-card--yes">
+        <h3>El prototipo si</h3>
+        <ul>
+          <li>Organiza y registra casos de analisis por imagen.</li>
+          <li>Permite cargar o recortar y confirmar una region de interes.</li>
+          <li>Prepara la entrada para el modulo de simulacion.</li>
+          <li>Mantiene trazabilidad y estados de cada caso.</li>
+        </ul>
+      </article>
+      <article class="scope-card scope-card--no">
+        <h3>El prototipo no</h3>
+        <ul>
+          <li>No emite diagnostico ni criterios clinicos.</li>
+          <li>No sustituye la evaluacion medica profesional.</li>
+          <li>No realiza validacion clinica con pacientes.</li>
+          <li>No se integra con sistemas PACS ni historias clinicas.</li>
+        </ul>
+      </article>
+    </div>
   </section>
 {% endblock %}
