@@ -7,7 +7,8 @@
     <p class="eyebrow">Caso registrado</p>
     <h1 id="case-title">Caso #{{ case.id }}</h1>
     <p>
-      Informacion de carga, ROI y preparacion de entrada para simulacion.
+      Sigue el estado del caso y la siguiente accion recomendada. La preparacion para
+      la simulacion se realiza automaticamente al confirmar la ROI.
     </p>
   </section>
 
@@ -27,83 +28,107 @@
     <article class="case-detail-panel" aria-labelledby="case-data-title">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">Datos del caso</p>
-          <h2 id="case-data-title">Registro de carga</h2>
+          <p class="eyebrow">Resumen del caso</p>
+          <h2 id="case-data-title">Datos principales</h2>
         </div>
         <span class="status-badge status-badge--{{ case.status }}">{{ case.status }}</span>
       </div>
 
       <div class="detail-group">
-        <h3 class="detail-group__title">Datos del caso</h3>
         <dl class="detail-list">
           <div>
             <dt>ID del caso</dt>
             <dd>{{ case.id }}</dd>
           </div>
           <div>
-            <dt>Nombre original</dt>
-            <dd>{{ case.original_filename }}</dd>
+            <dt>Fecha de carga</dt>
+            <dd>{{ created_at }}</dd>
           </div>
           <div>
-            <dt>Tipo detectado</dt>
-            <dd>{{ case.file_type }}</dd>
+            <dt>Tipo</dt>
+            <dd>{{ file_type_label }}</dd>
           </div>
           <div>
             <dt>Tamano</dt>
             <dd>{{ file_size }}</dd>
           </div>
           <div>
-            <dt>Fecha de carga</dt>
-            <dd>{{ created_at }}</dd>
-          </div>
-          <div>
             <dt>Modalidad</dt>
             <dd>{{ input_mode_label }}</dd>
           </div>
-          <div>
-            <dt>Ruta registrada</dt>
-            <dd class="detail-path">{{ case.original_file_path }}</dd>
-          </div>
         </dl>
       </div>
 
       <div class="detail-group">
-        <h3 class="detail-group__title">Region de interes</h3>
+        <h3 class="detail-group__title">Region de interes y preparacion</h3>
         <dl class="detail-list">
           <div>
-            <dt>Archivo ROI</dt>
-            <dd>{{ case.roi_filename or "Pendiente de asociar" }}</dd>
+            <dt>Estado de ROI</dt>
+            <dd>{{ roi_state_label }}</dd>
           </div>
           <div>
-            <dt>Ruta ROI</dt>
-            <dd class="detail-path">{{ case.roi_file_path or "Pendiente de asociar" }}</dd>
-          </div>
-          <div>
-            <dt>Tamano ROI</dt>
-            <dd>{{ roi_file_size }}</dd>
+            <dt>Entrada PGM</dt>
+            <dd>{{ pgm_state_label }}</dd>
           </div>
         </dl>
       </div>
 
-      <div class="detail-group">
-        <h3 class="detail-group__title">Entrada de simulacion (PGM)</h3>
-        <dl class="detail-list">
-          <div>
-            <dt>Archivo PGM</dt>
-            <dd>{{ case.simulation_input_filename or "Pendiente de generar" }}</dd>
+      <details class="detail-tech">
+        <summary>Datos tecnicos y trazabilidad</summary>
+        <div class="detail-tech__body">
+          <div class="detail-group">
+            <h3 class="detail-group__title">Archivo original</h3>
+            <dl class="detail-list">
+              <div>
+                <dt>Nombre original</dt>
+                <dd>{{ case.original_filename }}</dd>
+              </div>
+              <div>
+                <dt>Ruta registrada</dt>
+                <dd class="detail-path">{{ case.original_file_path }}</dd>
+              </div>
+            </dl>
           </div>
-          <div>
-            <dt>Ruta PGM</dt>
-            <dd class="detail-path">
-              {{ case.simulation_input_file_path or "Pendiente de generar" }}
-            </dd>
+
+          <div class="detail-group">
+            <h3 class="detail-group__title">ROI</h3>
+            <dl class="detail-list">
+              <div>
+                <dt>Archivo ROI</dt>
+                <dd>{{ case.roi_filename or "Pendiente de asociar" }}</dd>
+              </div>
+              <div>
+                <dt>Ruta ROI</dt>
+                <dd class="detail-path">{{ case.roi_file_path or "Pendiente de asociar" }}</dd>
+              </div>
+              <div>
+                <dt>Tamano ROI</dt>
+                <dd>{{ roi_file_size }}</dd>
+              </div>
+            </dl>
           </div>
-          <div>
-            <dt>Tamano PGM</dt>
-            <dd>{{ simulation_input_file_size }}</dd>
+
+          <div class="detail-group">
+            <h3 class="detail-group__title">Entrada de simulacion (PGM)</h3>
+            <dl class="detail-list">
+              <div>
+                <dt>Archivo PGM</dt>
+                <dd>{{ case.simulation_input_filename or "Pendiente de generar" }}</dd>
+              </div>
+              <div>
+                <dt>Ruta PGM</dt>
+                <dd class="detail-path">
+                  {{ case.simulation_input_file_path or "Pendiente de generar" }}
+                </dd>
+              </div>
+              <div>
+                <dt>Tamano PGM</dt>
+                <dd>{{ simulation_input_file_size }}</dd>
+              </div>
+            </dl>
           </div>
-        </dl>
-      </div>
+        </div>
+      </details>
     </article>
 
     <div class="case-sidebar">
@@ -115,7 +140,7 @@
             <img src="{{ roi_preview_url }}" alt="Vista previa de la ROI del caso #{{ case.id }}">
           </div>
           <p class="preview-note">
-            ROI disponible para revision del caso.
+            Revisa la ROI antes de confirmarla.
           </p>
         {% elif preview_url %}
           <h2 id="preview-title">Imagen cargada</h2>
@@ -130,7 +155,7 @@
       </section>
 
       <aside class="case-next-step" aria-labelledby="roi-title">
-        <p class="eyebrow">Siguiente etapa</p>
+        <p class="eyebrow">Siguiente paso</p>
         <h2 id="roi-title">{{ roi_status_title }}</h2>
         <p>{{ roi_status_message }}</p>
         {% if can_crop_roi %}
@@ -147,31 +172,27 @@
             method="post"
           >
             <button class="button button--primary" type="submit">
-              Confirmar ROI
+              Confirmar ROI y preparar simulacion
             </button>
           </form>
         {% endif %}
         <div class="case-preparation-step">
-          <p class="eyebrow">Preparacion</p>
+          <p class="eyebrow">Preparacion automatica</p>
           <h3>{{ simulation_status_title }}</h3>
           <p>{{ simulation_status_message }}</p>
-          {% if can_prepare_simulation_input %}
+          {% if can_retry_pgm %}
             <form
               action="{{ url_for('upload.prepare_case_simulation_input', case_id=case.id) }}"
               method="post"
             >
-              <button class="button button--primary" type="submit">
-                {% if case.simulation_input_file_path %}
-                  Regenerar PGM
-                {% else %}
-                  Generar PGM
-                {% endif %}
+              <button class="button button--secondary" type="submit">
+                Reintentar preparacion PGM
               </button>
             </form>
           {% endif %}
         </div>
         <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
-          Cargar otra mamografia
+          Cargar otra imagen
         </a>
       </aside>
     </div>

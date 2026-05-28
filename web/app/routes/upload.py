@@ -66,7 +66,7 @@ def upload_mammogram():
                 )
             else:
                 case = registration.case
-                flash(_format_success_message(case, validation_result), "success")
+                flash(_format_success_message(case), "success")
                 return redirect(url_for("upload.case_detail", case_id=case.id))
         else:
             error_case = safe_register_upload_error(
@@ -106,10 +106,13 @@ def case_detail(case_id):
             case.simulation_input_size_bytes,
         ),
         input_mode_label=_format_input_mode(case.input_mode),
+        file_type_label=_format_file_type(case.file_type),
+        roi_state_label=_get_roi_state_label(case),
+        pgm_state_label=_get_pgm_state_label(case),
         case_flow_steps=_get_case_flow_steps(case),
         can_confirm_roi=_can_confirm_roi(case),
         can_crop_roi=_can_crop_roi(case, preview),
-        can_prepare_simulation_input=_can_prepare_simulation_input(case),
+        can_retry_pgm=_can_retry_simulation_input(case),
         roi_status_title=_get_roi_status_title(case),
         roi_status_message=_get_roi_status_message(case),
         simulation_status_title=_get_simulation_status_title(case),
@@ -172,7 +175,11 @@ def crop_case_roi(case_id):
             )
             flash(str(exc), "error")
         else:
-            flash("ROI recortada y asociada al caso correctamente.", "success")
+            flash(
+                "Recorte guardado como ROI del caso. Revisala y confirmala para "
+                "preparar la simulacion automaticamente.",
+                "success",
+            )
             return redirect(url_for("upload.case_detail", case_id=case.id))
 
     return render_template(
@@ -204,10 +211,34 @@ def confirm_case_roi(case_id):
         db.session.rollback()
         current_app.logger.exception("No se pudo confirmar la ROI del caso %s.", case.id)
         flash("No se pudo confirmar la ROI. Intenta nuevamente.", "error")
-    else:
-        flash(f"ROI confirmada para el caso #{case.id}.", "success")
+        return redirect(url_for("upload.case_detail", case_id=case.id))
 
+    _auto_prepare_simulation_input(case)
     return redirect(url_for("upload.case_detail", case_id=case.id))
+
+
+def _auto_prepare_simulation_input(case):
+    try:
+        prepare_simulation_input_for_case(case, current_app.config["UPLOAD_FOLDER"])
+        db.session.commit()
+    except (OSError, SQLAlchemyError, ValueError) as exc:
+        db.session.rollback()
+        current_app.logger.warning(
+            "No se pudo preparar automaticamente el PGM del caso %s: %s",
+            case.id,
+            exc,
+        )
+        flash(
+            f"ROI confirmada para el caso #{case.id}. No se pudo generar el archivo "
+            f"PGM automaticamente ({exc}). Puedes reintentar la preparacion desde el detalle.",
+            "warning",
+        )
+    else:
+        flash(
+            f"ROI confirmada y archivo PGM generado para el caso #{case.id}. "
+            "El caso queda listo para la etapa de simulacion.",
+            "success",
+        )
 
 
 @upload_bp.get("/casos/<int:case_id>/roi/vista-previa")
@@ -259,17 +290,6 @@ def handle_request_entity_too_large(error):
     return redirect(url_for("upload.upload_mammogram"))
 
 
-def _format_metadata_message(metadata):
-    if not metadata:
-        return " La ROI se asociara en una etapa posterior del flujo."
-
-    readable_metadata = ", ".join(f"{key}: {value}" for key, value in metadata.items())
-    return (
-        f" Metadatos extraidos: {readable_metadata}. "
-        "La ROI se asociara en una etapa posterior del flujo."
-    )
-
-
 def _get_requested_input_mode():
     input_mode = request.form.get("input_mode", InputMode.MAMMOGRAM)
 
@@ -291,23 +311,16 @@ def _get_requested_roi_crop():
         raise ValueError("Selecciona una region valida antes de guardar la ROI.")
 
 
-def _format_success_message(case, validation_result):
-    metadata_message = _format_metadata_message(validation_result.metadata)
-
+def _format_success_message(case):
     if case.input_mode == InputMode.ROI:
         return (
-            f"ROI recortada valida para continuar con el flujo. "
-            f"ID del caso: {case.id}. "
-            f"Ruta original registrada: {case.original_file_path}. "
-            f"Ruta ROI registrada: {case.roi_file_path}. "
-            f"Estado inicial: {case.status}."
-            " Puedes confirmar la ROI desde el detalle del caso."
+            f"Caso #{case.id} creado con la ROI cargada. "
+            "Revisa la vista previa y confirma la ROI para preparar la simulacion."
         )
 
     return (
-        f"{validation_result.message} ID del caso: {case.id}. "
-        f"Ruta registrada: {case.original_file_path}. "
-        f"Estado inicial: {case.status}." + metadata_message
+        f"Caso #{case.id} creado a partir de la mamografia. "
+        "Ahora recorta la region de interes (ROI) sobre la imagen para continuar."
     )
 
 
@@ -350,6 +363,36 @@ def _format_input_mode(input_mode):
         return "ROI recortada"
 
     return "Mamografia completa"
+
+
+def _format_file_type(file_type):
+    if file_type == "image":
+        return "Imagen"
+
+    if file_type == "dicom":
+        return "DICOM"
+
+    return file_type or "No registrado"
+
+
+def _get_roi_state_label(case):
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        return "Confirmada"
+
+    if case.roi_file_path:
+        return "Asociada (pendiente de confirmar)"
+
+    return "Pendiente"
+
+
+def _get_pgm_state_label(case):
+    if case.simulation_input_file_path:
+        return "Generado"
+
+    if case.status == CaseStatus.ROI_CONFIRMED:
+        return "Pendiente de preparacion"
+
+    return "Pendiente de ROI"
 
 
 def _get_case_flow_steps(case):
@@ -410,7 +453,7 @@ def _get_pgm_flow_detail(case):
         return "Entrada generada"
 
     if case.status == CaseStatus.ROI_CONFIRMED:
-        return "Listo para generar"
+        return "Pendiente de preparacion"
 
     return "Pendiente de ROI"
 
@@ -427,20 +470,17 @@ def _get_roi_status_title(case):
 
 def _get_roi_status_message(case):
     if case.status == CaseStatus.ROI_CONFIRMED:
-        return (
-            "La ROI esta confirmada y queda lista para preparar la entrada PGM "
-            "de simulacion."
-        )
+        return "La ROI esta confirmada. El archivo PGM se prepara automaticamente."
 
     if case.roi_file_path:
         return (
-            "La ROI ya esta asociada al caso. "
-            "Confirma la ROI antes de preparar la imagen para simulacion."
+            "La ROI ya esta asociada al caso. Al confirmarla se generara "
+            "automaticamente el archivo PGM para la simulacion."
         )
 
     return (
-        "La estructura de ROI queda preparada para asociar una region de interes "
-        "en una issue posterior."
+        "Aun no hay una ROI asociada. Recorta la region de interes sobre la "
+        "mamografia para continuar."
     )
 
 
@@ -452,6 +492,10 @@ def _can_prepare_simulation_input(case):
     return bool(case.roi_file_path) and case.status == CaseStatus.ROI_CONFIRMED
 
 
+def _can_retry_simulation_input(case):
+    return _can_prepare_simulation_input(case) and not case.simulation_input_file_path
+
+
 def _get_simulation_status_title(case):
     if case.simulation_input_file_path:
         return "PGM generado"
@@ -461,12 +505,15 @@ def _get_simulation_status_title(case):
 
 def _get_simulation_status_message(case):
     if case.simulation_input_file_path:
-        return "La ROI confirmada ya cuenta con entrada PGM para simulacion."
+        return "La ROI confirmada ya cuenta con su archivo PGM para la simulacion."
 
     if case.status == CaseStatus.ROI_CONFIRMED:
-        return "Genera el archivo PGM antes de enviar el caso a procesamiento."
+        return (
+            "No se pudo generar el PGM automaticamente. Reintenta la preparacion "
+            "para dejar el caso listo."
+        )
 
-    return "La entrada PGM se generara despues de confirmar la ROI."
+    return "Al confirmar la ROI se generara automaticamente el archivo PGM."
 
 
 def _can_crop_roi(case, preview):

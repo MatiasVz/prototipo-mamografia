@@ -3,6 +3,7 @@ from pathlib import Path
 from PIL import Image
 
 from ..models import CaseStatus
+from .preview_service import ensure_preview_for_path
 from .storage_service import (
     StoredFile,
     get_case_roi_directory,
@@ -17,7 +18,14 @@ def prepare_simulation_input_for_case(case, upload_folder: str):
     if not roi_path.exists():
         raise ValueError("No se encontro el archivo ROI asociado al caso.")
 
-    with Image.open(roi_path) as image:
+    preview = ensure_preview_for_path(roi_path)
+
+    if preview is None:
+        raise ValueError(
+            "No se pudo preparar una imagen valida a partir de la ROI para la simulacion."
+        )
+
+    with Image.open(preview.absolute_path) as image:
         simulation_image = image.convert("L")
         stored_input = store_simulation_input_pgm(
             simulation_image,
