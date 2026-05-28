@@ -7,8 +7,8 @@
     <p class="eyebrow">Carga de archivo</p>
     <h1 id="upload-title">Cargar mamografia o ROI</h1>
     <p>
-      Selecciona la modalidad de entrada y registra el archivo dentro de una
-      carpeta organizada por caso.
+      Selecciona la modalidad de entrada y registra el archivo. El sistema valida el
+      archivo, crea un caso con identificador unico y lo organiza en una carpeta propia.
     </p>
   </section>
 
@@ -53,7 +53,7 @@
     </form>
 
     <aside class="format-panel" aria-labelledby="formats-title">
-      <h2 id="formats-title">Formatos aceptados</h2>
+      <h2 id="formats-title">Antes de cargar</h2>
       <p>
         La carga valida extension, tamano y lectura del archivo antes de crear el caso.
       </p>
@@ -62,12 +62,28 @@
           <li>{{ format }}</li>
         {% endfor %}
       </ul>
+
       <div class="format-panel__section">
         <h3>Modalidades</h3>
-        <ul class="compact-list">
-          <li>Mamografia completa para recorte manual de ROI.</li>
-          <li>ROI recortada para confirmacion directa.</li>
-        </ul>
+        <dl class="modality-list">
+          <div>
+            <dt>Mamografia completa</dt>
+            <dd>Carga la imagen completa para recortar la ROI dentro del aplicativo.</dd>
+          </div>
+          <div>
+            <dt>ROI recortada</dt>
+            <dd>Carga una imagen que ya corresponde a la region de interes y confirmala directamente.</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="format-panel__section">
+        <h3>Que sigue</h3>
+        <ol class="next-list">
+          <li>Se registra el caso y se muestra su detalle.</li>
+          <li>Defines o confirmas la region de interes.</li>
+          <li>Generas la entrada PGM para la simulacion.</li>
+        </ol>
       </div>
     </aside>
   </section>

@@ -3,15 +3,40 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Prototipo academico de aplicativo web para el analisis de lesiones mamarias a partir de mamografias mediante simulacion mesoscopica.">
     <title>{% block title %}{{ config.APP_NAME }}{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
   </head>
   <body>
+    <a class="skip-link" href="#main-content">Saltar al contenido</a>
+
     <header class="app-header">
       <div class="app-header__content">
         <a class="app-brand" href="{{ url_for('main.index') }}">
-          <span class="app-brand__name">Prototipo Mamografico</span>
-          <span class="app-brand__sub">Simulacion mesoscopica</span>
+          <span class="app-brand__mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" width="32" height="32" role="img" focusable="false">
+              <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#brandGradient)"></rect>
+              <g fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round">
+                <path d="M9 8.5h-1.5v3"></path>
+                <path d="M23 8.5h1.5v3"></path>
+                <path d="M9 23.5h-1.5v-3"></path>
+                <path d="M23 23.5h1.5v-3"></path>
+              </g>
+              <circle cx="16" cy="15" r="4.4" fill="none" stroke="#ffffff" stroke-width="2"></circle>
+              <line x1="19.4" y1="18.4" x2="22.4" y2="21.4" stroke="#ffffff" stroke-width="2" stroke-linecap="round"></line>
+              <defs>
+                <linearGradient id="brandGradient" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stop-color="#0b5e8e"></stop>
+                  <stop offset="1" stop-color="#0f766e"></stop>
+                </linearGradient>
+              </defs>
+            </svg>
+          </span>
+          <span class="app-brand__text">
+            <span class="app-brand__name">Prototipo Mamografico</span>
+            <span class="app-brand__sub">Analisis por simulacion mesoscopica</span>
+          </span>
         </a>
         <nav class="app-nav" aria-label="Navegacion principal">
           <a
@@ -26,7 +51,7 @@
       </div>
     </header>
 
-    <main class="app-main">
+    <main class="app-main" id="main-content">
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           <section class="flash-messages" aria-label="Mensajes del sistema">
@@ -47,19 +72,23 @@
             <p class="app-footer__title">Prototipo Mamografico</p>
             <p class="app-footer__desc">
               Prototipo academico para el analisis de lesiones mamarias a partir de
-              mamografias mediante simulacion mesoscopica. No es una herramienta de
-              diagnostico clinico.
+              mamografias mediante simulacion mesoscopica. Es una herramienta de
+              investigacion y no constituye un instrumento de diagnostico clinico.
             </p>
           </div>
           <div class="app-footer__meta-block">
             <p class="app-footer__label">Proyecto</p>
             <p class="app-footer__meta">Tesis de Ingenieria de Software</p>
-            <p class="app-footer__label" style="margin-top:12px">Version</p>
-            <p class="app-footer__meta">Prototipo &mdash; 2026</p>
+            <p class="app-footer__label app-footer__label--spaced">Base de la investigacion</p>
+            <p class="app-footer__meta">
+              Diffusion Simulation on Mammograms: A Technique for Analyzing and
+              Monitoring Breast Tumors
+            </p>
           </div>
         </div>
         <p class="app-footer__notice">
-          Este sistema es exclusivamente para investigacion y no reemplaza evaluacion medica profesional.
+          Uso exclusivo para investigacion y validacion funcional. No reemplaza la
+          evaluacion medica profesional ni emite criterios clinicos.
         </p>
       </div>
     </footer>

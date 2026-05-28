@@ -7,7 +7,8 @@
     <p class="eyebrow">Seleccion de ROI</p>
     <h1 id="crop-title">Recortar ROI del caso #{{ case.id }}</h1>
     <p>
-      Delimita una region rectangular sobre la mamografia cargada.
+      Delimita una region rectangular sobre la mamografia cargada. La ROI recortada
+      quedara asociada al caso y podras confirmarla desde el detalle.
     </p>
   </section>
 
@@ -17,6 +18,15 @@
     data-roi-crop-tool
     data-image-src="{{ preview_url }}"
   >
+    <div class="roi-crop-guide">
+      <p class="eyebrow">Como recortar</p>
+      <ol class="next-list">
+        <li>Arrastra sobre la imagen para dibujar el rectangulo de la region.</li>
+        <li>Revisa las dimensiones que se muestran bajo la imagen.</li>
+        <li>Guarda la ROI y luego confirmala desde el detalle del caso.</li>
+      </ol>
+    </div>
+
     <form
       class="roi-crop-form"
       action="{{ url_for('upload.crop_case_roi', case_id=case.id) }}"

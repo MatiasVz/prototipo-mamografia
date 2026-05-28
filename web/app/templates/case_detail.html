@@ -33,62 +33,77 @@
         <span class="status-badge status-badge--{{ case.status }}">{{ case.status }}</span>
       </div>
 
-      <dl class="detail-list">
-        <div>
-          <dt>ID del caso</dt>
-          <dd>{{ case.id }}</dd>
-        </div>
-        <div>
-          <dt>Nombre original</dt>
-          <dd>{{ case.original_filename }}</dd>
-        </div>
-        <div>
-          <dt>Tipo detectado</dt>
-          <dd>{{ case.file_type }}</dd>
-        </div>
-        <div>
-          <dt>Tamano</dt>
-          <dd>{{ file_size }}</dd>
-        </div>
-        <div>
-          <dt>Fecha de carga</dt>
-          <dd>{{ created_at }}</dd>
-        </div>
-        <div>
-          <dt>Modalidad</dt>
-          <dd>{{ input_mode_label }}</dd>
-        </div>
-        <div>
-          <dt>Ruta registrada</dt>
-          <dd class="detail-path">{{ case.original_file_path }}</dd>
-        </div>
-        <div>
-          <dt>Archivo ROI</dt>
-          <dd>{{ case.roi_filename or "Pendiente de asociar" }}</dd>
-        </div>
-        <div>
-          <dt>Ruta ROI</dt>
-          <dd class="detail-path">{{ case.roi_file_path or "Pendiente de asociar" }}</dd>
-        </div>
-        <div>
-          <dt>Tamano ROI</dt>
-          <dd>{{ roi_file_size }}</dd>
-        </div>
-        <div>
-          <dt>Archivo PGM</dt>
-          <dd>{{ case.simulation_input_filename or "Pendiente de generar" }}</dd>
-        </div>
-        <div>
-          <dt>Ruta PGM</dt>
-          <dd class="detail-path">
-            {{ case.simulation_input_file_path or "Pendiente de generar" }}
-          </dd>
-        </div>
-        <div>
-          <dt>Tamano PGM</dt>
-          <dd>{{ simulation_input_file_size }}</dd>
-        </div>
-      </dl>
+      <div class="detail-group">
+        <h3 class="detail-group__title">Datos del caso</h3>
+        <dl class="detail-list">
+          <div>
+            <dt>ID del caso</dt>
+            <dd>{{ case.id }}</dd>
+          </div>
+          <div>
+            <dt>Nombre original</dt>
+            <dd>{{ case.original_filename }}</dd>
+          </div>
+          <div>
+            <dt>Tipo detectado</dt>
+            <dd>{{ case.file_type }}</dd>
+          </div>
+          <div>
+            <dt>Tamano</dt>
+            <dd>{{ file_size }}</dd>
+          </div>
+          <div>
+            <dt>Fecha de carga</dt>
+            <dd>{{ created_at }}</dd>
+          </div>
+          <div>
+            <dt>Modalidad</dt>
+            <dd>{{ input_mode_label }}</dd>
+          </div>
+          <div>
+            <dt>Ruta registrada</dt>
+            <dd class="detail-path">{{ case.original_file_path }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="detail-group">
+        <h3 class="detail-group__title">Region de interes</h3>
+        <dl class="detail-list">
+          <div>
+            <dt>Archivo ROI</dt>
+            <dd>{{ case.roi_filename or "Pendiente de asociar" }}</dd>
+          </div>
+          <div>
+            <dt>Ruta ROI</dt>
+            <dd class="detail-path">{{ case.roi_file_path or "Pendiente de asociar" }}</dd>
+          </div>
+          <div>
+            <dt>Tamano ROI</dt>
+            <dd>{{ roi_file_size }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="detail-group">
+        <h3 class="detail-group__title">Entrada de simulacion (PGM)</h3>
+        <dl class="detail-list">
+          <div>
+            <dt>Archivo PGM</dt>
+            <dd>{{ case.simulation_input_filename or "Pendiente de generar" }}</dd>
+          </div>
+          <div>
+            <dt>Ruta PGM</dt>
+            <dd class="detail-path">
+              {{ case.simulation_input_file_path or "Pendiente de generar" }}
+            </dd>
+          </div>
+          <div>
+            <dt>Tamano PGM</dt>
+            <dd>{{ simulation_input_file_size }}</dd>
+          </div>
+        </dl>
+      </div>
     </article>
 
     <div class="case-sidebar">
