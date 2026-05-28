@@ -1,89 +1,120 @@
 {% extends "base.html" %}
 
-{% block title %}Cargar mamografia o ROI | {{ config.APP_NAME }}{% endblock %}
+{% block title %}Cargar imagen | {{ config.APP_NAME }}{% endblock %}
 
 {% block content %}
   <section class="page-heading" aria-labelledby="upload-title">
-    <p class="eyebrow">Carga de archivo</p>
-    <h1 id="upload-title">Cargar mamografia o ROI</h1>
+    <p class="eyebrow">Nuevo caso</p>
+    <h1 id="upload-title">Cargar imagen</h1>
     <p>
-      Selecciona la modalidad de entrada y registra el archivo. El sistema valida el
-      archivo, crea un caso con identificador unico y lo organiza en una carpeta propia.
+      Selecciona el archivo y te guiamos paso a paso. No necesitas conocer terminos
+      tecnicos: el sistema te preguntara que tipo de imagen es y preparara la entrada
+      para la simulacion automaticamente.
     </p>
   </section>
 
-  <section class="upload-layout" aria-label="Formulario de carga de mamografias o ROI">
+  <section class="upload-layout" aria-label="Formulario de carga">
     <form
       class="upload-form"
       action="{{ url_for('upload.upload_mammogram') }}"
       method="post"
       enctype="multipart/form-data"
+      data-upload-form
     >
       <div class="form-section-title">
-        <p class="eyebrow">Nuevo caso</p>
-        <h2>Datos de entrada</h2>
+        <p class="eyebrow">Paso 1</p>
+        <h2>Selecciona la imagen</h2>
       </div>
 
       <div class="form-field">
-        <label for="mammogram_file">Archivo de mamografia o ROI</label>
+        <label for="mammogram_file">Archivo de imagen</label>
         <input
           id="mammogram_file"
           name="mammogram_file"
           type="file"
           accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff,.pgm,.dcm,application/dicom"
           data-file-input
+          required
         >
         <p class="field-help" data-file-name>
           Formatos aceptados: PNG, JPG, JPEG, BMP, TIF, TIFF, PGM y DICOM.
         </p>
       </div>
 
-      <div class="form-field">
-        <label for="input_mode">Modalidad de entrada</label>
-        <select id="input_mode" name="input_mode">
-          <option value="mamografia_completa">Mamografia completa</option>
-          <option value="roi_recortada">ROI recortada</option>
-        </select>
-        <p class="field-help">
-          La modalidad define si el archivo se trata como imagen completa o como ROI asociada.
-        </p>
-      </div>
+      <button class="button button--primary" type="button" data-open-type-modal disabled>
+        Continuar
+      </button>
+      <p class="field-help" data-upload-hint hidden>
+        Selecciona un archivo para continuar.
+      </p>
 
-      <button class="button button--primary" type="submit">Registrar carga</button>
+      <div class="modal" data-type-modal hidden>
+        <div class="modal__backdrop" data-type-modal-close></div>
+        <div
+          class="modal__dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="type-modal-title"
+        >
+          <button
+            type="button"
+            class="modal__close"
+            data-type-modal-close
+            aria-label="Cerrar"
+          >&times;</button>
+          <p class="eyebrow">Paso 2</p>
+          <h2 id="type-modal-title">Que tipo de imagen es?</h2>
+          <p class="modal__file" data-type-modal-file></p>
+          <div class="type-options">
+            <button
+              type="submit"
+              name="input_mode"
+              value="mamografia_completa"
+              class="type-option"
+            >
+              <span class="type-option__title">Mamografia completa</span>
+              <span class="type-option__desc">
+                Es la imagen completa. Despues recortaras la region de interes sobre ella.
+              </span>
+            </button>
+            <button
+              type="submit"
+              name="input_mode"
+              value="roi_recortada"
+              class="type-option"
+            >
+              <span class="type-option__title">ROI recortada</span>
+              <span class="type-option__desc">
+                La imagen ya es la region de interes. La registramos para que la confirmes.
+              </span>
+            </button>
+          </div>
+          <button type="button" class="modal__secondary" data-type-modal-close>
+            Cancelar
+          </button>
+        </div>
+      </div>
     </form>
 
-    <aside class="format-panel" aria-labelledby="formats-title">
-      <h2 id="formats-title">Antes de cargar</h2>
-      <p>
-        La carga valida extension, tamano y lectura del archivo antes de crear el caso.
-      </p>
-      <ul class="format-list">
-        {% for format in accepted_formats %}
-          <li>{{ format }}</li>
-        {% endfor %}
-      </ul>
+    <aside class="format-panel" aria-labelledby="how-title">
+      <h2 id="how-title">Como funciona</h2>
+      <ol class="next-list">
+        <li>Selecciona el archivo de imagen.</li>
+        <li>Indica si es una mamografia completa o una ROI recortada.</li>
+        <li>Recorta o confirma la region de interes.</li>
+        <li>El sistema prepara la entrada PGM automaticamente.</li>
+      </ol>
 
       <div class="format-panel__section">
-        <h3>Modalidades</h3>
-        <dl class="modality-list">
-          <div>
-            <dt>Mamografia completa</dt>
-            <dd>Carga la imagen completa para recortar la ROI dentro del aplicativo.</dd>
-          </div>
-          <div>
-            <dt>ROI recortada</dt>
-            <dd>Carga una imagen que ya corresponde a la region de interes y confirmala directamente.</dd>
-          </div>
-        </dl>
-      </div>
-
-      <div class="format-panel__section">
-        <h3>Que sigue</h3>
-        <ol class="next-list">
-          <li>Se registra el caso y se muestra su detalle.</li>
-          <li>Defines o confirmas la region de interes.</li>
-          <li>Generas la entrada PGM para la simulacion.</li>
-        </ol>
+        <h3>Formatos aceptados</h3>
+        <ul class="format-list">
+          {% for format in accepted_formats %}
+            <li>{{ format }}</li>
+          {% endfor %}
+        </ul>
+        <p class="field-help">
+          Se valida extension, tamano y lectura del archivo antes de crear el caso.
+        </p>
       </div>
     </aside>
   </section>

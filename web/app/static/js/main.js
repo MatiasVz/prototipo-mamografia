@@ -10,6 +10,90 @@ if (fileInput && fileName) {
   });
 }
 
+const uploadForm = document.querySelector("[data-upload-form]");
+
+if (uploadForm) {
+  const uploadFileInput = uploadForm.querySelector("[data-file-input]");
+  const continueButton = uploadForm.querySelector("[data-open-type-modal]");
+  const uploadHint = uploadForm.querySelector("[data-upload-hint]");
+  const typeModal = uploadForm.querySelector("[data-type-modal]");
+  const modalFileLabel = typeModal ? typeModal.querySelector("[data-type-modal-file]") : null;
+  const closeControls = typeModal ? typeModal.querySelectorAll("[data-type-modal-close]") : [];
+  const firstOption = typeModal ? typeModal.querySelector(".type-option") : null;
+  let lastFocused = null;
+
+  const hasFile = () => Boolean(uploadFileInput && uploadFileInput.files && uploadFileInput.files.length);
+
+  const openModal = () => {
+    if (!typeModal || !hasFile()) {
+      return;
+    }
+
+    if (modalFileLabel) {
+      modalFileLabel.textContent = `Archivo seleccionado: ${uploadFileInput.files[0].name}`;
+    }
+
+    lastFocused = document.activeElement;
+    typeModal.hidden = false;
+    typeModal.classList.add("is-open");
+    document.body.classList.add("modal-open");
+
+    if (firstOption) {
+      firstOption.focus();
+    }
+  };
+
+  const closeModal = () => {
+    if (!typeModal) {
+      return;
+    }
+
+    typeModal.hidden = true;
+    typeModal.classList.remove("is-open");
+    document.body.classList.remove("modal-open");
+
+    if (lastFocused && typeof lastFocused.focus === "function") {
+      lastFocused.focus();
+    }
+  };
+
+  if (uploadFileInput) {
+    uploadFileInput.addEventListener("change", () => {
+      if (continueButton) {
+        continueButton.disabled = !hasFile();
+      }
+
+      if (uploadHint) {
+        uploadHint.hidden = true;
+      }
+
+      if (hasFile()) {
+        openModal();
+      }
+    });
+  }
+
+  if (continueButton) {
+    continueButton.addEventListener("click", () => {
+      if (hasFile()) {
+        openModal();
+      } else if (uploadHint) {
+        uploadHint.hidden = false;
+      }
+    });
+  }
+
+  closeControls.forEach((control) => {
+    control.addEventListener("click", closeModal);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && typeModal && typeModal.classList.contains("is-open")) {
+      closeModal();
+    }
+  });
+}
+
 const roiCropTool = document.querySelector("[data-roi-crop-tool]");
 
 if (roiCropTool) {

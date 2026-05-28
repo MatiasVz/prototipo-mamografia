@@ -22,8 +22,8 @@
       <p class="eyebrow">Como recortar</p>
       <ol class="next-list">
         <li>Arrastra sobre la imagen para dibujar el rectangulo de la region.</li>
-        <li>Revisa las dimensiones que se muestran bajo la imagen.</li>
-        <li>Guarda la ROI y luego confirmala desde el detalle del caso.</li>
+        <li>Puedes volver a dibujar la seleccion las veces que necesites antes de guardar.</li>
+        <li>Guarda el recorte; luego lo confirmas y el PGM se prepara automaticamente.</li>
       </ol>
     </div>
 
@@ -47,10 +47,10 @@
 
       <div class="page-actions">
         <button class="button button--primary" type="submit" data-roi-crop-submit disabled>
-          Guardar ROI
+          Guardar recorte
         </button>
         <a class="button button--secondary" href="{{ url_for('upload.case_detail', case_id=case.id) }}">
-          Volver al caso
+          Cancelar
         </a>
       </div>
     </form>
