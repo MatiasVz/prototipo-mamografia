@@ -132,6 +132,45 @@ end
     @test_throws ArgumentError run_minimal_simulation(space; particle_density = 1.1)
 end
 
+@testset "Preliminary simulation results" begin
+    image = PgmImage(
+        3,
+        2,
+        255,
+        [0 255 0; 0 0 255],
+    )
+
+    space = build_simulation_space(image)
+    simulation = run_minimal_simulation(
+        space;
+        seed = 7,
+        steps = 5,
+        particle_density = 0.5,
+    )
+
+    mktempdir() do dir
+        preliminary_results = generate_preliminary_results(dir, simulation, space)
+
+        @test isfile(preliminary_results.metrics_path)
+        @test isfile(preliminary_results.density_map_path)
+        @test isfile(preliminary_results.density_matrix_path)
+
+        metrics_content = read(preliminary_results.metrics_path, String)
+        density_map_content = read(preliminary_results.density_map_path, String)
+        density_matrix_content = read(preliminary_results.density_matrix_path, String)
+
+        @test preliminary_results.metrics.status == "preliminary_results_ready"
+        @test preliminary_results.metrics.width == 3
+        @test preliminary_results.metrics.height == 2
+        @test preliminary_results.metrics.obstacle_count == 2
+        @test occursin("\"status\": \"preliminary_results_ready\"", metrics_content)
+        @test occursin("\"collision_rate\"", metrics_content)
+        @test startswith(density_map_content, "P2")
+        @test occursin("3 2", density_map_content)
+        @test occursin("x\ty\tvisits\tdensity_value\tis_obstacle", density_matrix_content)
+    end
+end
+
 @testset "MammographySimulation CLI base" begin
     mktempdir() do dir
         input_path = joinpath(dir, "simulation_input.pgm")
@@ -157,10 +196,15 @@ end
         @test isfile(result.simulation_summary_path)
         @test isfile(result.simulation_state_path)
         @test isfile(result.visit_counts_path)
-        @test occursin("status=minimal_simulation_ready", read(result.log_path, String))
+        @test isfile(result.metrics_path)
+        @test isfile(result.density_map_path)
+        @test isfile(result.density_matrix_path)
+        @test occursin("status=preliminary_results_ready", read(result.log_path, String))
         @test occursin("width=2", read(result.summary_path, String))
         @test occursin("obstacle_count=1", read(result.space_summary_path, String))
         @test occursin("particle_count=2", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=6", read(result.simulation_summary_path, String))
+        @test occursin("\"status\": \"preliminary_results_ready\"", read(result.metrics_path, String))
+        @test startswith(read(result.density_map_path, String), "P2")
     end
 end
