@@ -40,7 +40,9 @@ struct SimulationSpace
     width::Int
     height::Int
     max_gray::Int
+    tissue_threshold::Int
     obstacle_threshold::Int
+    domain_mask::BitMatrix
     normalized_intensities::Matrix{Float64}
     obstacles::Vector{SimulationObstacle}
 end
@@ -67,6 +69,8 @@ struct PreliminarySimulationMetrics
     width::Int
     height::Int
     cell_count::Int
+    domain_cell_count::Int
+    excluded_background_count::Int
     obstacle_count::Int
     free_cell_count::Int
     particle_count::Int
@@ -85,12 +89,14 @@ end
 
 struct PreliminarySimulationResults
     metrics_path::String
+    domain_mask_path::String
     density_map_path::String
     density_matrix_path::String
     metrics::PreliminarySimulationMetrics
 end
 
-const DEFAULT_OBSTACLE_THRESHOLD = 1
+const DEFAULT_TISSUE_THRESHOLD_RATIO = 0.03
+const DEFAULT_OBSTACLE_THRESHOLD_RATIO = 0.85
 
 Base.@kwdef struct SimulationRunConfig
     input_path::String
@@ -214,8 +220,11 @@ function run_case(config::SimulationRunConfig)
         println(io, "width=$(pgm_image.width)")
         println(io, "height=$(pgm_image.height)")
         println(io, "max_gray=$(pgm_image.max_gray)")
+        println(io, "tissue_threshold=$(simulation_space.tissue_threshold)")
         println(io, "obstacle_count=$(length(simulation_space.obstacles))")
         println(io, "obstacle_threshold=$(simulation_space.obstacle_threshold)")
+        println(io, "domain_cell_count=$(count_domain_cells(simulation_space))")
+        println(io, "excluded_background_count=$(count_excluded_background_cells(simulation_space))")
         println(io, "seed=$(config.seed)")
         println(io, "steps=$(config.steps)")
         println(io, "particle_density=$(config.particle_density)")
@@ -231,6 +240,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "width=$(pgm_image.width)")
         println(io, "height=$(pgm_image.height)")
         println(io, "max_gray=$(pgm_image.max_gray)")
+        println(io, "tissue_threshold=$(simulation_space.tissue_threshold)")
         println(io, "obstacle_threshold=$(simulation_space.obstacle_threshold)")
         println(io, "seed=$(config.seed)")
         println(io, "steps=$(config.steps)")
@@ -264,6 +274,7 @@ function run_case(config::SimulationRunConfig)
         simulation_state_path = simulation_state_path,
         visit_counts_path = visit_counts_path,
         metrics_path = preliminary_results.metrics_path,
+        domain_mask_path = preliminary_results.domain_mask_path,
         density_map_path = preliminary_results.density_map_path,
         density_matrix_path = preliminary_results.density_matrix_path,
         image = pgm_image,
@@ -293,6 +304,7 @@ function cli_main(args::Vector{String} = ARGS)
         println("simulation_state_path=$(result.simulation_state_path)")
         println("visit_counts_path=$(result.visit_counts_path)")
         println("metrics_path=$(result.metrics_path)")
+        println("domain_mask_path=$(result.domain_mask_path)")
         println("density_map_path=$(result.density_map_path)")
         println("density_matrix_path=$(result.density_matrix_path)")
         return 0
@@ -356,20 +368,33 @@ end
 
 function build_simulation_space(
     image::PgmImage;
-    obstacle_threshold::Int = DEFAULT_OBSTACLE_THRESHOLD,
+    tissue_threshold::Union{Nothing,Int} = nothing,
+    obstacle_threshold::Union{Nothing,Int} = nothing,
 )
-    if !(1 <= obstacle_threshold <= image.max_gray)
+    resolved_tissue_threshold = resolve_tissue_threshold(image.max_gray, tissue_threshold)
+    resolved_obstacle_threshold = resolve_obstacle_threshold(
+        image.max_gray,
+        obstacle_threshold,
+        resolved_tissue_threshold,
+    )
+
+    if !(1 <= resolved_tissue_threshold <= image.max_gray)
+        throw(ArgumentError("El umbral de tejido debe estar entre 1 y max_gray."))
+    end
+
+    if !(1 <= resolved_obstacle_threshold <= image.max_gray)
         throw(ArgumentError("El umbral de obstaculos debe estar entre 1 y max_gray."))
     end
 
     normalized_intensities = Float64.(image.pixels) ./ image.max_gray
+    domain_mask = detect_breast_domain_mask(image.pixels, resolved_tissue_threshold)
     obstacles = SimulationObstacle[]
 
     for y_index in 1:image.height
         for x_index in 1:image.width
             intensity = image.pixels[y_index, x_index]
 
-            if intensity >= obstacle_threshold
+            if domain_mask[y_index, x_index] && intensity >= resolved_obstacle_threshold
                 x = x_index - 1
                 y = y_index - 1
                 normalized_intensity = normalized_intensities[y_index, x_index]
@@ -395,10 +420,166 @@ function build_simulation_space(
         image.width,
         image.height,
         image.max_gray,
-        obstacle_threshold,
+        resolved_tissue_threshold,
+        resolved_obstacle_threshold,
+        domain_mask,
         normalized_intensities,
         obstacles,
     )
+end
+
+function resolve_tissue_threshold(max_gray::Int, tissue_threshold::Union{Nothing,Int})
+    if tissue_threshold !== nothing
+        return tissue_threshold
+    end
+
+    return clamp(round(Int, max_gray * DEFAULT_TISSUE_THRESHOLD_RATIO), 1, max_gray)
+end
+
+function resolve_obstacle_threshold(
+    max_gray::Int,
+    obstacle_threshold::Union{Nothing,Int},
+    tissue_threshold::Int,
+)
+    if obstacle_threshold !== nothing
+        return obstacle_threshold
+    end
+
+    return clamp(round(Int, max_gray * DEFAULT_OBSTACLE_THRESHOLD_RATIO), tissue_threshold, max_gray)
+end
+
+function detect_breast_domain_mask(pixels::Matrix{Int}, tissue_threshold::Int)
+    tissue_candidates = pixels .>= tissue_threshold
+    component_mask = largest_connected_component(tissue_candidates)
+
+    if count(component_mask) == 0
+        throw(ArgumentError("No se detecto una region mamaria valida en la imagen PGM."))
+    end
+
+    return fill_internal_background(component_mask)
+end
+
+function largest_connected_component(mask::BitMatrix)
+    height, width = size(mask)
+    visited = falses(height, width)
+    largest_component = falses(height, width)
+    largest_size = 0
+
+    for y_index in 1:height
+        for x_index in 1:width
+            if !mask[y_index, x_index] || visited[y_index, x_index]
+                continue
+            end
+
+            component_cells = flood_component(mask, visited, x_index, y_index)
+
+            if length(component_cells) > largest_size
+                largest_size = length(component_cells)
+                largest_component .= false
+
+                for (cell_x, cell_y) in component_cells
+                    largest_component[cell_y, cell_x] = true
+                end
+            end
+        end
+    end
+
+    return largest_component
+end
+
+function flood_component(mask::BitMatrix, visited::BitMatrix, start_x::Int, start_y::Int)
+    height, width = size(mask)
+    queue = Tuple{Int,Int}[(start_x, start_y)]
+    cells = Tuple{Int,Int}[]
+    visited[start_y, start_x] = true
+    cursor = 1
+
+    while cursor <= length(queue)
+        x_index, y_index = queue[cursor]
+        cursor += 1
+        push!(cells, (x_index, y_index))
+
+        for (neighbor_x, neighbor_y) in neighboring_cells(x_index, y_index, width, height)
+            if mask[neighbor_y, neighbor_x] && !visited[neighbor_y, neighbor_x]
+                visited[neighbor_y, neighbor_x] = true
+                push!(queue, (neighbor_x, neighbor_y))
+            end
+        end
+    end
+
+    return cells
+end
+
+function fill_internal_background(component_mask::BitMatrix)
+    height, width = size(component_mask)
+    exterior_background = falses(height, width)
+    queue = Tuple{Int,Int}[]
+
+    for x_index in 1:width
+        enqueue_exterior_cell!(queue, exterior_background, component_mask, x_index, 1)
+        enqueue_exterior_cell!(queue, exterior_background, component_mask, x_index, height)
+    end
+
+    for y_index in 1:height
+        enqueue_exterior_cell!(queue, exterior_background, component_mask, 1, y_index)
+        enqueue_exterior_cell!(queue, exterior_background, component_mask, width, y_index)
+    end
+
+    cursor = 1
+
+    while cursor <= length(queue)
+        x_index, y_index = queue[cursor]
+        cursor += 1
+
+        for (neighbor_x, neighbor_y) in neighboring_cells(x_index, y_index, width, height)
+            enqueue_exterior_cell!(
+                queue,
+                exterior_background,
+                component_mask,
+                neighbor_x,
+                neighbor_y,
+            )
+        end
+    end
+
+    return component_mask .| .!exterior_background
+end
+
+function enqueue_exterior_cell!(
+    queue::Vector{Tuple{Int,Int}},
+    exterior_background::BitMatrix,
+    component_mask::BitMatrix,
+    x_index::Int,
+    y_index::Int,
+)
+    if component_mask[y_index, x_index] || exterior_background[y_index, x_index]
+        return
+    end
+
+    exterior_background[y_index, x_index] = true
+    push!(queue, (x_index, y_index))
+end
+
+function neighboring_cells(x_index::Int, y_index::Int, width::Int, height::Int)
+    neighbors = Tuple{Int,Int}[]
+
+    if x_index > 1
+        push!(neighbors, (x_index - 1, y_index))
+    end
+
+    if x_index < width
+        push!(neighbors, (x_index + 1, y_index))
+    end
+
+    if y_index > 1
+        push!(neighbors, (x_index, y_index - 1))
+    end
+
+    if y_index < height
+        push!(neighbors, (x_index, y_index + 1))
+    end
+
+    return neighbors
 end
 
 function run_minimal_simulation(
@@ -417,7 +598,7 @@ function run_minimal_simulation(
 
     rng = Random.MersenneTwister(seed)
     obstacle_grid = build_obstacle_grid(space)
-    free_cells = collect_free_cells(obstacle_grid)
+    free_cells = collect_free_cells(obstacle_grid, space.domain_mask)
     particle_count = determine_particle_count(length(free_cells), particle_density)
     particles = initialize_particles(free_cells, particle_count, rng)
     visit_counts = zeros(Int, space.height, space.width)
@@ -438,7 +619,7 @@ function run_minimal_simulation(
 
             attempted_moves += 1
 
-            if obstacle_grid[next_y + 1, next_x + 1]
+            if !space.domain_mask[next_y + 1, next_x + 1] || obstacle_grid[next_y + 1, next_x + 1]
                 collision_count += 1
             else
                 particle.x = next_x
@@ -469,13 +650,13 @@ function build_obstacle_grid(space::SimulationSpace)
     return obstacle_grid
 end
 
-function collect_free_cells(obstacle_grid::BitMatrix)
+function collect_free_cells(obstacle_grid::BitMatrix, domain_mask::BitMatrix)
     height, width = size(obstacle_grid)
     free_cells = Tuple{Int,Int}[]
 
     for y_index in 1:height
         for x_index in 1:width
-            if !obstacle_grid[y_index, x_index]
+            if domain_mask[y_index, x_index] && !obstacle_grid[y_index, x_index]
                 push!(free_cells, (x_index - 1, y_index - 1))
             end
         end
@@ -512,14 +693,21 @@ end
 
 function write_space_summary(path::AbstractString, space::SimulationSpace)
     cell_count = space.width * space.height
+    domain_cell_count = count_domain_cells(space)
+    excluded_background_count = count_excluded_background_cells(space)
     obstacle_count = length(space.obstacles)
-    obstacle_fraction = obstacle_count / cell_count
+    obstacle_fraction = safe_ratio(obstacle_count, domain_cell_count)
+    domain_fraction = safe_ratio(domain_cell_count, cell_count)
 
     open(path, "w") do io
         println(io, "width=$(space.width)")
         println(io, "height=$(space.height)")
         println(io, "max_gray=$(space.max_gray)")
         println(io, "cell_count=$(cell_count)")
+        println(io, "tissue_threshold=$(space.tissue_threshold)")
+        println(io, "domain_cell_count=$(domain_cell_count)")
+        println(io, "excluded_background_count=$(excluded_background_count)")
+        println(io, "domain_fraction=$(domain_fraction)")
         println(io, "obstacle_threshold=$(space.obstacle_threshold)")
         println(io, "obstacle_count=$(obstacle_count)")
         println(io, "obstacle_fraction=$(obstacle_fraction)")
@@ -552,7 +740,7 @@ function write_obstacles_tsv(path::AbstractString, obstacles::Vector{SimulationO
 end
 
 function write_simulation_summary(path::AbstractString, result::SimulationResult, space::SimulationSpace)
-    free_cell_count = space.width * space.height - length(space.obstacles)
+    free_cell_count = count_free_cells(space)
 
     open(path, "w") do io
         println(io, "steps=$(result.steps)")
@@ -590,6 +778,18 @@ function write_visit_counts(path::AbstractString, visit_counts::Matrix{Int})
     end
 end
 
+function count_domain_cells(space::SimulationSpace)
+    return count(space.domain_mask)
+end
+
+function count_excluded_background_cells(space::SimulationSpace)
+    return space.width * space.height - count_domain_cells(space)
+end
+
+function count_free_cells(space::SimulationSpace)
+    return count_domain_cells(space) - length(space.obstacles)
+end
+
 function generate_preliminary_results(
     output_dir::AbstractString,
     result::SimulationResult,
@@ -599,15 +799,18 @@ function generate_preliminary_results(
 
     metrics = build_preliminary_metrics(result, space)
     metrics_path = joinpath(output_dir, "metrics.json")
+    domain_mask_path = joinpath(output_dir, "domain_mask.pgm")
     density_map_path = joinpath(output_dir, "density_map.pgm")
     density_matrix_path = joinpath(output_dir, "density_matrix.tsv")
 
     write_metrics_json(metrics_path, metrics)
+    write_domain_mask_pgm(domain_mask_path, space.domain_mask)
     write_density_map_pgm(density_map_path, result.visit_counts)
     write_density_matrix_tsv(density_matrix_path, result.visit_counts, space)
 
     return PreliminarySimulationResults(
         metrics_path,
+        domain_mask_path,
         density_map_path,
         density_matrix_path,
         metrics,
@@ -616,8 +819,10 @@ end
 
 function build_preliminary_metrics(result::SimulationResult, space::SimulationSpace)
     cell_count = space.width * space.height
+    domain_cell_count = count_domain_cells(space)
+    excluded_background_count = count_excluded_background_cells(space)
     obstacle_count = length(space.obstacles)
-    free_cell_count = cell_count - obstacle_count
+    free_cell_count = count_free_cells(space)
     particle_count = length(result.particles)
     visited_cell_count = count(>(0), result.visit_counts)
     visit_count_total = sum(result.visit_counts)
@@ -629,6 +834,8 @@ function build_preliminary_metrics(result::SimulationResult, space::SimulationSp
         space.width,
         space.height,
         cell_count,
+        domain_cell_count,
+        excluded_background_count,
         obstacle_count,
         free_cell_count,
         particle_count,
@@ -641,7 +848,7 @@ function build_preliminary_metrics(result::SimulationResult, space::SimulationSp
         visited_cell_count,
         visit_count_total,
         max_visits,
-        safe_ratio(visit_count_total, cell_count),
+        safe_ratio(visit_count_total, domain_cell_count),
         safe_ratio(visit_count_total, free_cell_count),
     )
 end
@@ -653,6 +860,8 @@ function write_metrics_json(path::AbstractString, metrics::PreliminarySimulation
         ("width", metrics.width),
         ("height", metrics.height),
         ("cell_count", metrics.cell_count),
+        ("domain_cell_count", metrics.domain_cell_count),
+        ("excluded_background_count", metrics.excluded_background_count),
         ("obstacle_count", metrics.obstacle_count),
         ("free_cell_count", metrics.free_cell_count),
         ("particle_count", metrics.particle_count),
@@ -681,6 +890,22 @@ function write_metrics_json(path::AbstractString, metrics::PreliminarySimulation
     end
 end
 
+function write_domain_mask_pgm(path::AbstractString, domain_mask::BitMatrix)
+    height, width = size(domain_mask)
+
+    open(path, "w") do io
+        println(io, "P2")
+        println(io, "# Mascara del dominio mamario detectado por MammographySimulation")
+        println(io, "$(width) $(height)")
+        println(io, "255")
+
+        for y_index in 1:height
+            row = [domain_mask[y_index, x_index] ? 255 : 0 for x_index in 1:width]
+            println(io, join(row, " "))
+        end
+    end
+end
+
 function write_density_map_pgm(path::AbstractString, visit_counts::Matrix{Int})
     density_values = build_density_values(visit_counts)
     height, width = size(density_values)
@@ -706,13 +931,13 @@ function write_density_matrix_tsv(
     obstacle_grid = build_obstacle_grid(space)
 
     open(path, "w") do io
-        println(io, "x\ty\tvisits\tdensity_value\tis_obstacle")
+        println(io, "x\ty\tvisits\tdensity_value\tis_domain\tis_obstacle")
 
         for y_index in axes(visit_counts, 1)
             for x_index in axes(visit_counts, 2)
                 println(
                     io,
-                    "$(x_index - 1)\t$(y_index - 1)\t$(visit_counts[y_index, x_index])\t$(density_values[y_index, x_index])\t$(obstacle_grid[y_index, x_index])",
+                    "$(x_index - 1)\t$(y_index - 1)\t$(visit_counts[y_index, x_index])\t$(density_values[y_index, x_index])\t$(space.domain_mask[y_index, x_index])\t$(obstacle_grid[y_index, x_index])",
                 )
             end
         end
