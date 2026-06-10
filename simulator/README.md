@@ -2,9 +2,9 @@
 
 Modulo base del simulador mesoscopico del prototipo de analisis mamografico.
 
-Esta version prepara el proyecto Julia, permite leer una entrada `PGM`, convierte la matriz de intensidades en una grilla interna con obstaculos derivados de la imagen, ejecuta una simulacion mesoscopica minima secuencial y genera resultados preliminares.
+Esta version prepara el proyecto Julia, permite leer una entrada `PGM`, detecta una mascara aproximada de region mamaria/ROI, convierte la matriz de intensidades en una grilla interna con fondo exterior excluido y obstaculos derivados de intensidades internas, ejecuta una simulacion mesoscopica minima secuencial y genera resultados preliminares.
 
-La simulacion actual es una primera aproximacion tecnica: inicializa particulas sobre celdas libres, aplica movimiento secuencial con frontera periodica, registra choques contra obstaculos y guarda resultados inspeccionables para las siguientes etapas del prototipo.
+La simulacion actual es una primera aproximacion tecnica: inicializa particulas sobre celdas libres dentro del dominio mamario detectado, aplica movimiento secuencial con frontera periodica controlada por la mascara de dominio, registra choques contra obstaculos o contra el fondo excluido y guarda resultados inspeccionables para las siguientes etapas del prototipo.
 
 ## Ejecucion inicial
 
@@ -31,6 +31,7 @@ simulation_summary.txt
 simulation_state.tsv
 visit_counts.tsv
 metrics.json
+domain_mask.pgm
 density_map.pgm
 density_matrix.tsv
 ```
@@ -40,8 +41,9 @@ density_matrix.tsv
 Los resultados generados en esta etapa son archivos tecnicos pensados para trazabilidad, reproducibilidad y futura visualizacion web:
 
 - `metrics.json`: metricas preliminares de la ejecucion, como cantidad de particulas, obstaculos, movimientos intentados, choques, tasa de colision y conteos de visita.
+- `domain_mask.pgm`: mascara tecnica en escala de grises donde blanco representa el dominio mamario/ROI detectado y negro representa el fondo exterior excluido.
 - `density_map.pgm`: mapa de densidad en escala de grises construido a partir de las visitas por celda durante la simulacion.
-- `density_matrix.tsv`: tabla inspeccionable con coordenadas, visitas, valor normalizado del mapa de densidad y marca de obstaculo.
+- `density_matrix.tsv`: tabla inspeccionable con coordenadas, visitas, valor normalizado del mapa de densidad, marca de dominio y marca de obstaculo.
 
 ## Alcance actual
 
@@ -49,14 +51,18 @@ Los resultados generados en esta etapa son archivos tecnicos pensados para traza
 - Leer archivos PGM `P2` y `P5`.
 - Obtener ancho, alto, valor maximo de gris y matriz de intensidades.
 - Registrar un resumen tecnico de la entrada en `input_summary.txt`.
-- Convertir la matriz de intensidades en una grilla de simulacion.
-- Generar obstaculos a partir de intensidades mayores que cero.
+- Detectar una mascara aproximada de region mamaria/ROI a partir del componente principal.
+- Conservar zonas oscuras internas cuando estan encerradas dentro del contorno detectado.
+- Excluir el fondo exterior de la zona libre de simulacion.
+- Convertir la matriz de intensidades en una grilla de simulacion con dominio, fondo excluido y obstaculos.
+- Generar obstaculos internos a partir de intensidades altas dentro del dominio detectado.
 - Registrar un resumen del espacio en `space_summary.txt`.
 - Exportar una tabla inspeccionable de obstaculos en `obstacles.tsv`.
 - Ejecutar una simulacion minima secuencial con semilla reproducible.
-- Inicializar particulas sobre celdas libres segun una densidad configurable.
+- Inicializar particulas sobre celdas libres del dominio mamario/ROI segun una densidad configurable.
 - Registrar estado final de particulas en `simulation_state.tsv`.
 - Registrar conteo de visitas por celda en `visit_counts.tsv`.
 - Generar metricas preliminares en `metrics.json`.
+- Generar una mascara visual del dominio detectado en `domain_mask.pgm`.
 - Generar un mapa de densidad preliminar en `density_map.pgm`.
 - Exportar la matriz de densidad en `density_matrix.tsv`.

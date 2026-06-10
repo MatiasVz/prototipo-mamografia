@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from ..models import CaseStatus
 from .preview_service import ensure_preview_for_path
@@ -26,7 +26,7 @@ def prepare_simulation_input_for_case(case, upload_folder: str):
         )
 
     with Image.open(preview.absolute_path) as image:
-        simulation_image = image.convert("L")
+        simulation_image = _normalize_simulation_image(image)
         stored_input = store_simulation_input_pgm(
             simulation_image,
             case.id,
@@ -35,6 +35,11 @@ def prepare_simulation_input_for_case(case, upload_folder: str):
 
     _update_case_simulation_input(case, stored_input)
     return stored_input
+
+
+def _normalize_simulation_image(image):
+    grayscale_image = ImageOps.grayscale(image)
+    return ImageOps.autocontrast(grayscale_image)
 
 
 def _ensure_case_is_ready(case):
