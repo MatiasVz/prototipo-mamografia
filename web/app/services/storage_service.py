@@ -103,6 +103,14 @@ def get_case_roi_directory(case_id: int, upload_folder: str):
     return get_case_upload_directory(case_id, upload_folder) / "roi"
 
 
+def get_case_simulation_results_directory(case_id: int, upload_folder: str):
+    return get_case_upload_directory(case_id, upload_folder) / "results"
+
+
+def to_relative_storage_path(path):
+    return _to_relative_storage_path(Path(path))
+
+
 def _clean_original_filename(filename, fallback="mamografia"):
     safe_filename = secure_filename(filename or "")
     return safe_filename or fallback
