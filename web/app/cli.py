@@ -4,6 +4,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from .extensions import db
 from .models import Case, CaseStatus, InputMode
+from .services.simulation_worker_service import (
+    SimulationWorkerError,
+    process_case_simulation,
+)
 
 
 def register_cli_commands(app):
@@ -33,9 +37,9 @@ def register_cli_commands(app):
 
     @app.cli.command("db-upgrade-simulation-fields")
     def db_upgrade_simulation_fields():
-        """Add simulation input fields to an existing local cases table."""
+        """Add simulation input and result fields to an existing local cases table."""
         _ensure_case_tracking_columns()
-        click.echo("Campos de preparacion de simulacion verificados correctamente.")
+        click.echo("Campos de simulacion verificados correctamente.")
 
     @app.cli.command("case-create-sample")
     def case_create_sample():
@@ -80,6 +84,42 @@ def register_cli_commands(app):
         for field_name, value in _case_detail_rows(case):
             click.echo(f"{field_name}: {value}")
 
+    @app.cli.command("case-run-simulation")
+    @click.argument("case_id", type=int)
+    @click.option("--seed", type=int, default=None, help="Semilla reproducible.")
+    @click.option("--steps", type=int, default=None, help="Numero de pasos.")
+    @click.option("--density", type=float, default=None, help="Densidad de particulas.")
+    def case_run_simulation(case_id, seed, steps, density):
+        """Run the Julia simulator for one prepared case."""
+        case = db.session.get(Case, case_id)
+
+        if case is None:
+            raise click.ClickException(f"No existe un caso registrado con id={case_id}.")
+
+        try:
+            result = process_case_simulation(
+                case,
+                app.config,
+                seed=seed,
+                steps=steps,
+                density=density,
+            )
+        except SimulationWorkerError as exc:
+            raise click.ClickException(str(exc)) from exc
+        except SQLAlchemyError as exc:
+            db.session.rollback()
+            raise click.ClickException(
+                f"No se pudo actualizar el estado del caso: {exc}"
+            ) from exc
+
+        click.echo(f"Caso {result.case_id} procesado correctamente.")
+        click.echo(f"status={result.status}")
+        click.echo(f"output_dir={result.output_dir}")
+        click.echo(f"metrics_path={result.metrics_path}")
+        click.echo(f"density_map_path={result.density_map_path}")
+        click.echo(f"simulation_log_path={result.simulation_log_path}")
+        click.echo(f"worker_log_path={result.worker_log_path}")
+
 
 def _format_case_summary(case):
     return (
@@ -94,6 +134,8 @@ def _format_case_summary(case):
         f"roi_size_bytes={case.roi_size_bytes or ''} "
         f"simulation_input_path={case.simulation_input_file_path or ''} "
         f"simulation_input_size_bytes={case.simulation_input_size_bytes or ''} "
+        f"simulation_results_path={case.simulation_results_path or ''} "
+        f"simulation_metrics_path={case.simulation_metrics_file_path or ''} "
         f"status={case.status}"
     )
 
@@ -116,6 +158,10 @@ def _case_detail_rows(case):
         ("simulation_input_file_path", case.simulation_input_file_path or ""),
         ("simulation_input_file_type", case.simulation_input_file_type or ""),
         ("simulation_input_size_bytes", case.simulation_input_size_bytes or ""),
+        ("simulation_results_path", case.simulation_results_path or ""),
+        ("simulation_metrics_file_path", case.simulation_metrics_file_path or ""),
+        ("simulation_density_map_file_path", case.simulation_density_map_file_path or ""),
+        ("simulation_log_file_path", case.simulation_log_file_path or ""),
         ("status", case.status),
         ("error_message", case.error_message or ""),
     )
@@ -138,6 +184,10 @@ def _ensure_case_tracking_columns():
         "simulation_input_file_path": "VARCHAR(500)",
         "simulation_input_file_type": "VARCHAR(50)",
         "simulation_input_size_bytes": "BIGINT",
+        "simulation_results_path": "VARCHAR(500)",
+        "simulation_metrics_file_path": "VARCHAR(500)",
+        "simulation_density_map_file_path": "VARCHAR(500)",
+        "simulation_log_file_path": "VARCHAR(500)",
     }
 
     with db.engine.begin() as connection:

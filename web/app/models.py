@@ -76,6 +76,10 @@ class Case(db.Model):
     simulation_input_file_path = db.Column(db.String(500), nullable=True)
     simulation_input_file_type = db.Column(db.String(50), nullable=True)
     simulation_input_size_bytes = db.Column(db.BigInteger, nullable=True)
+    simulation_results_path = db.Column(db.String(500), nullable=True)
+    simulation_metrics_file_path = db.Column(db.String(500), nullable=True)
+    simulation_density_map_file_path = db.Column(db.String(500), nullable=True)
+    simulation_log_file_path = db.Column(db.String(500), nullable=True)
     status = db.Column(
         db.String(30),
         nullable=False,
@@ -98,6 +102,10 @@ class Case(db.Model):
         simulation_input_file_path=None,
         simulation_input_file_type=None,
         simulation_input_size_bytes=None,
+        simulation_results_path=None,
+        simulation_metrics_file_path=None,
+        simulation_density_map_file_path=None,
+        simulation_log_file_path=None,
         status=CaseStatus.REGISTERED,
         error_message=None,
     ):
@@ -114,6 +122,10 @@ class Case(db.Model):
         setattr(self, "simulation_input_file_path", simulation_input_file_path)
         setattr(self, "simulation_input_file_type", simulation_input_file_type)
         setattr(self, "simulation_input_size_bytes", simulation_input_size_bytes)
+        setattr(self, "simulation_results_path", simulation_results_path)
+        setattr(self, "simulation_metrics_file_path", simulation_metrics_file_path)
+        setattr(self, "simulation_density_map_file_path", simulation_density_map_file_path)
+        setattr(self, "simulation_log_file_path", simulation_log_file_path)
         setattr(self, "status", status)
         setattr(self, "error_message", error_message)
 
@@ -135,6 +147,10 @@ class Case(db.Model):
             "simulation_input_file_path": self.simulation_input_file_path,
             "simulation_input_file_type": self.simulation_input_file_type,
             "simulation_input_size_bytes": self.simulation_input_size_bytes,
+            "simulation_results_path": self.simulation_results_path,
+            "simulation_metrics_file_path": self.simulation_metrics_file_path,
+            "simulation_density_map_file_path": self.simulation_density_map_file_path,
+            "simulation_log_file_path": self.simulation_log_file_path,
             "status": self.status,
             "error_message": self.error_message,
         }

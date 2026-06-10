@@ -27,6 +27,15 @@ def build_upload_folder():
     return str(BASE_DIR / upload_folder)
 
 
+def build_repo_path(value, default_relative_path):
+    configured_path = Path(os.getenv(value, default_relative_path))
+
+    if configured_path.is_absolute():
+        return str(configured_path)
+
+    return str(BASE_DIR / configured_path)
+
+
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
     APP_NAME = os.getenv("APP_NAME", "Prototipo de Analisis Mamografico")
@@ -34,3 +43,13 @@ class Config:
     UPLOAD_FOLDER = build_upload_folder()
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", build_database_url())
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    JULIA_EXECUTABLE = os.getenv("JULIA_EXECUTABLE", "julia")
+    SIMULATOR_PROJECT_PATH = build_repo_path("SIMULATOR_PROJECT_PATH", "simulator")
+    SIMULATOR_RUN_SCRIPT_PATH = build_repo_path(
+        "SIMULATOR_RUN_SCRIPT_PATH",
+        "simulator/scripts/run_case.jl",
+    )
+    SIMULATION_DEFAULT_SEED = int(os.getenv("SIMULATION_DEFAULT_SEED", "1234"))
+    SIMULATION_DEFAULT_STEPS = int(os.getenv("SIMULATION_DEFAULT_STEPS", "10"))
+    SIMULATION_DEFAULT_DENSITY = float(os.getenv("SIMULATION_DEFAULT_DENSITY", "0.25"))
+    SIMULATION_TIMEOUT_SECONDS = int(os.getenv("SIMULATION_TIMEOUT_SECONDS", "600"))
