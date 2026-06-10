@@ -1,4 +1,82 @@
 services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: prototipo-mamografia-app:local
+    container_name: mamografias_web
+    restart: unless-stopped
+    environment:
+      APP_NAME: ${APP_NAME:-Prototipo de Analisis Mamografico}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
+      MAX_CONTENT_LENGTH: ${MAX_CONTENT_LENGTH:-52428800}
+      UPLOAD_FOLDER: /app/storage/uploads
+      FLASK_RUN_HOST: 0.0.0.0
+      FLASK_RUN_PORT: 5000
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-mamografias_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-1234}@db:5432/${POSTGRES_DB:-mamografias_db}
+      JULIA_EXECUTABLE: julia
+      SIMULATOR_PROJECT_PATH: /app/simulator
+      SIMULATOR_RUN_SCRIPT_PATH: /app/simulator/scripts/run_case.jl
+      SIMULATION_DEFAULT_SEED: ${SIMULATION_DEFAULT_SEED:-1234}
+      SIMULATION_DEFAULT_STEPS: ${SIMULATION_DEFAULT_STEPS:-10}
+      SIMULATION_DEFAULT_DENSITY: ${SIMULATION_DEFAULT_DENSITY:-0.25}
+      SIMULATION_TIMEOUT_SECONDS: ${SIMULATION_TIMEOUT_SECONDS:-600}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${WEB_PORT:-5000}:5000"
+    volumes:
+      - ./storage/uploads:/app/storage/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    image: prototipo-mamografia-app:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mamografias_worker
+    restart: unless-stopped
+    entrypoint: ["python3", "worker/worker.py"]
+    command: ["idle"]
+    environment:
+      APP_NAME: ${APP_NAME:-Prototipo de Analisis Mamografico}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
+      MAX_CONTENT_LENGTH: ${MAX_CONTENT_LENGTH:-52428800}
+      UPLOAD_FOLDER: /app/storage/uploads
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-mamografias_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-1234}@db:5432/${POSTGRES_DB:-mamografias_db}
+      JULIA_EXECUTABLE: julia
+      SIMULATOR_PROJECT_PATH: /app/simulator
+      SIMULATOR_RUN_SCRIPT_PATH: /app/simulator/scripts/run_case.jl
+      SIMULATION_DEFAULT_SEED: ${SIMULATION_DEFAULT_SEED:-1234}
+      SIMULATION_DEFAULT_STEPS: ${SIMULATION_DEFAULT_STEPS:-10}
+      SIMULATION_DEFAULT_DENSITY: ${SIMULATION_DEFAULT_DENSITY:-0.25}
+      SIMULATION_TIMEOUT_SECONDS: ${SIMULATION_TIMEOUT_SECONDS:-600}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./storage/uploads:/app/storage/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   db:
     image: postgres:16-alpine
     container_name: mamografias_postgres
@@ -13,6 +91,18 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-mamografias_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: mamografias_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
