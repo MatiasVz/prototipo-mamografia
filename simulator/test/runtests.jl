@@ -46,6 +46,43 @@ using MammographySimulation
     end
 end
 
+@testset "Simulation space builder" begin
+    image = PgmImage(
+        2,
+        2,
+        255,
+        [0 64; 128 255],
+    )
+
+    space = build_simulation_space(image)
+
+    @test space.width == 2
+    @test space.height == 2
+    @test space.max_gray == 255
+    @test space.obstacle_threshold == 1
+    @test size(space.normalized_intensities) == (2, 2)
+    @test space.normalized_intensities[1, 1] == 0.0
+    @test space.normalized_intensities[2, 2] == 1.0
+    @test length(space.obstacles) == 3
+
+    first_obstacle = space.obstacles[1]
+    last_obstacle = space.obstacles[end]
+
+    @test first_obstacle.x == 1
+    @test first_obstacle.y == 0
+    @test first_obstacle.center_x == 1.5
+    @test first_obstacle.center_y == 0.5
+    @test first_obstacle.intensity == 64
+    @test first_obstacle.radius == 0.375
+
+    @test last_obstacle.x == 1
+    @test last_obstacle.y == 1
+    @test last_obstacle.intensity == 255
+    @test last_obstacle.radius ≈ 0.001953125
+
+    @test_throws ArgumentError build_simulation_space(image; obstacle_threshold = 0)
+end
+
 @testset "MammographySimulation CLI base" begin
     mktempdir() do dir
         input_path = joinpath(dir, "simulation_input.pgm")
@@ -65,7 +102,10 @@ end
         @test isfile(result.log_path)
         @test isfile(result.config_path)
         @test isfile(result.summary_path)
-        @test occursin("status=pgm_read_ready", read(result.log_path, String))
+        @test isfile(result.space_summary_path)
+        @test isfile(result.obstacles_path)
+        @test occursin("status=simulation_space_ready", read(result.log_path, String))
         @test occursin("width=1", read(result.summary_path, String))
+        @test occursin("obstacle_count=0", read(result.space_summary_path, String))
     end
 end
