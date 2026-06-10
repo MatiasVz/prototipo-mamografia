@@ -18,6 +18,13 @@ def build_database_url():
     return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{database}"
 
 
+def build_redis_url():
+    host = os.getenv("REDIS_HOST", "localhost")
+    port = os.getenv("REDIS_PORT", "6379")
+
+    return f"redis://{host}:{port}/0"
+
+
 def build_upload_folder():
     upload_folder = Path(os.getenv("UPLOAD_FOLDER", "storage/uploads"))
 
@@ -53,3 +60,6 @@ class Config:
     SIMULATION_DEFAULT_STEPS = int(os.getenv("SIMULATION_DEFAULT_STEPS", "10"))
     SIMULATION_DEFAULT_DENSITY = float(os.getenv("SIMULATION_DEFAULT_DENSITY", "0.25"))
     SIMULATION_TIMEOUT_SECONDS = int(os.getenv("SIMULATION_TIMEOUT_SECONDS", "600"))
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_URL = os.getenv("REDIS_URL", build_redis_url())

@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 import sys
+import time
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -35,10 +36,19 @@ def main(argv=None):
     process_parser.add_argument("--steps", type=int, default=None)
     process_parser.add_argument("--density", type=float, default=None)
 
+    idle_parser = subparsers.add_parser(
+        "idle",
+        help="Mantiene el contenedor worker activo hasta integrar la cola.",
+    )
+    idle_parser.add_argument("--interval", type=int, default=60)
+
     args = parser.parse_args(argv)
 
     if args.command == "process-case":
         return process_case(args)
+
+    if args.command == "idle":
+        return idle(args)
 
     parser.error("Comando no reconocido.")
     return 1
@@ -78,6 +88,16 @@ def process_case(args):
     print(f"simulation_log_path={result.simulation_log_path}")
     print(f"worker_log_path={result.worker_log_path}")
     return 0
+
+
+def idle(args):
+    print(
+        "Worker listo. Modo idle activo hasta integrar la cola Redis.",
+        flush=True,
+    )
+
+    while True:
+        time.sleep(max(1, args.interval))
 
 
 if __name__ == "__main__":
