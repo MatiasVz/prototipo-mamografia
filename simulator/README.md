@@ -2,9 +2,9 @@
 
 Modulo base del simulador mesoscopico del prototipo de analisis mamografico.
 
-Esta version prepara el proyecto Julia, permite leer una entrada `PGM`, convierte la matriz de intensidades en una grilla interna con obstaculos derivados de la imagen y ejecuta una simulacion mesoscopica minima secuencial.
+Esta version prepara el proyecto Julia, permite leer una entrada `PGM`, convierte la matriz de intensidades en una grilla interna con obstaculos derivados de la imagen, ejecuta una simulacion mesoscopica minima secuencial y genera resultados preliminares.
 
-La simulacion actual es una primera aproximacion tecnica: inicializa particulas sobre celdas libres, aplica movimiento secuencial con frontera periodica, registra choques contra obstaculos y guarda estado interno para las siguientes etapas del prototipo.
+La simulacion actual es una primera aproximacion tecnica: inicializa particulas sobre celdas libres, aplica movimiento secuencial con frontera periodica, registra choques contra obstaculos y guarda resultados inspeccionables para las siguientes etapas del prototipo.
 
 ## Ejecucion inicial
 
@@ -30,7 +30,18 @@ obstacles.tsv
 simulation_summary.txt
 simulation_state.tsv
 visit_counts.tsv
+metrics.json
+density_map.pgm
+density_matrix.tsv
 ```
+
+## Resultados preliminares
+
+Los resultados generados en esta etapa son archivos tecnicos pensados para trazabilidad, reproducibilidad y futura visualizacion web:
+
+- `metrics.json`: metricas preliminares de la ejecucion, como cantidad de particulas, obstaculos, movimientos intentados, choques, tasa de colision y conteos de visita.
+- `density_map.pgm`: mapa de densidad en escala de grises construido a partir de las visitas por celda durante la simulacion.
+- `density_matrix.tsv`: tabla inspeccionable con coordenadas, visitas, valor normalizado del mapa de densidad y marca de obstaculo.
 
 ## Alcance actual
 
@@ -46,3 +57,6 @@ visit_counts.tsv
 - Inicializar particulas sobre celdas libres segun una densidad configurable.
 - Registrar estado final de particulas en `simulation_state.tsv`.
 - Registrar conteo de visitas por celda en `visit_counts.tsv`.
+- Generar metricas preliminares en `metrics.json`.
+- Generar un mapa de densidad preliminar en `density_map.pgm`.
+- Exportar la matriz de densidad en `density_matrix.tsv`.

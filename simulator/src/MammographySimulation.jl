@@ -6,12 +6,15 @@ using Random
 export PgmImage,
     SimulationObstacle,
     SimulationParticle,
+    PreliminarySimulationMetrics,
+    PreliminarySimulationResults,
     SimulationResult,
     SimulationSpace,
     SimulationRunConfig,
     read_pgm,
     build_simulation_space,
     run_minimal_simulation,
+    generate_preliminary_results,
     parse_cli_args,
     run_case,
     cli_main
@@ -56,6 +59,35 @@ struct SimulationResult
     visit_counts::Matrix{Int}
     attempted_moves::Int
     collision_count::Int
+end
+
+struct PreliminarySimulationMetrics
+    status::String
+    simulation_model::String
+    width::Int
+    height::Int
+    cell_count::Int
+    obstacle_count::Int
+    free_cell_count::Int
+    particle_count::Int
+    steps::Int
+    seed::Int
+    particle_density::Float64
+    attempted_moves::Int
+    collision_count::Int
+    collision_rate::Float64
+    visited_cell_count::Int
+    visit_count_total::Int
+    max_visits::Int
+    mean_visits_per_cell::Float64
+    mean_visits_per_free_cell::Float64
+end
+
+struct PreliminarySimulationResults
+    metrics_path::String
+    density_map_path::String
+    density_matrix_path::String
+    metrics::PreliminarySimulationMetrics
 end
 
 const DEFAULT_OBSTACLE_THRESHOLD = 1
@@ -175,7 +207,7 @@ function run_case(config::SimulationRunConfig)
 
     open(log_path, "w") do io
         println(io, "MammographySimulation")
-        println(io, "status=minimal_simulation_ready")
+        println(io, "status=preliminary_results_ready")
         println(io, "created_at=$(timestamp)")
         println(io, "input_path=$(input_path)")
         println(io, "output_dir=$(output_dir)")
@@ -190,7 +222,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "particle_count=$(length(simulation_result.particles))")
         println(io, "attempted_moves=$(simulation_result.attempted_moves)")
         println(io, "collision_count=$(simulation_result.collision_count)")
-        println(io, "message=Simulacion minima secuencial ejecutada. La generacion formal de resultados se implementara en issues posteriores.")
+        println(io, "message=Simulacion minima secuencial ejecutada y resultados preliminares generados.")
     end
 
     open(config_path, "w") do io
@@ -220,6 +252,7 @@ function run_case(config::SimulationRunConfig)
     write_simulation_summary(simulation_summary_path, simulation_result, simulation_space)
     write_simulation_state(simulation_state_path, simulation_result.particles)
     write_visit_counts(visit_counts_path, simulation_result.visit_counts)
+    preliminary_results = generate_preliminary_results(output_dir, simulation_result, simulation_space)
 
     return (
         log_path = log_path,
@@ -230,9 +263,13 @@ function run_case(config::SimulationRunConfig)
         simulation_summary_path = simulation_summary_path,
         simulation_state_path = simulation_state_path,
         visit_counts_path = visit_counts_path,
+        metrics_path = preliminary_results.metrics_path,
+        density_map_path = preliminary_results.density_map_path,
+        density_matrix_path = preliminary_results.density_matrix_path,
         image = pgm_image,
         space = simulation_space,
         simulation = simulation_result,
+        preliminary_results = preliminary_results,
     )
 end
 
@@ -255,6 +292,9 @@ function cli_main(args::Vector{String} = ARGS)
         println("simulation_summary_path=$(result.simulation_summary_path)")
         println("simulation_state_path=$(result.simulation_state_path)")
         println("visit_counts_path=$(result.visit_counts_path)")
+        println("metrics_path=$(result.metrics_path)")
+        println("density_map_path=$(result.density_map_path)")
+        println("density_matrix_path=$(result.density_matrix_path)")
         return 0
     catch error
         println(stderr, "Error: $(error)")
@@ -548,6 +588,179 @@ function write_visit_counts(path::AbstractString, visit_counts::Matrix{Int})
             end
         end
     end
+end
+
+function generate_preliminary_results(
+    output_dir::AbstractString,
+    result::SimulationResult,
+    space::SimulationSpace,
+)
+    mkpath(output_dir)
+
+    metrics = build_preliminary_metrics(result, space)
+    metrics_path = joinpath(output_dir, "metrics.json")
+    density_map_path = joinpath(output_dir, "density_map.pgm")
+    density_matrix_path = joinpath(output_dir, "density_matrix.tsv")
+
+    write_metrics_json(metrics_path, metrics)
+    write_density_map_pgm(density_map_path, result.visit_counts)
+    write_density_matrix_tsv(density_matrix_path, result.visit_counts, space)
+
+    return PreliminarySimulationResults(
+        metrics_path,
+        density_map_path,
+        density_matrix_path,
+        metrics,
+    )
+end
+
+function build_preliminary_metrics(result::SimulationResult, space::SimulationSpace)
+    cell_count = space.width * space.height
+    obstacle_count = length(space.obstacles)
+    free_cell_count = cell_count - obstacle_count
+    particle_count = length(result.particles)
+    visited_cell_count = count(>(0), result.visit_counts)
+    visit_count_total = sum(result.visit_counts)
+    max_visits = maximum(result.visit_counts)
+
+    return PreliminarySimulationMetrics(
+        "preliminary_results_ready",
+        "sequential_minimal_random_walk",
+        space.width,
+        space.height,
+        cell_count,
+        obstacle_count,
+        free_cell_count,
+        particle_count,
+        result.steps,
+        result.seed,
+        result.particle_density,
+        result.attempted_moves,
+        result.collision_count,
+        safe_ratio(result.collision_count, result.attempted_moves),
+        visited_cell_count,
+        visit_count_total,
+        max_visits,
+        safe_ratio(visit_count_total, cell_count),
+        safe_ratio(visit_count_total, free_cell_count),
+    )
+end
+
+function write_metrics_json(path::AbstractString, metrics::PreliminarySimulationMetrics)
+    fields = [
+        ("status", metrics.status),
+        ("simulation_model", metrics.simulation_model),
+        ("width", metrics.width),
+        ("height", metrics.height),
+        ("cell_count", metrics.cell_count),
+        ("obstacle_count", metrics.obstacle_count),
+        ("free_cell_count", metrics.free_cell_count),
+        ("particle_count", metrics.particle_count),
+        ("steps", metrics.steps),
+        ("seed", metrics.seed),
+        ("particle_density", metrics.particle_density),
+        ("attempted_moves", metrics.attempted_moves),
+        ("collision_count", metrics.collision_count),
+        ("collision_rate", metrics.collision_rate),
+        ("visited_cell_count", metrics.visited_cell_count),
+        ("visit_count_total", metrics.visit_count_total),
+        ("max_visits", metrics.max_visits),
+        ("mean_visits_per_cell", metrics.mean_visits_per_cell),
+        ("mean_visits_per_free_cell", metrics.mean_visits_per_free_cell),
+    ]
+
+    open(path, "w") do io
+        println(io, "{")
+
+        for (index, (key, value)) in enumerate(fields)
+            suffix = index == length(fields) ? "" : ","
+            println(io, "  \"$(key)\": $(json_value(value))$(suffix)")
+        end
+
+        println(io, "}")
+    end
+end
+
+function write_density_map_pgm(path::AbstractString, visit_counts::Matrix{Int})
+    density_values = build_density_values(visit_counts)
+    height, width = size(density_values)
+
+    open(path, "w") do io
+        println(io, "P2")
+        println(io, "# Mapa de densidad preliminar generado por MammographySimulation")
+        println(io, "$(width) $(height)")
+        println(io, "255")
+
+        for y_index in 1:height
+            println(io, join(vec(density_values[y_index, :]), " "))
+        end
+    end
+end
+
+function write_density_matrix_tsv(
+    path::AbstractString,
+    visit_counts::Matrix{Int},
+    space::SimulationSpace,
+)
+    density_values = build_density_values(visit_counts)
+    obstacle_grid = build_obstacle_grid(space)
+
+    open(path, "w") do io
+        println(io, "x\ty\tvisits\tdensity_value\tis_obstacle")
+
+        for y_index in axes(visit_counts, 1)
+            for x_index in axes(visit_counts, 2)
+                println(
+                    io,
+                    "$(x_index - 1)\t$(y_index - 1)\t$(visit_counts[y_index, x_index])\t$(density_values[y_index, x_index])\t$(obstacle_grid[y_index, x_index])",
+                )
+            end
+        end
+    end
+end
+
+function build_density_values(visit_counts::Matrix{Int})
+    max_visits = maximum(visit_counts)
+    density_values = zeros(Int, size(visit_counts))
+
+    if max_visits == 0
+        return density_values
+    end
+
+    for index in eachindex(visit_counts)
+        density_values[index] = round(Int, visit_counts[index] / max_visits * 255)
+    end
+
+    return density_values
+end
+
+function safe_ratio(numerator::Real, denominator::Real)
+    if denominator == 0
+        return 0.0
+    end
+
+    return numerator / denominator
+end
+
+function json_value(value::String)
+    escaped = replace(value, "\\" => "\\\\", "\"" => "\\\"", "\n" => "\\n")
+    return "\"$(escaped)\""
+end
+
+function json_value(value::Integer)
+    return string(value)
+end
+
+function json_value(value::AbstractFloat)
+    if !isfinite(value)
+        return "null"
+    end
+
+    return string(value)
+end
+
+function json_value(value::Bool)
+    return value ? "true" : "false"
 end
 
 function read_ascii_pgm_pixels(bytes::Vector{UInt8}, index::Int, pixel_count::Int, max_gray::Int)
