@@ -83,18 +83,68 @@ end
     @test_throws ArgumentError build_simulation_space(image; obstacle_threshold = 0)
 end
 
+@testset "Minimal sequential simulation" begin
+    image = PgmImage(
+        3,
+        2,
+        255,
+        [0 255 0; 0 0 255],
+    )
+
+    space = build_simulation_space(image)
+
+    result_a = run_minimal_simulation(
+        space;
+        seed = 7,
+        steps = 5,
+        particle_density = 0.5,
+    )
+    result_b = run_minimal_simulation(
+        space;
+        seed = 7,
+        steps = 5,
+        particle_density = 0.5,
+    )
+
+    positions_a = [(particle.id, particle.x, particle.y) for particle in result_a.particles]
+    positions_b = [(particle.id, particle.x, particle.y) for particle in result_b.particles]
+
+    @test result_a.steps == 5
+    @test result_a.seed == 7
+    @test result_a.particle_density == 0.5
+    @test length(result_a.particles) == 2
+    @test result_a.attempted_moves == 10
+    @test result_a.collision_count >= 0
+    @test result_a.visit_counts == result_b.visit_counts
+    @test positions_a == positions_b
+
+    empty_result = run_minimal_simulation(
+        space;
+        seed = 7,
+        steps = 5,
+        particle_density = 0.0,
+    )
+
+    @test isempty(empty_result.particles)
+    @test empty_result.attempted_moves == 0
+    @test sum(empty_result.visit_counts) == 0
+    @test_throws ArgumentError run_minimal_simulation(space; steps = -1)
+    @test_throws ArgumentError run_minimal_simulation(space; particle_density = 1.1)
+end
+
 @testset "MammographySimulation CLI base" begin
     mktempdir() do dir
         input_path = joinpath(dir, "simulation_input.pgm")
         output_dir = joinpath(dir, "results")
 
-        write(input_path, "P2\n1 1\n255\n0\n")
+        write(input_path, "P2\n2 2\n255\n0 0\n0 255\n")
 
         config = SimulationRunConfig(
             input_path = input_path,
             output_dir = output_dir,
             seed = 42,
-            steps = 0,
+            steps = 3,
+            particle_density = 0.5,
         )
 
         result = run_case(config)
@@ -104,8 +154,13 @@ end
         @test isfile(result.summary_path)
         @test isfile(result.space_summary_path)
         @test isfile(result.obstacles_path)
-        @test occursin("status=simulation_space_ready", read(result.log_path, String))
-        @test occursin("width=1", read(result.summary_path, String))
-        @test occursin("obstacle_count=0", read(result.space_summary_path, String))
+        @test isfile(result.simulation_summary_path)
+        @test isfile(result.simulation_state_path)
+        @test isfile(result.visit_counts_path)
+        @test occursin("status=minimal_simulation_ready", read(result.log_path, String))
+        @test occursin("width=2", read(result.summary_path, String))
+        @test occursin("obstacle_count=1", read(result.space_summary_path, String))
+        @test occursin("particle_count=2", read(result.simulation_summary_path, String))
+        @test occursin("attempted_moves=6", read(result.simulation_summary_path, String))
     end
 end

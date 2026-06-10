@@ -1,13 +1,17 @@
 module MammographySimulation
 
 using Dates
+using Random
 
 export PgmImage,
     SimulationObstacle,
+    SimulationParticle,
+    SimulationResult,
     SimulationSpace,
     SimulationRunConfig,
     read_pgm,
     build_simulation_space,
+    run_minimal_simulation,
     parse_cli_args,
     run_case,
     cli_main
@@ -38,28 +42,46 @@ struct SimulationSpace
     obstacles::Vector{SimulationObstacle}
 end
 
+mutable struct SimulationParticle
+    id::Int
+    x::Int
+    y::Int
+end
+
+struct SimulationResult
+    steps::Int
+    seed::Int
+    particle_density::Float64
+    particles::Vector{SimulationParticle}
+    visit_counts::Matrix{Int}
+    attempted_moves::Int
+    collision_count::Int
+end
+
 const DEFAULT_OBSTACLE_THRESHOLD = 1
 
 Base.@kwdef struct SimulationRunConfig
     input_path::String
     output_dir::String
     seed::Int = 1234
-    steps::Int = 0
+    steps::Int = 10
+    particle_density::Float64 = 0.25
 end
 
 const USAGE = """
 Uso:
-  julia --project=simulator simulator/scripts/run_case.jl --input <archivo.pgm> --output <directorio> [--seed <entero>] [--steps <entero>]
+  julia --project=simulator simulator/scripts/run_case.jl --input <archivo.pgm> --output <directorio> [--seed <entero>] [--steps <entero>] [--density <decimal>]
 
 Opciones:
-  --input   Ruta del archivo PGM preparado para simulacion.
-  --output  Directorio donde se escribiran los resultados.
-  --seed    Semilla reproducible para etapas posteriores. Por defecto: 1234.
-  --steps   Numero de pasos de simulacion. Por defecto: 0.
-  --help    Muestra esta ayuda.
+  --input    Ruta del archivo PGM preparado para simulacion.
+  --output   Directorio donde se escribiran los resultados.
+  --seed     Semilla reproducible para etapas posteriores. Por defecto: 1234.
+  --steps    Numero de pasos de simulacion. Por defecto: 10.
+  --density  Densidad inicial de particulas sobre celdas libres. Por defecto: 0.25.
+  --help     Muestra esta ayuda.
 """
 
-const VALUE_OPTIONS = Set(["--input", "--output", "--seed", "--steps"])
+const VALUE_OPTIONS = Set(["--input", "--output", "--seed", "--steps", "--density"])
 
 function parse_cli_args(args::Vector{String})
     if any(arg -> arg in ("--help", "-h"), args)
@@ -107,10 +129,15 @@ function parse_cli_args(args::Vector{String})
     end
 
     seed = parse_integer_option(get(options, "--seed", "1234"), "--seed")
-    steps = parse_integer_option(get(options, "--steps", "0"), "--steps")
+    steps = parse_integer_option(get(options, "--steps", "10"), "--steps")
+    particle_density = parse_float_option(get(options, "--density", "0.25"), "--density")
 
     if steps < 0
         throw(ArgumentError("La opcion --steps no puede ser negativa."))
+    end
+
+    if !(0.0 <= particle_density <= 1.0)
+        throw(ArgumentError("La opcion --density debe estar entre 0.0 y 1.0."))
     end
 
     return SimulationRunConfig(
@@ -118,6 +145,7 @@ function parse_cli_args(args::Vector{String})
         output_dir = output_dir,
         seed = seed,
         steps = steps,
+        particle_density = particle_density,
     )
 end
 
@@ -126,6 +154,12 @@ function run_case(config::SimulationRunConfig)
     output_dir = abspath(config.output_dir)
     pgm_image = read_pgm(input_path)
     simulation_space = build_simulation_space(pgm_image)
+    simulation_result = run_minimal_simulation(
+        simulation_space;
+        seed = config.seed,
+        steps = config.steps,
+        particle_density = config.particle_density,
+    )
 
     mkpath(output_dir)
 
@@ -135,10 +169,13 @@ function run_case(config::SimulationRunConfig)
     summary_path = joinpath(output_dir, "input_summary.txt")
     space_summary_path = joinpath(output_dir, "space_summary.txt")
     obstacles_path = joinpath(output_dir, "obstacles.tsv")
+    simulation_summary_path = joinpath(output_dir, "simulation_summary.txt")
+    simulation_state_path = joinpath(output_dir, "simulation_state.tsv")
+    visit_counts_path = joinpath(output_dir, "visit_counts.tsv")
 
     open(log_path, "w") do io
         println(io, "MammographySimulation")
-        println(io, "status=simulation_space_ready")
+        println(io, "status=minimal_simulation_ready")
         println(io, "created_at=$(timestamp)")
         println(io, "input_path=$(input_path)")
         println(io, "output_dir=$(output_dir)")
@@ -149,7 +186,11 @@ function run_case(config::SimulationRunConfig)
         println(io, "obstacle_threshold=$(simulation_space.obstacle_threshold)")
         println(io, "seed=$(config.seed)")
         println(io, "steps=$(config.steps)")
-        println(io, "message=PGM convertido a espacio de simulacion. La dinamica mesoscopica se implementara en issues posteriores.")
+        println(io, "particle_density=$(config.particle_density)")
+        println(io, "particle_count=$(length(simulation_result.particles))")
+        println(io, "attempted_moves=$(simulation_result.attempted_moves)")
+        println(io, "collision_count=$(simulation_result.collision_count)")
+        println(io, "message=Simulacion minima secuencial ejecutada. La generacion formal de resultados se implementara en issues posteriores.")
     end
 
     open(config_path, "w") do io
@@ -161,6 +202,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "obstacle_threshold=$(simulation_space.obstacle_threshold)")
         println(io, "seed=$(config.seed)")
         println(io, "steps=$(config.steps)")
+        println(io, "particle_density=$(config.particle_density)")
         println(io, "created_at=$(timestamp)")
     end
 
@@ -175,6 +217,9 @@ function run_case(config::SimulationRunConfig)
 
     write_space_summary(space_summary_path, simulation_space)
     write_obstacles_tsv(obstacles_path, simulation_space.obstacles)
+    write_simulation_summary(simulation_summary_path, simulation_result, simulation_space)
+    write_simulation_state(simulation_state_path, simulation_result.particles)
+    write_visit_counts(visit_counts_path, simulation_result.visit_counts)
 
     return (
         log_path = log_path,
@@ -182,8 +227,12 @@ function run_case(config::SimulationRunConfig)
         summary_path = summary_path,
         space_summary_path = space_summary_path,
         obstacles_path = obstacles_path,
+        simulation_summary_path = simulation_summary_path,
+        simulation_state_path = simulation_state_path,
+        visit_counts_path = visit_counts_path,
         image = pgm_image,
         space = simulation_space,
+        simulation = simulation_result,
     )
 end
 
@@ -197,12 +246,15 @@ function cli_main(args::Vector{String} = ARGS)
         end
 
         result = run_case(config)
-        println("Conversion de PGM a espacio de simulacion ejecutada correctamente.")
+        println("Simulacion mesoscopica minima ejecutada correctamente.")
         println("log_path=$(result.log_path)")
         println("config_path=$(result.config_path)")
         println("summary_path=$(result.summary_path)")
         println("space_summary_path=$(result.space_summary_path)")
         println("obstacles_path=$(result.obstacles_path)")
+        println("simulation_summary_path=$(result.simulation_summary_path)")
+        println("simulation_state_path=$(result.simulation_state_path)")
+        println("visit_counts_path=$(result.visit_counts_path)")
         return 0
     catch error
         println(stderr, "Error: $(error)")
@@ -217,6 +269,14 @@ function parse_integer_option(value::String, option_name::String)
         return parse(Int, value)
     catch
         throw(ArgumentError("La opcion $(option_name) debe ser un entero."))
+    end
+end
+
+function parse_float_option(value::String, option_name::String)
+    try
+        return parse(Float64, value)
+    catch
+        throw(ArgumentError("La opcion $(option_name) debe ser un numero decimal."))
     end
 end
 
@@ -301,6 +361,110 @@ function build_simulation_space(
     )
 end
 
+function run_minimal_simulation(
+    space::SimulationSpace;
+    seed::Int = 1234,
+    steps::Int = 10,
+    particle_density::Float64 = 0.25,
+)
+    if steps < 0
+        throw(ArgumentError("El numero de pasos de simulacion no puede ser negativo."))
+    end
+
+    if !(0.0 <= particle_density <= 1.0)
+        throw(ArgumentError("La densidad inicial de particulas debe estar entre 0.0 y 1.0."))
+    end
+
+    rng = Random.MersenneTwister(seed)
+    obstacle_grid = build_obstacle_grid(space)
+    free_cells = collect_free_cells(obstacle_grid)
+    particle_count = determine_particle_count(length(free_cells), particle_density)
+    particles = initialize_particles(free_cells, particle_count, rng)
+    visit_counts = zeros(Int, space.height, space.width)
+
+    for particle in particles
+        visit_counts[particle.y + 1, particle.x + 1] += 1
+    end
+
+    attempted_moves = 0
+    collision_count = 0
+    directions = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+    for _step in 1:steps
+        for particle in particles
+            dx, dy = directions[rand(rng, 1:length(directions))]
+            next_x = mod(particle.x + dx, space.width)
+            next_y = mod(particle.y + dy, space.height)
+
+            attempted_moves += 1
+
+            if obstacle_grid[next_y + 1, next_x + 1]
+                collision_count += 1
+            else
+                particle.x = next_x
+                particle.y = next_y
+                visit_counts[particle.y + 1, particle.x + 1] += 1
+            end
+        end
+    end
+
+    return SimulationResult(
+        steps,
+        seed,
+        particle_density,
+        particles,
+        visit_counts,
+        attempted_moves,
+        collision_count,
+    )
+end
+
+function build_obstacle_grid(space::SimulationSpace)
+    obstacle_grid = falses(space.height, space.width)
+
+    for obstacle in space.obstacles
+        obstacle_grid[obstacle.y + 1, obstacle.x + 1] = true
+    end
+
+    return obstacle_grid
+end
+
+function collect_free_cells(obstacle_grid::BitMatrix)
+    height, width = size(obstacle_grid)
+    free_cells = Tuple{Int,Int}[]
+
+    for y_index in 1:height
+        for x_index in 1:width
+            if !obstacle_grid[y_index, x_index]
+                push!(free_cells, (x_index - 1, y_index - 1))
+            end
+        end
+    end
+
+    return free_cells
+end
+
+function determine_particle_count(free_cell_count::Int, particle_density::Float64)
+    if free_cell_count == 0 || particle_density == 0.0
+        return 0
+    end
+
+    return min(free_cell_count, max(1, round(Int, free_cell_count * particle_density)))
+end
+
+function initialize_particles(free_cells::Vector{Tuple{Int,Int}}, particle_count::Int, rng::Random.AbstractRNG)
+    if particle_count == 0
+        return SimulationParticle[]
+    end
+
+    selected_cells = Random.shuffle(rng, free_cells)[1:particle_count]
+
+    return [
+        SimulationParticle(index, x, y)
+        for (index, (x, y)) in enumerate(selected_cells)
+    ]
+end
+
 function obstacle_radius(intensity::Int, max_gray::Int)
     # Mirrors the mammography radius idea used by the C reference while allowing arbitrary PGM max_gray values.
     return 0.5 - (intensity / (max_gray + 1)) * 0.5
@@ -343,6 +507,45 @@ function write_obstacles_tsv(path::AbstractString, obstacles::Vector{SimulationO
                 io,
                 "$(obstacle.x)\t$(obstacle.y)\t$(obstacle.center_x)\t$(obstacle.center_y)\t$(obstacle.intensity)\t$(obstacle.normalized_intensity)\t$(obstacle.radius)",
             )
+        end
+    end
+end
+
+function write_simulation_summary(path::AbstractString, result::SimulationResult, space::SimulationSpace)
+    free_cell_count = space.width * space.height - length(space.obstacles)
+
+    open(path, "w") do io
+        println(io, "steps=$(result.steps)")
+        println(io, "seed=$(result.seed)")
+        println(io, "particle_density=$(result.particle_density)")
+        println(io, "particle_count=$(length(result.particles))")
+        println(io, "free_cell_count=$(free_cell_count)")
+        println(io, "attempted_moves=$(result.attempted_moves)")
+        println(io, "collision_count=$(result.collision_count)")
+        println(io, "visited_cell_count=$(count(>(0), result.visit_counts))")
+        println(io, "visit_count_total=$(sum(result.visit_counts))")
+        println(io, "simulation_model=sequential_minimal_random_walk")
+    end
+end
+
+function write_simulation_state(path::AbstractString, particles::Vector{SimulationParticle})
+    open(path, "w") do io
+        println(io, "id\tx\ty")
+
+        for particle in particles
+            println(io, "$(particle.id)\t$(particle.x)\t$(particle.y)")
+        end
+    end
+end
+
+function write_visit_counts(path::AbstractString, visit_counts::Matrix{Int})
+    open(path, "w") do io
+        println(io, "x\ty\tvisits")
+
+        for y_index in axes(visit_counts, 1)
+            for x_index in axes(visit_counts, 2)
+                println(io, "$(x_index - 1)\t$(y_index - 1)\t$(visit_counts[y_index, x_index])")
+            end
         end
     end
 end
