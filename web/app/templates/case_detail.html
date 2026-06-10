@@ -70,8 +70,49 @@
             <dt>Entrada PGM</dt>
             <dd>{{ pgm_state_label }}</dd>
           </div>
+          <div>
+            <dt>Resultados</dt>
+            <dd>{{ simulation_result_state_label }}</dd>
+          </div>
         </dl>
       </div>
+
+      <section class="simulation-results" aria-labelledby="simulation-results-title">
+        <div class="simulation-results__header">
+          <div>
+            <p class="eyebrow">Resultados preliminares</p>
+            <h3 id="simulation-results-title">{{ simulation_results_status_title }}</h3>
+          </div>
+        </div>
+        <p class="simulation-results__message">{{ simulation_results_status_message }}</p>
+
+        {% if simulation_density_map_url or simulation_metrics %}
+          <div class="simulation-results__content">
+            {% if simulation_density_map_url %}
+              <div class="density-map">
+                <h4>Mapa de densidad</h4>
+                <div class="density-map__frame">
+                  <img
+                    src="{{ simulation_density_map_url }}"
+                    alt="Mapa de densidad generado para el caso #{{ case.id }}"
+                  >
+                </div>
+              </div>
+            {% endif %}
+
+            {% if simulation_metrics %}
+              <dl class="metric-summary" aria-label="Metricas preliminares">
+                {% for metric in simulation_metrics %}
+                  <div class="metric-summary__item">
+                    <dt>{{ metric.label }}</dt>
+                    <dd>{{ metric.value }}</dd>
+                  </div>
+                {% endfor %}
+              </dl>
+            {% endif %}
+          </div>
+        {% endif %}
+      </section>
 
       <details class="detail-tech">
         <summary>Datos tecnicos y trazabilidad</summary>
@@ -124,6 +165,36 @@
               <div>
                 <dt>Tamano PGM</dt>
                 <dd>{{ simulation_input_file_size }}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div class="detail-group">
+            <h3 class="detail-group__title">Resultados de simulacion</h3>
+            <dl class="detail-list">
+              <div>
+                <dt>Carpeta de resultados</dt>
+                <dd class="detail-path">
+                  {{ case.simulation_results_path or "Pendiente de generar" }}
+                </dd>
+              </div>
+              <div>
+                <dt>Metricas</dt>
+                <dd class="detail-path">
+                  {{ case.simulation_metrics_file_path or "Pendiente de generar" }}
+                </dd>
+              </div>
+              <div>
+                <dt>Mapa de densidad</dt>
+                <dd class="detail-path">
+                  {{ case.simulation_density_map_file_path or "Pendiente de generar" }}
+                </dd>
+              </div>
+              <div>
+                <dt>Log de simulacion</dt>
+                <dd class="detail-path">
+                  {{ case.simulation_log_file_path or "Pendiente de generar" }}
+                </dd>
               </div>
             </dl>
           </div>

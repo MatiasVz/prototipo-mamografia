@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from flask import (
@@ -29,6 +30,16 @@ from ..services.upload_error_service import (
 
 
 upload_bp = Blueprint("upload", __name__, url_prefix="/mamografias")
+
+SIMULATION_METRIC_FIELDS = (
+    ("Particulas", "particle_count", "integer"),
+    ("Pasos", "steps", "integer"),
+    ("Obstaculos", "obstacle_count", "integer"),
+    ("Celdas visitadas", "visited_cell_count", "integer"),
+    ("Choques", "collision_count", "integer"),
+    ("Tasa de colision", "collision_rate", "percent"),
+    ("Maximo de visitas", "max_visits", "integer"),
+)
 
 
 @upload_bp.route("/cargar", methods=["GET", "POST"])
@@ -95,6 +106,8 @@ def case_detail(case_id):
         abort(404)
 
     preview = _get_case_preview(case)
+    simulation_metrics = _get_simulation_metrics(case)
+    simulation_density_map_url = _get_simulation_density_map_url(case)
 
     return render_template(
         "case_detail.html",
@@ -109,6 +122,11 @@ def case_detail(case_id):
         file_type_label=_format_file_type(case.file_type),
         roi_state_label=_get_roi_state_label(case),
         pgm_state_label=_get_pgm_state_label(case),
+        simulation_result_state_label=_get_simulation_result_state_label(case),
+        simulation_metrics=simulation_metrics,
+        simulation_density_map_url=simulation_density_map_url,
+        simulation_results_status_title=_get_simulation_results_status_title(case),
+        simulation_results_status_message=_get_simulation_results_status_message(case),
         case_flow_steps=_get_case_flow_steps(case),
         can_confirm_roi=_can_confirm_roi(case),
         can_crop_roi=_can_crop_roi(case, preview),
@@ -254,6 +272,26 @@ def case_roi_preview(case_id):
         abort(404)
 
     preview = ensure_preview_for_path(roi_path)
+
+    if preview is None:
+        abort(404)
+
+    return send_file(preview.absolute_path, mimetype=preview.mimetype)
+
+
+@upload_bp.get("/casos/<int:case_id>/simulacion/mapa-densidad")
+def case_simulation_density_map(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    density_map_path = _resolve_storage_path(case.simulation_density_map_file_path)
+
+    if density_map_path is None or not density_map_path.exists():
+        abort(404)
+
+    preview = ensure_preview_for_path(density_map_path)
 
     if preview is None:
         abort(404)
@@ -415,6 +453,12 @@ def _get_case_flow_steps(case):
             "detail": _get_pgm_flow_detail(case),
             "state": _get_pgm_flow_state(case),
         },
+        {
+            "number": "4",
+            "title": "Resultados",
+            "detail": _get_results_flow_detail(case),
+            "state": _get_results_flow_state(case),
+        },
     )
 
 
@@ -456,6 +500,41 @@ def _get_pgm_flow_detail(case):
         return "Pendiente de preparacion"
 
     return "Pendiente de ROI"
+
+
+def _get_results_flow_state(case):
+    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+        return "complete"
+
+    if case.status in {CaseStatus.PROCESSING, CaseStatus.ERROR}:
+        return "active"
+
+    if case.status == CaseStatus.COMPLETED:
+        return "active"
+
+    if case.simulation_input_file_path:
+        return "active"
+
+    return "pending"
+
+
+def _get_results_flow_detail(case):
+    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+        return "Resultados disponibles"
+
+    if case.status == CaseStatus.PROCESSING:
+        return "Procesando"
+
+    if case.status == CaseStatus.ERROR:
+        return "Error registrado"
+
+    if case.status == CaseStatus.COMPLETED:
+        return "Resultados no disponibles"
+
+    if case.simulation_input_file_path:
+        return "Pendiente de ejecucion"
+
+    return "Pendiente de PGM"
 
 
 def _get_roi_status_title(case):
@@ -516,6 +595,130 @@ def _get_simulation_status_message(case):
     return "Al confirmar la ROI se generara automaticamente el archivo PGM."
 
 
+def _get_simulation_result_state_label(case):
+    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+        return "Disponibles"
+
+    if case.status == CaseStatus.PROCESSING:
+        return "Procesando"
+
+    if case.status == CaseStatus.ERROR:
+        return "Error"
+
+    if case.status == CaseStatus.COMPLETED:
+        return "No disponibles"
+
+    if case.simulation_input_file_path:
+        return "Pendiente de procesamiento"
+
+    return "Pendiente"
+
+
+def _get_simulation_results_status_title(case):
+    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+        return "Resultados disponibles"
+
+    if case.status == CaseStatus.PROCESSING:
+        return "Procesamiento en curso"
+
+    if case.status == CaseStatus.ERROR:
+        return "Procesamiento con error"
+
+    if case.status == CaseStatus.COMPLETED:
+        return "Resultados no disponibles"
+
+    if case.simulation_input_file_path:
+        return "Listo para procesamiento"
+
+    return "Resultados pendientes"
+
+
+def _get_simulation_results_status_message(case):
+    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+        return "El caso tiene metricas preliminares y mapa de densidad asociados."
+
+    if case.status == CaseStatus.PROCESSING:
+        return "El worker esta ejecutando la simulacion del caso."
+
+    if case.status == CaseStatus.ERROR:
+        return case.error_message or "Se registro un error durante el procesamiento."
+
+    if case.status == CaseStatus.COMPLETED:
+        return "El caso figura como completado, pero no se encontraron los archivos de resultados."
+
+    if case.simulation_input_file_path:
+        return "La entrada PGM esta preparada para que el worker ejecute la simulacion."
+
+    return "Los resultados apareceran cuando exista una entrada PGM procesada."
+
+
+def _get_simulation_metrics(case):
+    metrics_path = _resolve_storage_path(case.simulation_metrics_file_path)
+
+    if metrics_path is None or not metrics_path.exists():
+        return ()
+
+    try:
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        current_app.logger.warning(
+            "No se pudieron leer las metricas del caso %s.",
+            case.id,
+        )
+        return ()
+
+    formatted_metrics = []
+    for label, key, value_type in SIMULATION_METRIC_FIELDS:
+        if key not in metrics:
+            continue
+
+        formatted_metrics.append(
+            {
+                "label": label,
+                "value": _format_metric_value(metrics[key], value_type),
+            }
+        )
+
+    return tuple(formatted_metrics)
+
+
+def _get_simulation_density_map_url(case):
+    density_map_path = _resolve_storage_path(case.simulation_density_map_file_path)
+
+    if density_map_path is None or not density_map_path.exists():
+        return None
+
+    return url_for("upload.case_simulation_density_map", case_id=case.id)
+
+
+def _has_simulation_results(case):
+    metrics_path = _resolve_storage_path(case.simulation_metrics_file_path)
+    density_map_path = _resolve_storage_path(case.simulation_density_map_file_path)
+
+    return bool(
+        metrics_path is not None
+        and metrics_path.exists()
+        and density_map_path is not None
+        and density_map_path.exists()
+    )
+
+
+def _format_metric_value(value, value_type):
+    if value_type == "percent":
+        try:
+            return f"{float(value) * 100:.2f}%"
+        except (TypeError, ValueError):
+            return "No disponible"
+
+    if value_type == "integer":
+        try:
+            return f"{int(value):,}".replace(",", ".")
+        except (TypeError, ValueError):
+            return "No disponible"
+
+    return str(value)
+
+
 def _can_crop_roi(case, preview):
     return case.input_mode == InputMode.MAMMOGRAM and preview is not None
 
@@ -539,6 +742,30 @@ def _get_case_roi_path(case):
         case.id,
         current_app.config["UPLOAD_FOLDER"],
     ) / roi_filename
+
+
+def _resolve_storage_path(stored_path):
+    if not stored_path:
+        return None
+
+    path = Path(stored_path)
+
+    if path.is_absolute():
+        return path
+
+    cwd_candidate = Path.cwd() / path
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    upload_folder = Path(current_app.config["UPLOAD_FOLDER"])
+    parts = path.parts
+
+    if "uploads" in parts:
+        uploads_index = parts.index("uploads")
+        relative_to_uploads = Path(*parts[uploads_index + 1 :])
+        return upload_folder / relative_to_uploads
+
+    return upload_folder / path
 
 
 def _get_case_preview(case):
