@@ -2,7 +2,7 @@
 
 Modulo base del simulador mesoscopico del prototipo de analisis mamografico.
 
-Esta primera version corresponde a la estructura inicial del proyecto Julia. Todavia no implementa la lectura real del PGM ni la dinamica de simulacion; solo prepara una ejecucion controlada desde terminal para validar entrada, salida y trazabilidad basica.
+Esta version prepara el proyecto Julia y permite leer una entrada `PGM` para obtener dimensiones, valor maximo de gris y matriz de intensidades. Todavia no implementa la conversion a espacio fisico de simulacion ni la dinamica mesoscopica.
 
 ## Ejecucion inicial
 
@@ -21,11 +21,13 @@ La ejecucion crea la carpeta de salida y genera:
 ```text
 simulation.log
 simulation_config.txt
+input_summary.txt
 ```
 
 ## Alcance actual
 
-- Crear estructura base del simulador en Julia.
 - Exponer una CLI minima para integracion futura.
-- Registrar configuracion inicial de ejecucion.
-- Preparar el camino para leer PGM y construir la matriz de intensidades en issues posteriores.
+- Leer archivos PGM `P2` y `P5`.
+- Obtener ancho, alto, valor maximo de gris y matriz de intensidades.
+- Registrar un resumen tecnico de la entrada en `input_summary.txt`.
+- Preparar el camino para convertir la matriz de intensidades en espacio de simulacion en issues posteriores.

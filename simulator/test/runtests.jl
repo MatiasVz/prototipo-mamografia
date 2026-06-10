@@ -1,6 +1,51 @@
 using Test
 using MammographySimulation
 
+@testset "PGM reader" begin
+    mktempdir() do dir
+        ascii_path = joinpath(dir, "ascii.pgm")
+        binary_path = joinpath(dir, "binary.pgm")
+        invalid_path = joinpath(dir, "invalid.pgm")
+
+        write(
+            ascii_path,
+            """
+            P2
+            # PGM ASCII de prueba
+            2 2
+            255
+            0 10
+            20 30
+            """,
+        )
+
+        write(binary_path, UInt8[
+            UInt8('P'), UInt8('5'), UInt8('\n'),
+            UInt8('2'), UInt8(' '), UInt8('2'), UInt8('\n'),
+            UInt8('2'), UInt8('5'), UInt8('5'), UInt8('\n'),
+            0x00, 0x80, 0xff, 0x40,
+        ])
+
+        write(invalid_path, "P3\n1 1\n255\n0 0 0\n")
+
+        ascii_image = read_pgm(ascii_path)
+        binary_image = read_pgm(binary_path)
+
+        @test ascii_image.width == 2
+        @test ascii_image.height == 2
+        @test ascii_image.max_gray == 255
+        @test ascii_image.pixels == [0 10; 20 30]
+
+        @test binary_image.width == 2
+        @test binary_image.height == 2
+        @test binary_image.max_gray == 255
+        @test binary_image.pixels == [0 128; 255 64]
+
+        @test_throws ArgumentError read_pgm(invalid_path)
+        @test_throws ArgumentError read_pgm(joinpath(dir, "missing.pgm"))
+    end
+end
+
 @testset "MammographySimulation CLI base" begin
     mktempdir() do dir
         input_path = joinpath(dir, "simulation_input.pgm")
@@ -19,6 +64,8 @@ using MammographySimulation
 
         @test isfile(result.log_path)
         @test isfile(result.config_path)
-        @test occursin("status=base_structure_ready", read(result.log_path, String))
+        @test isfile(result.summary_path)
+        @test occursin("status=pgm_read_ready", read(result.log_path, String))
+        @test occursin("width=1", read(result.summary_path, String))
     end
 end
