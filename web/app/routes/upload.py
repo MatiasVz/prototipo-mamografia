@@ -22,6 +22,10 @@ from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_fi
 from ..services.preview_service import ensure_preview_for_case, ensure_preview_for_path
 from ..services.roi_service import RoiCrop, crop_roi_for_case
 from ..services.simulation_preparation_service import prepare_simulation_input_for_case
+from ..services.simulation_queue_service import (
+    SimulationQueueError,
+    enqueue_case_simulation,
+)
 from ..services.storage_service import get_case_roi_directory
 from ..services.upload_error_service import (
     safe_register_request_size_error,
@@ -139,6 +143,8 @@ def case_detail(case_id):
         preview_message=_get_preview_message(case, preview),
         preview_is_generated=preview.is_generated if preview else False,
         preview_url=url_for("upload.case_preview", case_id=case.id) if preview else None,
+        auto_refresh_seconds=_get_auto_refresh_seconds(case),
+        can_enqueue_simulation=_can_enqueue_simulation(case),
     )
 
 
@@ -152,6 +158,7 @@ def prepare_case_simulation_input(case_id):
     try:
         prepare_simulation_input_for_case(case, current_app.config["UPLOAD_FOLDER"])
         db.session.commit()
+        queued_job = enqueue_case_simulation(case, current_app.config)
     except (OSError, SQLAlchemyError, ValueError) as exc:
         db.session.rollback()
         current_app.logger.warning(
@@ -160,8 +167,38 @@ def prepare_case_simulation_input(case_id):
             exc,
         )
         flash(str(exc), "error")
+    except SimulationQueueError as exc:
+        current_app.logger.warning(
+            "No se pudo encolar la simulacion del caso %s: %s",
+            case.id,
+            exc,
+        )
+        flash(str(exc), "error")
     else:
-        flash("Archivo PGM generado para la simulacion.", "success")
+        flash(_format_queue_success_message(queued_job), "success")
+
+    return redirect(url_for("upload.case_detail", case_id=case.id))
+
+
+@upload_bp.post("/casos/<int:case_id>/simulacion/encolar")
+def enqueue_case_for_simulation(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    try:
+        queued_job = enqueue_case_simulation(case, current_app.config)
+    except (SQLAlchemyError, SimulationQueueError) as exc:
+        db.session.rollback()
+        current_app.logger.warning(
+            "No se pudo encolar la simulacion del caso %s: %s",
+            case.id,
+            exc,
+        )
+        flash(str(exc), "error")
+    else:
+        flash(_format_queue_success_message(queued_job), "success")
 
     return redirect(url_for("upload.case_detail", case_id=case.id))
 
@@ -218,7 +255,7 @@ def confirm_case_roi(case_id):
         flash("No existe una ROI asociada para confirmar en este caso.", "error")
         return redirect(url_for("upload.case_detail", case_id=case.id))
 
-    if case.status == CaseStatus.ROI_CONFIRMED:
+    if _is_roi_confirmed_state(case):
         flash("La ROI de este caso ya se encuentra confirmada.", "warning")
         return redirect(url_for("upload.case_detail", case_id=case.id))
 
@@ -252,9 +289,28 @@ def _auto_prepare_simulation_input(case):
             "warning",
         )
     else:
+        _auto_enqueue_simulation(case)
+
+
+def _auto_enqueue_simulation(case):
+    try:
+        queued_job = enqueue_case_simulation(case, current_app.config)
+    except (SQLAlchemyError, SimulationQueueError) as exc:
+        db.session.rollback()
+        current_app.logger.warning(
+            "No se pudo encolar automaticamente la simulacion del caso %s: %s",
+            case.id,
+            exc,
+        )
         flash(
-            f"ROI confirmada y archivo PGM generado para el caso #{case.id}. "
-            "El caso queda listo para la etapa de simulacion.",
+            f"ROI confirmada y archivo PGM generado para el caso #{case.id}, "
+            f"pero no se pudo encolar la simulacion automaticamente ({exc}).",
+            "warning",
+        )
+    else:
+        flash(
+            f"ROI confirmada, archivo PGM generado y simulacion encolada "
+            f"para el caso #{queued_job.case_id}.",
             "success",
         )
 
@@ -362,6 +418,19 @@ def _format_success_message(case):
     )
 
 
+def _format_queue_success_message(queued_job):
+    if queued_job.already_queued:
+        return (
+            f"La simulacion del caso #{queued_job.case_id} ya estaba en cola "
+            "para procesamiento."
+        )
+
+    return (
+        f"Simulacion del caso #{queued_job.case_id} encolada para procesamiento. "
+        "El worker ejecutara Julia automaticamente."
+    )
+
+
 def _format_datetime(value):
     if value is None:
         return "No registrado"
@@ -414,7 +483,7 @@ def _format_file_type(file_type):
 
 
 def _get_roi_state_label(case):
-    if case.status == CaseStatus.ROI_CONFIRMED:
+    if _is_roi_confirmed_state(case):
         return "Confirmada"
 
     if case.roi_file_path:
@@ -427,7 +496,7 @@ def _get_pgm_state_label(case):
     if case.simulation_input_file_path:
         return "Generado"
 
-    if case.status == CaseStatus.ROI_CONFIRMED:
+    if _is_roi_confirmed_state(case):
         return "Pendiente de preparacion"
 
     return "Pendiente de ROI"
@@ -463,7 +532,7 @@ def _get_case_flow_steps(case):
 
 
 def _get_roi_flow_state(case):
-    if case.status == CaseStatus.ROI_CONFIRMED:
+    if _is_roi_confirmed_state(case):
         return "complete"
 
     if case.roi_file_path:
@@ -473,7 +542,7 @@ def _get_roi_flow_state(case):
 
 
 def _get_roi_flow_detail(case):
-    if case.status == CaseStatus.ROI_CONFIRMED:
+    if _is_roi_confirmed_state(case):
         return "ROI confirmada"
 
     if case.roi_file_path:
@@ -496,7 +565,7 @@ def _get_pgm_flow_detail(case):
     if case.simulation_input_file_path:
         return "Entrada generada"
 
-    if case.status == CaseStatus.ROI_CONFIRMED:
+    if _is_roi_confirmed_state(case):
         return "Pendiente de preparacion"
 
     return "Pendiente de ROI"
@@ -506,7 +575,7 @@ def _get_results_flow_state(case):
     if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
         return "complete"
 
-    if case.status in {CaseStatus.PROCESSING, CaseStatus.ERROR}:
+    if case.status in {CaseStatus.PENDING, CaseStatus.PROCESSING, CaseStatus.ERROR}:
         return "active"
 
     if case.status == CaseStatus.COMPLETED:
@@ -525,6 +594,9 @@ def _get_results_flow_detail(case):
     if case.status == CaseStatus.PROCESSING:
         return "Procesando"
 
+    if case.status == CaseStatus.PENDING:
+        return "En cola"
+
     if case.status == CaseStatus.ERROR:
         return "Error registrado"
 
@@ -538,7 +610,7 @@ def _get_results_flow_detail(case):
 
 
 def _get_roi_status_title(case):
-    if case.status == CaseStatus.ROI_CONFIRMED:
+    if _is_roi_confirmed_state(case):
         return "ROI confirmada"
 
     if case.roi_file_path:
@@ -548,8 +620,14 @@ def _get_roi_status_title(case):
 
 
 def _get_roi_status_message(case):
-    if case.status == CaseStatus.ROI_CONFIRMED:
-        return "La ROI esta confirmada. El archivo PGM se prepara automaticamente."
+    if case.status == CaseStatus.PENDING:
+        return "La ROI esta confirmada y la simulacion quedo en cola."
+
+    if case.status == CaseStatus.PROCESSING:
+        return "La ROI esta confirmada y el worker esta procesando el caso."
+
+    if _is_roi_confirmed_state(case):
+        return "La ROI esta confirmada. La preparacion y simulacion se realizan automaticamente."
 
     if case.roi_file_path:
         return (
@@ -564,7 +642,7 @@ def _get_roi_status_message(case):
 
 
 def _can_confirm_roi(case):
-    return bool(case.roi_file_path) and case.status != CaseStatus.ROI_CONFIRMED
+    return bool(case.roi_file_path) and case.status == CaseStatus.REGISTERED
 
 
 def _can_prepare_simulation_input(case):
@@ -575,7 +653,23 @@ def _can_retry_simulation_input(case):
     return _can_prepare_simulation_input(case) and not case.simulation_input_file_path
 
 
+def _can_enqueue_simulation(case):
+    return bool(case.simulation_input_file_path) and case.status in {
+        CaseStatus.ROI_CONFIRMED,
+        CaseStatus.ERROR,
+    }
+
+
 def _get_simulation_status_title(case):
+    if case.status == CaseStatus.PENDING:
+        return "Simulacion en cola"
+
+    if case.status == CaseStatus.PROCESSING:
+        return "Simulacion en proceso"
+
+    if case.status == CaseStatus.COMPLETED:
+        return "Simulacion completada"
+
     if case.simulation_input_file_path:
         return "PGM generado"
 
@@ -583,6 +677,15 @@ def _get_simulation_status_title(case):
 
 
 def _get_simulation_status_message(case):
+    if case.status == CaseStatus.PENDING:
+        return "El caso ya esta en cola. El worker lo tomara automaticamente."
+
+    if case.status == CaseStatus.PROCESSING:
+        return "El worker esta ejecutando la simulacion del caso."
+
+    if case.status == CaseStatus.COMPLETED:
+        return "La simulacion termino y los resultados estan disponibles."
+
     if case.simulation_input_file_path:
         return "La ROI confirmada ya cuenta con su archivo PGM para la simulacion."
 
@@ -601,6 +704,9 @@ def _get_simulation_result_state_label(case):
 
     if case.status == CaseStatus.PROCESSING:
         return "Procesando"
+
+    if case.status == CaseStatus.PENDING:
+        return "En cola"
 
     if case.status == CaseStatus.ERROR:
         return "Error"
@@ -621,6 +727,9 @@ def _get_simulation_results_status_title(case):
     if case.status == CaseStatus.PROCESSING:
         return "Procesamiento en curso"
 
+    if case.status == CaseStatus.PENDING:
+        return "Procesamiento en cola"
+
     if case.status == CaseStatus.ERROR:
         return "Procesamiento con error"
 
@@ -640,6 +749,12 @@ def _get_simulation_results_status_message(case):
     if case.status == CaseStatus.PROCESSING:
         return "El worker esta ejecutando la simulacion del caso."
 
+    if case.status == CaseStatus.PENDING:
+        return (
+            "El caso esta en cola. Esta pagina se actualizara mientras el worker "
+            "genera los resultados."
+        )
+
     if case.status == CaseStatus.ERROR:
         return case.error_message or "Se registro un error durante el procesamiento."
 
@@ -650,6 +765,24 @@ def _get_simulation_results_status_message(case):
         return "La entrada PGM esta preparada para que el worker ejecute la simulacion."
 
     return "Los resultados apareceran cuando exista una entrada PGM procesada."
+
+
+def _get_auto_refresh_seconds(case):
+    if case.status in {CaseStatus.PENDING, CaseStatus.PROCESSING}:
+        return 5
+
+    return None
+
+
+def _is_roi_confirmed_state(case):
+    return bool(case.roi_file_path) and case.status in {
+        CaseStatus.ROI_CONFIRMED,
+        CaseStatus.PENDING,
+        CaseStatus.PROCESSING,
+        CaseStatus.COMPLETED,
+        CaseStatus.ERROR,
+        CaseStatus.NOTIFIED,
+    }
 
 
 def _get_simulation_metrics(case):

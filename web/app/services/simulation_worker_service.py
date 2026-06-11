@@ -23,6 +23,7 @@ class SimulationWorkerResult:
     return_code: int
     output_dir: Path
     metrics_path: Path
+    domain_mask_path: Path
     density_map_path: Path
     simulation_log_path: Path
     worker_log_path: Path
@@ -114,6 +115,7 @@ def process_case_simulation(
         return_code=completed_process.returncode,
         output_dir=output_dir,
         metrics_path=result_paths["metrics"],
+        domain_mask_path=result_paths["domain_mask"],
         density_map_path=result_paths["density_map"],
         simulation_log_path=result_paths["simulation_log"],
         worker_log_path=worker_log_path,
@@ -208,6 +210,7 @@ def _update_case_simulation_results(case, output_dir, result_paths):
 def _get_expected_result_paths(output_dir):
     return {
         "metrics": output_dir / "metrics.json",
+        "domain_mask": output_dir / "domain_mask.pgm",
         "density_map": output_dir / "density_map.pgm",
         "simulation_log": output_dir / "simulation.log",
     }

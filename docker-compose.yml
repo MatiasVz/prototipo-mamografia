@@ -29,6 +29,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_URL: redis://redis:6379/0
+      SIMULATION_QUEUE_NAME: ${SIMULATION_QUEUE_NAME:-simulation_jobs}
     ports:
       - "${WEB_PORT:-5000}:5000"
     volumes:
@@ -47,7 +48,7 @@ services:
     container_name: mamografias_worker
     restart: unless-stopped
     entrypoint: ["python3", "worker/worker.py"]
-    command: ["idle"]
+    command: ["listen"]
     environment:
       APP_NAME: ${APP_NAME:-Prototipo de Analisis Mamografico}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
@@ -69,6 +70,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_URL: redis://redis:6379/0
+      SIMULATION_QUEUE_NAME: ${SIMULATION_QUEUE_NAME:-simulation_jobs}
     volumes:
       - ./storage/uploads:/app/storage/uploads
     depends_on:
