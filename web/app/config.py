@@ -63,3 +63,4 @@ class Config:
     REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
     REDIS_URL = os.getenv("REDIS_URL", build_redis_url())
+    SIMULATION_QUEUE_NAME = os.getenv("SIMULATION_QUEUE_NAME", "simulation_jobs")

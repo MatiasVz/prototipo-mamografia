@@ -116,6 +116,7 @@ def register_cli_commands(app):
         click.echo(f"status={result.status}")
         click.echo(f"output_dir={result.output_dir}")
         click.echo(f"metrics_path={result.metrics_path}")
+        click.echo(f"domain_mask_path={result.domain_mask_path}")
         click.echo(f"density_map_path={result.density_map_path}")
         click.echo(f"simulation_log_path={result.simulation_log_path}")
         click.echo(f"worker_log_path={result.worker_log_path}")
