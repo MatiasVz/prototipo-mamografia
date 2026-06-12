@@ -128,6 +128,24 @@ def register_cli_commands(app):
         click.echo(f"mpc_collided_particles_path={result.mpc_collided_particles_path}")
         click.echo(f"mpc_collision_summary_path={result.mpc_collision_summary_path}")
         click.echo(f"mpc_cell_collisions_path={result.mpc_cell_collisions_path}")
+        click.echo(f"mpc_concentration_summary_path={result.mpc_concentration_summary_path}")
+        click.echo(f"mpc_concentration_times_path={result.mpc_concentration_times_path}")
+        click.echo(
+            "mpc_concentration_initial_map_path="
+            f"{result.mpc_concentration_initial_map_path}"
+        )
+        click.echo(
+            "mpc_concentration_final_map_path="
+            f"{result.mpc_concentration_final_map_path}"
+        )
+        click.echo(
+            "mpc_high_concentration_initial_map_path="
+            f"{result.mpc_high_concentration_initial_map_path}"
+        )
+        click.echo(
+            "mpc_high_concentration_final_map_path="
+            f"{result.mpc_high_concentration_final_map_path}"
+        )
         click.echo(f"simulation_log_path={result.simulation_log_path}")
         click.echo(f"worker_log_path={result.worker_log_path}")
 

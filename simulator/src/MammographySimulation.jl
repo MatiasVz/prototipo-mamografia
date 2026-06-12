@@ -6,6 +6,8 @@ using Random
 export PgmImage,
     MpcModelConfig,
     MpcCollisionResult,
+    MpcConcentrationResult,
+    MpcConcentrationSnapshot,
     MpcParticle,
     MpcParticleInitialization,
     MpcStreamingResult,
@@ -18,7 +20,9 @@ export PgmImage,
     SimulationRunConfig,
     read_pgm,
     build_simulation_space,
+    build_mpc_concentration_grid,
     collide_mpc_particles,
+    generate_mpc_concentration_maps,
     initialize_mpc_particles,
     stream_mpc_particles,
     run_minimal_simulation,
@@ -111,6 +115,24 @@ struct MpcCollisionResult
     max_particles_per_cell::Int
     particles::Vector{MpcParticle}
     cell_statistics::Vector{NamedTuple}
+end
+
+struct MpcConcentrationSnapshot
+    time::Int
+    density_grid::Matrix{Int}
+    high_concentration_mask::BitMatrix
+    particle_count::Int
+    max_concentration::Int
+    high_concentration_cell_count::Int
+end
+
+struct MpcConcentrationResult
+    requested_output_times::Vector{Int}
+    captured_output_times::Vector{Int}
+    expected_density::Float64
+    high_concentration_threshold::Float64
+    particle_count::Int
+    snapshots::Vector{MpcConcentrationSnapshot}
 end
 
 struct SimulationResult
@@ -332,6 +354,13 @@ function run_case(config::SimulationRunConfig)
         config.mpc_config;
         seed = config.seed,
     )
+    mpc_concentration = generate_mpc_concentration_maps(
+        mpc_initialization,
+        simulation_space,
+        config.mpc_config;
+        steps = config.steps,
+        seed = config.seed,
+    )
     simulation_result = run_minimal_simulation(
         simulation_space;
         seed = config.seed,
@@ -407,6 +436,12 @@ function run_case(config::SimulationRunConfig)
         println(io, "mpc_collision_active_cell_count=$(mpc_collision.active_cell_count)")
         println(io, "mpc_collision_cell_count=$(mpc_collision.collision_cell_count)")
         println(io, "mpc_collision_particle_count=$(mpc_collision.particle_count)")
+        println(io, "mpc_concentration_model=particles_per_cell_snapshot")
+        println(io, "mpc_concentration_requested_output_times=$(join(mpc_concentration.requested_output_times, ","))")
+        println(io, "mpc_concentration_captured_output_times=$(join(mpc_concentration.captured_output_times, ","))")
+        println(io, "mpc_concentration_expected_density_n0=$(mpc_concentration.expected_density)")
+        println(io, "mpc_concentration_high_threshold=$(mpc_concentration.high_concentration_threshold)")
+        println(io, "mpc_concentration_snapshot_count=$(length(mpc_concentration.snapshots))")
         println(io, "attempted_moves=$(simulation_result.attempted_moves)")
         println(io, "collision_count=$(simulation_result.collision_count)")
         println(io, "message=Simulacion minima secuencial ejecutada y resultados preliminares generados.")
@@ -453,6 +488,7 @@ function run_case(config::SimulationRunConfig)
         mpc_initialization = mpc_initialization,
         mpc_streaming = mpc_streaming,
         mpc_collision = mpc_collision,
+        mpc_concentration = mpc_concentration,
     )
     open(summary_path, "w") do io
         println(io, "width=$(pgm_image.width)")
@@ -474,6 +510,11 @@ function run_case(config::SimulationRunConfig)
     write_mpc_collided_particles_tsv(mpc_collided_particles_path, mpc_collision)
     write_mpc_collision_summary(mpc_collision_summary_path, mpc_collision)
     write_mpc_cell_collisions_tsv(mpc_cell_collisions_path, mpc_collision)
+    mpc_concentration_outputs = write_mpc_concentration_outputs(
+        output_dir,
+        mpc_concentration,
+        simulation_space,
+    )
     write_simulation_summary(
         simulation_summary_path,
         simulation_result,
@@ -481,6 +522,7 @@ function run_case(config::SimulationRunConfig)
         mpc_initialization = mpc_initialization,
         mpc_streaming = mpc_streaming,
         mpc_collision = mpc_collision,
+        mpc_concentration = mpc_concentration,
     )
     write_simulation_state(simulation_state_path, simulation_result.particles)
     write_visit_counts(visit_counts_path, simulation_result.visit_counts)
@@ -502,6 +544,14 @@ function run_case(config::SimulationRunConfig)
         mpc_collided_particles_path = mpc_collided_particles_path,
         mpc_collision_summary_path = mpc_collision_summary_path,
         mpc_cell_collisions_path = mpc_cell_collisions_path,
+        mpc_concentration_summary_path = mpc_concentration_outputs.summary_path,
+        mpc_concentration_times_path = mpc_concentration_outputs.times_path,
+        mpc_concentration_initial_map_path = mpc_concentration_outputs.initial_map_path,
+        mpc_concentration_final_map_path = mpc_concentration_outputs.final_map_path,
+        mpc_high_concentration_initial_map_path = mpc_concentration_outputs.initial_high_map_path,
+        mpc_high_concentration_final_map_path = mpc_concentration_outputs.final_high_map_path,
+        mpc_concentration_time_map_paths = mpc_concentration_outputs.time_map_paths,
+        mpc_high_concentration_time_map_paths = mpc_concentration_outputs.time_high_map_paths,
         simulation_summary_path = simulation_summary_path,
         simulation_state_path = simulation_state_path,
         visit_counts_path = visit_counts_path,
@@ -514,6 +564,7 @@ function run_case(config::SimulationRunConfig)
         mpc_initialization = mpc_initialization,
         mpc_streaming = mpc_streaming,
         mpc_collision = mpc_collision,
+        mpc_concentration = mpc_concentration,
         simulation = simulation_result,
         preliminary_results = preliminary_results,
     )
@@ -545,6 +596,12 @@ function cli_main(args::Vector{String} = ARGS)
         println("mpc_collided_particles_path=$(result.mpc_collided_particles_path)")
         println("mpc_collision_summary_path=$(result.mpc_collision_summary_path)")
         println("mpc_cell_collisions_path=$(result.mpc_cell_collisions_path)")
+        println("mpc_concentration_summary_path=$(result.mpc_concentration_summary_path)")
+        println("mpc_concentration_times_path=$(result.mpc_concentration_times_path)")
+        println("mpc_concentration_initial_map_path=$(result.mpc_concentration_initial_map_path)")
+        println("mpc_concentration_final_map_path=$(result.mpc_concentration_final_map_path)")
+        println("mpc_high_concentration_initial_map_path=$(result.mpc_high_concentration_initial_map_path)")
+        println("mpc_high_concentration_final_map_path=$(result.mpc_high_concentration_final_map_path)")
         println("simulation_summary_path=$(result.simulation_summary_path)")
         println("simulation_state_path=$(result.simulation_state_path)")
         println("visit_counts_path=$(result.visit_counts_path)")
@@ -1322,6 +1379,120 @@ function rotate_relative_velocities!(
     end
 end
 
+function generate_mpc_concentration_maps(
+    initialization::MpcParticleInitialization,
+    space::SimulationSpace,
+    config::MpcModelConfig;
+    steps::Int = 1,
+    seed::Int = 1234,
+)
+    if steps < 0
+        throw(ArgumentError("El numero de pasos para mapas de concentracion MPC no puede ser negativo."))
+    end
+
+    validate_mpc_config(config)
+
+    requested_output_times, captured_output_times = normalize_mpc_output_times(
+        config.output_times,
+        steps,
+    )
+    captured_output_set = Set(captured_output_times)
+    particles = copy_mpc_particles(initialization.particles)
+    snapshots = MpcConcentrationSnapshot[]
+
+    if 0 in captured_output_set
+        push!(snapshots, build_mpc_concentration_snapshot(0, particles, space, config))
+    end
+
+    for step in 1:steps
+        step_initialization = MpcParticleInitialization(
+            initialization.seed,
+            length(particles),
+            initialization.domain_volume,
+            initialization.velocity_sigma,
+            initialization.rejected_samples,
+            particles,
+        )
+        step_streaming = stream_mpc_particles(
+            step_initialization,
+            space,
+            config;
+            steps = 1,
+        )
+        step_collision = collide_mpc_particles(
+            step_streaming,
+            space,
+            config;
+            seed = seed + step,
+        )
+        particles = copy_mpc_particles(step_collision.particles)
+
+        if step in captured_output_set
+            push!(snapshots, build_mpc_concentration_snapshot(step, particles, space, config))
+        end
+    end
+
+    return MpcConcentrationResult(
+        requested_output_times,
+        captured_output_times,
+        config.n0,
+        high_concentration_threshold(config),
+        length(initialization.particles),
+        snapshots,
+    )
+end
+
+function normalize_mpc_output_times(output_times::Vector{Int}, steps::Int)
+    requested_output_times = sort(unique(output_times))
+    captured_output_times = Int[0]
+
+    for output_time in requested_output_times
+        if 0 <= output_time <= steps && !(output_time in captured_output_times)
+            push!(captured_output_times, output_time)
+        end
+    end
+
+    if !(steps in captured_output_times)
+        push!(captured_output_times, steps)
+    end
+
+    return requested_output_times, sort(unique(captured_output_times))
+end
+
+function build_mpc_concentration_snapshot(
+    time::Int,
+    particles::Vector{MpcParticle},
+    space::SimulationSpace,
+    config::MpcModelConfig,
+)
+    density_grid = build_mpc_concentration_grid(particles, space)
+    high_mask = BitMatrix(density_grid .> high_concentration_threshold(config))
+
+    return MpcConcentrationSnapshot(
+        time,
+        density_grid,
+        high_mask,
+        sum(density_grid),
+        maximum(density_grid),
+        count(high_mask),
+    )
+end
+
+function build_mpc_concentration_grid(particles::Vector{MpcParticle}, space::SimulationSpace)
+    density_grid = zeros(Int, space.height, space.width)
+
+    for particle in particles
+        cell_x, cell_y = particle_cell_indices(particle, space)
+        density_grid[cell_y + 1, cell_x + 1] += 1
+    end
+
+    return density_grid
+end
+
+function high_concentration_threshold(config::MpcModelConfig)
+    return 2.0 * config.n0
+end
+
 function resolve_tissue_threshold(max_gray::Int, tissue_threshold::Union{Nothing,Int})
     if tissue_threshold !== nothing
         return tissue_threshold
@@ -1602,6 +1773,7 @@ function write_mpc_config_json(
     mpc_initialization::Union{Nothing,MpcParticleInitialization} = nothing,
     mpc_streaming::Union{Nothing,MpcStreamingResult} = nothing,
     mpc_collision::Union{Nothing,MpcCollisionResult} = nothing,
+    mpc_concentration::Union{Nothing,MpcConcentrationResult} = nothing,
 )
     config = run_config.mpc_config
     fields = Any[
@@ -1681,6 +1853,21 @@ function write_mpc_config_json(
                 ("mpc_collision_singleton_cell_count", mpc_collision.singleton_cell_count),
                 ("mpc_collision_particle_count", mpc_collision.particle_count),
                 ("mpc_collision_max_particles_per_cell", mpc_collision.max_particles_per_cell),
+            ],
+        )
+    end
+
+    if mpc_concentration !== nothing
+        append!(
+            fields,
+            [
+                ("mpc_concentration_model", "particles_per_cell_snapshot"),
+                ("mpc_concentration_requested_output_times", mpc_concentration.requested_output_times),
+                ("mpc_concentration_captured_output_times", mpc_concentration.captured_output_times),
+                ("mpc_concentration_expected_density_n0", mpc_concentration.expected_density),
+                ("mpc_concentration_high_threshold", mpc_concentration.high_concentration_threshold),
+                ("mpc_concentration_particle_count", mpc_concentration.particle_count),
+                ("mpc_concentration_snapshot_count", length(mpc_concentration.snapshots)),
             ],
         )
     end
@@ -1924,6 +2111,161 @@ function write_mpc_cell_collisions_tsv(path::AbstractString, collision::MpcColli
     end
 end
 
+function write_mpc_concentration_outputs(
+    output_dir::AbstractString,
+    concentration::MpcConcentrationResult,
+    space::SimulationSpace,
+)
+    summary_path = joinpath(output_dir, "mpc_concentration_summary.txt")
+    times_path = joinpath(output_dir, "mpc_concentration_times.tsv")
+    initial_map_path = joinpath(output_dir, "mpc_concentration_initial.pgm")
+    final_map_path = joinpath(output_dir, "mpc_concentration_final.pgm")
+    initial_high_map_path = joinpath(output_dir, "mpc_high_concentration_initial.pgm")
+    final_high_map_path = joinpath(output_dir, "mpc_high_concentration_final.pgm")
+    time_map_paths = String[]
+    time_high_map_paths = String[]
+
+    write_mpc_concentration_summary(summary_path, concentration)
+    write_mpc_concentration_times_tsv(times_path, concentration, space)
+
+    for snapshot in concentration.snapshots
+        time_map_path = joinpath(output_dir, "mpc_concentration_t_$(snapshot.time).pgm")
+        high_map_path = joinpath(output_dir, "mpc_high_concentration_t_$(snapshot.time).pgm")
+
+        write_mpc_concentration_map_pgm(time_map_path, snapshot)
+        write_mpc_high_concentration_map_pgm(high_map_path, snapshot)
+        push!(time_map_paths, time_map_path)
+        push!(time_high_map_paths, high_map_path)
+    end
+
+    initial_snapshot = first(concentration.snapshots)
+    final_snapshot = last(concentration.snapshots)
+    write_mpc_concentration_map_pgm(initial_map_path, initial_snapshot)
+    write_mpc_concentration_map_pgm(final_map_path, final_snapshot)
+    write_mpc_high_concentration_map_pgm(initial_high_map_path, initial_snapshot)
+    write_mpc_high_concentration_map_pgm(final_high_map_path, final_snapshot)
+
+    return (
+        summary_path = summary_path,
+        times_path = times_path,
+        initial_map_path = initial_map_path,
+        final_map_path = final_map_path,
+        initial_high_map_path = initial_high_map_path,
+        final_high_map_path = final_high_map_path,
+        time_map_paths = time_map_paths,
+        time_high_map_paths = time_high_map_paths,
+    )
+end
+
+function write_mpc_concentration_summary(
+    path::AbstractString,
+    concentration::MpcConcentrationResult,
+)
+    skipped_output_times = setdiff(
+        concentration.requested_output_times,
+        concentration.captured_output_times,
+    )
+
+    open(path, "w") do io
+        println(io, "mpc_concentration_model=particles_per_cell_snapshot")
+        println(io, "requested_output_times=$(join(concentration.requested_output_times, ","))")
+        println(io, "captured_output_times=$(join(concentration.captured_output_times, ","))")
+        println(io, "skipped_output_times=$(join(skipped_output_times, ","))")
+        println(io, "expected_density_n0=$(concentration.expected_density)")
+        println(io, "high_concentration_threshold=$(concentration.high_concentration_threshold)")
+        println(io, "particle_count=$(concentration.particle_count)")
+        println(io, "snapshot_count=$(length(concentration.snapshots))")
+
+        for snapshot in concentration.snapshots
+            println(io, "snapshot_t_$(snapshot.time)_particle_sum=$(snapshot.particle_count)")
+            println(io, "snapshot_t_$(snapshot.time)_max_concentration=$(snapshot.max_concentration)")
+            println(io, "snapshot_t_$(snapshot.time)_high_concentration_cell_count=$(snapshot.high_concentration_cell_count)")
+        end
+    end
+end
+
+function write_mpc_concentration_times_tsv(
+    path::AbstractString,
+    concentration::MpcConcentrationResult,
+    space::SimulationSpace,
+)
+    radius_grid = obstacle_radius_grid(space)
+
+    open(path, "w") do io
+        println(
+            io,
+            "time\tx\ty\tconcentration\tis_high_concentration\tis_domain\tobstacle_radius",
+        )
+
+        for snapshot in concentration.snapshots
+            for y_index in axes(snapshot.density_grid, 1)
+                for x_index in axes(snapshot.density_grid, 2)
+                    println(
+                        io,
+                        "$(snapshot.time)\t$(x_index - 1)\t$(y_index - 1)\t$(snapshot.density_grid[y_index, x_index])\t$(snapshot.high_concentration_mask[y_index, x_index])\t$(space.domain_mask[y_index, x_index])\t$(radius_grid[y_index, x_index])",
+                    )
+                end
+            end
+        end
+    end
+end
+
+function write_mpc_concentration_map_pgm(
+    path::AbstractString,
+    snapshot::MpcConcentrationSnapshot,
+)
+    concentration_values = build_concentration_map_values(snapshot.density_grid)
+    height, width = size(concentration_values)
+
+    open(path, "w") do io
+        println(io, "P2")
+        println(io, "# Mapa de concentracion MPC t=$(snapshot.time) generado por MammographySimulation")
+        println(io, "$(width) $(height)")
+        println(io, "255")
+
+        for y_index in 1:height
+            println(io, join(vec(concentration_values[y_index, :]), " "))
+        end
+    end
+end
+
+function write_mpc_high_concentration_map_pgm(
+    path::AbstractString,
+    snapshot::MpcConcentrationSnapshot,
+)
+    height, width = size(snapshot.high_concentration_mask)
+
+    open(path, "w") do io
+        println(io, "P2")
+        println(io, "# Celdas de alta concentracion MPC t=$(snapshot.time) generado por MammographySimulation")
+        println(io, "$(width) $(height)")
+        println(io, "255")
+
+        for y_index in 1:height
+            row = [
+                snapshot.high_concentration_mask[y_index, x_index] ? 255 : 0
+                for x_index in 1:width
+            ]
+            println(io, join(row, " "))
+        end
+    end
+end
+
+function build_concentration_map_values(density_grid::Matrix{Int})
+    max_concentration = maximum(density_grid)
+    concentration_values = zeros(Int, size(density_grid))
+
+    if max_concentration == 0
+        return concentration_values
+    end
+
+    for index in eachindex(density_grid)
+        concentration_values[index] = round(Int, density_grid[index] / max_concentration * 255)
+    end
+
+    return concentration_values
+end
+
 function write_simulation_summary(
     path::AbstractString,
     result::SimulationResult,
@@ -1931,6 +2273,7 @@ function write_simulation_summary(
     mpc_initialization::Union{Nothing,MpcParticleInitialization} = nothing,
     mpc_streaming::Union{Nothing,MpcStreamingResult} = nothing,
     mpc_collision::Union{Nothing,MpcCollisionResult} = nothing,
+    mpc_concentration::Union{Nothing,MpcConcentrationResult} = nothing,
 )
     free_cell_count = count_free_cells(space)
 
@@ -1966,6 +2309,15 @@ function write_simulation_summary(
             println(io, "mpc_collision_singleton_cell_count=$(mpc_collision.singleton_cell_count)")
             println(io, "mpc_collision_particle_count=$(mpc_collision.particle_count)")
             println(io, "mpc_collision_max_particles_per_cell=$(mpc_collision.max_particles_per_cell)")
+        end
+        if mpc_concentration !== nothing
+            println(io, "mpc_concentration_model=particles_per_cell_snapshot")
+            println(io, "mpc_concentration_requested_output_times=$(join(mpc_concentration.requested_output_times, ","))")
+            println(io, "mpc_concentration_captured_output_times=$(join(mpc_concentration.captured_output_times, ","))")
+            println(io, "mpc_concentration_expected_density_n0=$(mpc_concentration.expected_density)")
+            println(io, "mpc_concentration_high_threshold=$(mpc_concentration.high_concentration_threshold)")
+            println(io, "mpc_concentration_particle_count=$(mpc_concentration.particle_count)")
+            println(io, "mpc_concentration_snapshot_count=$(length(mpc_concentration.snapshots))")
         end
         println(io, "free_cell_count=$(free_cell_count)")
         println(io, "attempted_moves=$(result.attempted_moves)")

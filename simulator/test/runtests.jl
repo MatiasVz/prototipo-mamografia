@@ -513,6 +513,76 @@ end
     @test isapprox(rotated_speed_2, 1.0; atol = 1.0e-12)
 end
 
+@testset "MPC concentration maps by simulation time" begin
+    space = empty_mpc_space(3, 2)
+    config = MpcModelConfig(
+        n0 = 0.5,
+        tau = 1.0,
+        rotation_angle = pi / 2,
+        output_times = [0, 1, 2, 5],
+    )
+    initialization = MpcParticleInitialization(
+        17,
+        3,
+        6.0,
+        1.0,
+        0,
+        [
+            MpcParticle(1, 0.2, 0.2, 0.5, 0.0, 0.0, 0.0, 1.0, "fluid", false),
+            MpcParticle(2, 0.7, 0.8, 0.5, 0.0, 0.0, 0.0, 1.0, "fluid", false),
+            MpcParticle(3, 2.2, 1.1, 0.5, 0.0, 0.0, 0.0, 1.0, "fluid", false),
+        ],
+    )
+
+    concentration = generate_mpc_concentration_maps(
+        initialization,
+        space,
+        config;
+        steps = 2,
+        seed = 99,
+    )
+    initial_snapshot = first(concentration.snapshots)
+
+    @test concentration.requested_output_times == [0, 1, 2, 5]
+    @test concentration.captured_output_times == [0, 1, 2]
+    @test concentration.expected_density == 0.5
+    @test concentration.high_concentration_threshold == 1.0
+    @test concentration.particle_count == 3
+    @test length(concentration.snapshots) == 3
+    @test initial_snapshot.time == 0
+    @test sum(initial_snapshot.density_grid) == 3
+    @test initial_snapshot.particle_count == 3
+    @test initial_snapshot.density_grid[1, 1] == 2
+    @test initial_snapshot.density_grid[2, 3] == 1
+    @test initial_snapshot.high_concentration_mask[1, 1]
+    @test !initial_snapshot.high_concentration_mask[2, 3]
+    @test all(snapshot -> sum(snapshot.density_grid) == 3, concentration.snapshots)
+
+    mktempdir() do dir
+        outputs = MammographySimulation.write_mpc_concentration_outputs(
+            dir,
+            concentration,
+            space,
+        )
+
+        @test isfile(outputs.summary_path)
+        @test isfile(outputs.times_path)
+        @test isfile(outputs.initial_map_path)
+        @test isfile(outputs.final_map_path)
+        @test isfile(outputs.initial_high_map_path)
+        @test isfile(outputs.final_high_map_path)
+        @test length(outputs.time_map_paths) == 3
+        @test all(isfile, outputs.time_map_paths)
+        @test all(isfile, outputs.time_high_map_paths)
+        @test occursin("captured_output_times=0,1,2", read(outputs.summary_path, String))
+        @test occursin("skipped_output_times=5", read(outputs.summary_path, String))
+        @test occursin("snapshot_t_0_particle_sum=3", read(outputs.summary_path, String))
+        @test occursin("time\tx\ty\tconcentration", read(outputs.times_path, String))
+        @test startswith(read(outputs.initial_map_path, String), "P2")
+        @test startswith(read(outputs.initial_high_map_path, String), "P2")
+    end
+end
+
 @testset "Preliminary simulation results" begin
     space = build_simulation_space(synthetic_roi_image())
     simulation = run_minimal_simulation(
@@ -598,6 +668,14 @@ end
         @test isfile(result.mpc_collided_particles_path)
         @test isfile(result.mpc_collision_summary_path)
         @test isfile(result.mpc_cell_collisions_path)
+        @test isfile(result.mpc_concentration_summary_path)
+        @test isfile(result.mpc_concentration_times_path)
+        @test isfile(result.mpc_concentration_initial_map_path)
+        @test isfile(result.mpc_concentration_final_map_path)
+        @test isfile(result.mpc_high_concentration_initial_map_path)
+        @test isfile(result.mpc_high_concentration_final_map_path)
+        @test all(isfile, result.mpc_concentration_time_map_paths)
+        @test all(isfile, result.mpc_high_concentration_time_map_paths)
         @test isfile(result.simulation_summary_path)
         @test isfile(result.simulation_state_path)
         @test isfile(result.visit_counts_path)
@@ -622,6 +700,8 @@ end
         @test occursin("mpc_streaming_steps=3", read(result.simulation_summary_path, String))
         @test occursin("mpc_collision_model=multiparticle_collision_by_cell", read(result.simulation_summary_path, String))
         @test occursin("mpc_collision_particle_count=90", read(result.simulation_summary_path, String))
+        @test occursin("mpc_concentration_model=particles_per_cell_snapshot", read(result.simulation_summary_path, String))
+        @test occursin("mpc_concentration_captured_output_times=0,3", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
@@ -635,6 +715,8 @@ end
         @test occursin("\"mpc_streaming_model\": \"free_translation_periodic_boundaries_bounce_back\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_collision_model\": \"multiparticle_collision_by_cell\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_collision_particle_count\": 90", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_concentration_model\": \"particles_per_cell_snapshot\"", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_concentration_snapshot_count\": 2", read(result.mpc_config_path, String))
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
         @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
@@ -651,6 +733,11 @@ end
         @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_collided_particles_path, String))
         @test occursin("mpc_collision_model=multiparticle_collision_by_cell", read(result.mpc_collision_summary_path, String))
         @test occursin("cell_x\tcell_y\tparticle_count", read(result.mpc_cell_collisions_path, String))
+        @test occursin("captured_output_times=0,3", read(result.mpc_concentration_summary_path, String))
+        @test occursin("snapshot_t_0_particle_sum=90", read(result.mpc_concentration_summary_path, String))
+        @test occursin("time\tx\ty\tconcentration", read(result.mpc_concentration_times_path, String))
+        @test startswith(read(result.mpc_concentration_initial_map_path, String), "P2")
+        @test startswith(read(result.mpc_high_concentration_initial_map_path, String), "P2")
         @test startswith(read(result.domain_mask_path, String), "P2")
         @test startswith(read(result.density_map_path, String), "P2")
     end

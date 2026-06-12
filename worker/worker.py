@@ -119,6 +119,24 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None, density=None)
     print(f"mpc_collided_particles_path={result.mpc_collided_particles_path}", flush=True)
     print(f"mpc_collision_summary_path={result.mpc_collision_summary_path}", flush=True)
     print(f"mpc_cell_collisions_path={result.mpc_cell_collisions_path}", flush=True)
+    print(f"mpc_concentration_summary_path={result.mpc_concentration_summary_path}", flush=True)
+    print(f"mpc_concentration_times_path={result.mpc_concentration_times_path}", flush=True)
+    print(
+        f"mpc_concentration_initial_map_path={result.mpc_concentration_initial_map_path}",
+        flush=True,
+    )
+    print(
+        f"mpc_concentration_final_map_path={result.mpc_concentration_final_map_path}",
+        flush=True,
+    )
+    print(
+        f"mpc_high_concentration_initial_map_path={result.mpc_high_concentration_initial_map_path}",
+        flush=True,
+    )
+    print(
+        f"mpc_high_concentration_final_map_path={result.mpc_high_concentration_final_map_path}",
+        flush=True,
+    )
     print(f"simulation_log_path={result.simulation_log_path}", flush=True)
     print(f"worker_log_path={result.worker_log_path}", flush=True)
     return 0
