@@ -35,6 +35,12 @@ class SimulationWorkerResult:
     mpc_collided_particles_path: Path
     mpc_collision_summary_path: Path
     mpc_cell_collisions_path: Path
+    mpc_concentration_summary_path: Path
+    mpc_concentration_times_path: Path
+    mpc_concentration_initial_map_path: Path
+    mpc_concentration_final_map_path: Path
+    mpc_high_concentration_initial_map_path: Path
+    mpc_high_concentration_final_map_path: Path
     simulation_log_path: Path
     worker_log_path: Path
     stdout: str
@@ -137,6 +143,16 @@ def process_case_simulation(
         mpc_collided_particles_path=result_paths["mpc_collided_particles"],
         mpc_collision_summary_path=result_paths["mpc_collision_summary"],
         mpc_cell_collisions_path=result_paths["mpc_cell_collisions"],
+        mpc_concentration_summary_path=result_paths["mpc_concentration_summary"],
+        mpc_concentration_times_path=result_paths["mpc_concentration_times"],
+        mpc_concentration_initial_map_path=result_paths["mpc_concentration_initial_map"],
+        mpc_concentration_final_map_path=result_paths["mpc_concentration_final_map"],
+        mpc_high_concentration_initial_map_path=result_paths[
+            "mpc_high_concentration_initial_map"
+        ],
+        mpc_high_concentration_final_map_path=result_paths[
+            "mpc_high_concentration_final_map"
+        ],
         simulation_log_path=result_paths["simulation_log"],
         worker_log_path=worker_log_path,
         stdout=completed_process.stdout,
@@ -260,6 +276,14 @@ def _get_expected_result_paths(output_dir):
         "mpc_collided_particles": output_dir / "mpc_collided_particles.tsv",
         "mpc_collision_summary": output_dir / "mpc_collision_summary.txt",
         "mpc_cell_collisions": output_dir / "mpc_cell_collisions.tsv",
+        "mpc_concentration_summary": output_dir / "mpc_concentration_summary.txt",
+        "mpc_concentration_times": output_dir / "mpc_concentration_times.tsv",
+        "mpc_concentration_initial_map": output_dir / "mpc_concentration_initial.pgm",
+        "mpc_concentration_final_map": output_dir / "mpc_concentration_final.pgm",
+        "mpc_high_concentration_initial_map": output_dir
+        / "mpc_high_concentration_initial.pgm",
+        "mpc_high_concentration_final_map": output_dir
+        / "mpc_high_concentration_final.pgm",
         "simulation_log": output_dir / "simulation.log",
     }
 
