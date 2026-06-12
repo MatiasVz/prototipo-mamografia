@@ -64,6 +64,10 @@ end
 
     @test space.width == 5
     @test space.height == 5
+    @test space.cell_length == 1.0
+    @test space.lx == 5.0
+    @test space.ly == 5.0
+    @test space.lz == 1
     @test space.max_gray == 255
     @test space.tissue_threshold == 8
     @test space.obstacle_threshold == 217
@@ -74,16 +78,34 @@ end
     @test count(space.domain_mask) == 9
     @test !space.domain_mask[1, 1]
     @test space.domain_mask[3, 3]
-    @test length(space.obstacles) == 1
+    @test length(space.obstacles) == 9
 
-    obstacle = space.obstacles[1]
+    bright_obstacle = only([
+        obstacle for obstacle in space.obstacles
+        if obstacle.x == 3 && obstacle.y == 2
+    ])
+    dark_obstacle = only([
+        obstacle for obstacle in space.obstacles
+        if obstacle.x == 2 && obstacle.y == 2
+    ])
+    medium_obstacle = only([
+        obstacle for obstacle in space.obstacles
+        if obstacle.x == 1 && obstacle.y == 1
+    ])
 
-    @test obstacle.x == 3
-    @test obstacle.y == 2
-    @test obstacle.center_x == 3.5
-    @test obstacle.center_y == 2.5
-    @test obstacle.intensity == 255
-    @test isapprox(obstacle.radius, 0.001953125)
+    @test bright_obstacle.center_x == 3.5
+    @test bright_obstacle.center_y == 2.5
+    @test bright_obstacle.center_z == 0.5
+    @test bright_obstacle.intensity == 255
+    @test bright_obstacle.height == 1.0
+    @test !bright_obstacle.preliminary_blocking
+    @test isapprox(bright_obstacle.radius, 0.001953125)
+    @test dark_obstacle.intensity == 0
+    @test dark_obstacle.preliminary_blocking
+    @test isapprox(dark_obstacle.radius, 0.5)
+    @test medium_obstacle.intensity == 80
+    @test medium_obstacle.preliminary_blocking
+    @test isapprox(medium_obstacle.radius, 0.34375)
 
     @test_throws ArgumentError build_simulation_space(image; tissue_threshold = 0)
     @test_throws ArgumentError build_simulation_space(image; obstacle_threshold = 0)
@@ -112,8 +134,8 @@ end
     @test result_a.steps == 5
     @test result_a.seed == 7
     @test result_a.particle_density == 0.5
-    @test length(result_a.particles) == 4
-    @test result_a.attempted_moves == 20
+    @test length(result_a.particles) == 1
+    @test result_a.attempted_moves == 5
     @test result_a.collision_count >= 0
     @test all(particle -> space.domain_mask[particle.y + 1, particle.x + 1], result_a.particles)
     @test sum(result_a.visit_counts[.!space.domain_mask]) == 0
@@ -234,9 +256,12 @@ end
         @test preliminary_results.metrics.height == 5
         @test preliminary_results.metrics.domain_cell_count == 9
         @test preliminary_results.metrics.excluded_background_count == 16
-        @test preliminary_results.metrics.obstacle_count == 1
+        @test preliminary_results.metrics.obstacle_count == 9
+        @test preliminary_results.metrics.preliminary_blocking_obstacle_count == 8
         @test occursin("\"status\": \"preliminary_results_ready\"", metrics_content)
         @test occursin("\"domain_cell_count\": 9", metrics_content)
+        @test occursin("\"obstacle_count\": 9", metrics_content)
+        @test occursin("\"preliminary_blocking_obstacle_count\": 8", metrics_content)
         @test occursin("\"collision_rate\"", metrics_content)
         @test startswith(domain_mask_content, "P2")
         @test occursin("5 5", domain_mask_content)
@@ -280,6 +305,9 @@ end
         @test isfile(result.summary_path)
         @test isfile(result.space_summary_path)
         @test isfile(result.obstacles_path)
+        @test isfile(result.obstacle_radius_matrix_path)
+        @test isfile(result.obstacle_radius_map_path)
+        @test isfile(result.obstacle_radius_histogram_path)
         @test isfile(result.simulation_summary_path)
         @test isfile(result.simulation_state_path)
         @test isfile(result.visit_counts_path)
@@ -291,19 +319,29 @@ end
         @test occursin("width=5", read(result.summary_path, String))
         @test occursin("domain_cell_count=9", read(result.space_summary_path, String))
         @test occursin("excluded_background_count=16", read(result.space_summary_path, String))
-        @test occursin("obstacle_count=1", read(result.space_summary_path, String))
+        @test occursin("obstacle_count=9", read(result.space_summary_path, String))
+        @test occursin("preliminary_blocking_obstacle_count=8", read(result.space_summary_path, String))
+        @test occursin("radius_formula=0.5 * cell_length * (1 - intensity / (max_gray + 1))", read(result.space_summary_path, String))
         @test occursin("configuration_model=mpc_base_configuration", read(result.simulation_summary_path, String))
         @test occursin("execution_engine=sequential_minimal_random_walk", read(result.simulation_summary_path, String))
-        @test occursin("particle_count=4", read(result.simulation_summary_path, String))
-        @test occursin("attempted_moves=12", read(result.simulation_summary_path, String))
+        @test occursin("particle_count=1", read(result.simulation_summary_path, String))
+        @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
+        @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
         @test occursin("\"configuration_model\": \"mpc_base_configuration\"", read(result.mpc_config_path, String))
         @test occursin("\"lx\": 5.0", read(result.mpc_config_path, String))
         @test occursin("\"ly\": 5.0", read(result.mpc_config_path, String))
         @test occursin("\"lz\": 1", read(result.mpc_config_path, String))
         @test occursin("\"n0\": 10.0", read(result.mpc_config_path, String))
+        @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
+        @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
         @test occursin("\"status\": \"preliminary_results_ready\"", read(result.metrics_path, String))
+        @test occursin("center_z", read(result.obstacles_path, String))
+        @test occursin("preliminary_blocking", read(result.obstacles_path, String))
+        @test occursin("x\ty\tintensity\tnormalized_intensity\tradius\tis_domain\tpreliminary_blocking", read(result.obstacle_radius_matrix_path, String))
+        @test startswith(read(result.obstacle_radius_map_path, String), "P2")
+        @test occursin("bucket\tcount", read(result.obstacle_radius_histogram_path, String))
         @test startswith(read(result.domain_mask_path, String), "P2")
         @test startswith(read(result.density_map_path, String), "P2")
     end

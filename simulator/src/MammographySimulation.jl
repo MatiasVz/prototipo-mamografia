@@ -32,14 +32,21 @@ struct SimulationObstacle
     y::Int
     center_x::Float64
     center_y::Float64
+    center_z::Float64
     intensity::Int
     normalized_intensity::Float64
     radius::Float64
+    height::Float64
+    preliminary_blocking::Bool
 end
 
 struct SimulationSpace
     width::Int
     height::Int
+    cell_length::Float64
+    lx::Float64
+    ly::Float64
+    lz::Int
     max_gray::Int
     tissue_threshold::Int
     obstacle_threshold::Int
@@ -73,6 +80,7 @@ struct PreliminarySimulationMetrics
     domain_cell_count::Int
     excluded_background_count::Int
     obstacle_count::Int
+    preliminary_blocking_obstacle_count::Int
     free_cell_count::Int
     particle_count::Int
     steps::Int
@@ -254,7 +262,7 @@ function run_case(config::SimulationRunConfig)
     input_path = abspath(config.input_path)
     output_dir = abspath(config.output_dir)
     pgm_image = read_pgm(input_path)
-    simulation_space = build_simulation_space(pgm_image)
+    simulation_space = build_simulation_space(pgm_image; mpc_config = config.mpc_config)
     simulation_result = run_minimal_simulation(
         simulation_space;
         seed = config.seed,
@@ -271,6 +279,9 @@ function run_case(config::SimulationRunConfig)
     summary_path = joinpath(output_dir, "input_summary.txt")
     space_summary_path = joinpath(output_dir, "space_summary.txt")
     obstacles_path = joinpath(output_dir, "obstacles.tsv")
+    obstacle_radius_matrix_path = joinpath(output_dir, "obstacle_radius_matrix.tsv")
+    obstacle_radius_map_path = joinpath(output_dir, "obstacle_radius_map.pgm")
+    obstacle_radius_histogram_path = joinpath(output_dir, "obstacle_radius_histogram.tsv")
     simulation_summary_path = joinpath(output_dir, "simulation_summary.txt")
     simulation_state_path = joinpath(output_dir, "simulation_state.tsv")
     visit_counts_path = joinpath(output_dir, "visit_counts.tsv")
@@ -292,6 +303,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "max_gray=$(pgm_image.max_gray)")
         println(io, "tissue_threshold=$(simulation_space.tissue_threshold)")
         println(io, "obstacle_count=$(length(simulation_space.obstacles))")
+        println(io, "preliminary_blocking_obstacle_count=$(count_preliminary_blocking_obstacles(simulation_space))")
         println(io, "obstacle_threshold=$(simulation_space.obstacle_threshold)")
         println(io, "domain_cell_count=$(count_domain_cells(simulation_space))")
         println(io, "excluded_background_count=$(count_excluded_background_cells(simulation_space))")
@@ -359,6 +371,9 @@ function run_case(config::SimulationRunConfig)
 
     write_space_summary(space_summary_path, simulation_space; mpc_config = config.mpc_config)
     write_obstacles_tsv(obstacles_path, simulation_space.obstacles)
+    write_obstacle_radius_matrix_tsv(obstacle_radius_matrix_path, simulation_space)
+    write_obstacle_radius_map_pgm(obstacle_radius_map_path, simulation_space)
+    write_obstacle_radius_histogram_tsv(obstacle_radius_histogram_path, simulation_space)
     write_simulation_summary(simulation_summary_path, simulation_result, simulation_space)
     write_simulation_state(simulation_state_path, simulation_result.particles)
     write_visit_counts(visit_counts_path, simulation_result.visit_counts)
@@ -371,6 +386,9 @@ function run_case(config::SimulationRunConfig)
         summary_path = summary_path,
         space_summary_path = space_summary_path,
         obstacles_path = obstacles_path,
+        obstacle_radius_matrix_path = obstacle_radius_matrix_path,
+        obstacle_radius_map_path = obstacle_radius_map_path,
+        obstacle_radius_histogram_path = obstacle_radius_histogram_path,
         simulation_summary_path = simulation_summary_path,
         simulation_state_path = simulation_state_path,
         visit_counts_path = visit_counts_path,
@@ -402,6 +420,9 @@ function cli_main(args::Vector{String} = ARGS)
         println("summary_path=$(result.summary_path)")
         println("space_summary_path=$(result.space_summary_path)")
         println("obstacles_path=$(result.obstacles_path)")
+        println("obstacle_radius_matrix_path=$(result.obstacle_radius_matrix_path)")
+        println("obstacle_radius_map_path=$(result.obstacle_radius_map_path)")
+        println("obstacle_radius_histogram_path=$(result.obstacle_radius_histogram_path)")
         println("simulation_summary_path=$(result.simulation_summary_path)")
         println("simulation_state_path=$(result.simulation_state_path)")
         println("visit_counts_path=$(result.visit_counts_path)")
@@ -586,7 +607,10 @@ function build_simulation_space(
     image::PgmImage;
     tissue_threshold::Union{Nothing,Int} = nothing,
     obstacle_threshold::Union{Nothing,Int} = nothing,
+    mpc_config::MpcModelConfig = MpcModelConfig(),
 )
+    validate_mpc_config(mpc_config)
+
     resolved_tissue_threshold = resolve_tissue_threshold(image.max_gray, tissue_threshold)
     resolved_obstacle_threshold = resolve_obstacle_threshold(
         image.max_gray,
@@ -605,36 +629,46 @@ function build_simulation_space(
     normalized_intensities = Float64.(image.pixels) ./ image.max_gray
     domain_mask = detect_breast_domain_mask(image.pixels, resolved_tissue_threshold)
     obstacles = SimulationObstacle[]
+    preliminary_blocking_radius = obstacle_radius(resolved_obstacle_threshold, image.max_gray)
 
     for y_index in 1:image.height
         for x_index in 1:image.width
-            intensity = image.pixels[y_index, x_index]
-
-            if domain_mask[y_index, x_index] && intensity >= resolved_obstacle_threshold
-                x = x_index - 1
-                y = y_index - 1
-                normalized_intensity = normalized_intensities[y_index, x_index]
-                radius = obstacle_radius(intensity, image.max_gray)
-
-                push!(
-                    obstacles,
-                    SimulationObstacle(
-                        x,
-                        y,
-                        x + 0.5,
-                        y + 0.5,
-                        intensity,
-                        normalized_intensity,
-                        radius,
-                    ),
-                )
+            if !domain_mask[y_index, x_index]
+                continue
             end
+
+            intensity = image.pixels[y_index, x_index]
+            x = x_index - 1
+            y = y_index - 1
+            normalized_intensity = normalized_intensities[y_index, x_index]
+            radius = obstacle_radius(intensity, image.max_gray)
+            preliminary_blocking = radius >= preliminary_blocking_radius
+
+            push!(
+                obstacles,
+                SimulationObstacle(
+                    x,
+                    y,
+                    (x + 0.5) * mpc_config.cell_length,
+                    (y + 0.5) * mpc_config.cell_length,
+                    mpc_config.lz / 2,
+                    intensity,
+                    normalized_intensity,
+                    radius * mpc_config.cell_length,
+                    mpc_config.lz,
+                    preliminary_blocking,
+                ),
+            )
         end
     end
 
     return SimulationSpace(
         image.width,
         image.height,
+        mpc_config.cell_length,
+        image.width * mpc_config.cell_length,
+        image.height * mpc_config.cell_length,
+        mpc_config.lz,
         image.max_gray,
         resolved_tissue_threshold,
         resolved_obstacle_threshold,
@@ -860,7 +894,7 @@ function build_obstacle_grid(space::SimulationSpace)
     obstacle_grid = falses(space.height, space.width)
 
     for obstacle in space.obstacles
-        obstacle_grid[obstacle.y + 1, obstacle.x + 1] = true
+        obstacle_grid[obstacle.y + 1, obstacle.x + 1] = obstacle.preliminary_blocking
     end
 
     return obstacle_grid
@@ -908,11 +942,11 @@ function obstacle_radius(intensity::Int, max_gray::Int)
 end
 
 function mpc_box_lx(space::SimulationSpace, config::MpcModelConfig)
-    return space.width * config.cell_length
+    return space.lx
 end
 
 function mpc_box_ly(space::SimulationSpace, config::MpcModelConfig)
-    return space.height * config.cell_length
+    return space.ly
 end
 
 function write_mpc_config_json(
@@ -954,6 +988,10 @@ function write_mpc_config_json(
         ("obstacle_threshold", space.obstacle_threshold),
         ("domain_cell_count", count_domain_cells(space)),
         ("obstacle_count", length(space.obstacles)),
+        ("preliminary_blocking_obstacle_count", count_preliminary_blocking_obstacles(space)),
+        ("radius_model", "cylindrical_obstacles_from_pgm_intensity"),
+        ("radius_formula", "radius = 0.5 * cell_length * (1 - intensity / (max_gray + 1))"),
+        ("radius_denominator", space.max_gray + 1),
     ]
 
     write_key_value_json(path, fields)
@@ -981,7 +1019,9 @@ function write_space_summary(
     domain_cell_count = count_domain_cells(space)
     excluded_background_count = count_excluded_background_cells(space)
     obstacle_count = length(space.obstacles)
+    preliminary_blocking_obstacle_count = count_preliminary_blocking_obstacles(space)
     obstacle_fraction = safe_ratio(obstacle_count, domain_cell_count)
+    preliminary_blocking_fraction = safe_ratio(preliminary_blocking_obstacle_count, domain_cell_count)
     domain_fraction = safe_ratio(domain_cell_count, cell_count)
 
     open(path, "w") do io
@@ -1002,31 +1042,87 @@ function write_space_summary(
         println(io, "domain_fraction=$(domain_fraction)")
         println(io, "obstacle_threshold=$(space.obstacle_threshold)")
         println(io, "obstacle_count=$(obstacle_count)")
+        println(io, "cylinder_obstacle_count=$(obstacle_count)")
+        println(io, "preliminary_blocking_obstacle_count=$(preliminary_blocking_obstacle_count)")
         println(io, "obstacle_fraction=$(obstacle_fraction)")
+        println(io, "preliminary_blocking_fraction=$(preliminary_blocking_fraction)")
         println(io, "normalized_min=$(minimum(space.normalized_intensities))")
         println(io, "normalized_max=$(maximum(space.normalized_intensities))")
-        println(io, "radius_model=mammography_c_reference")
+        println(io, "radius_model=cylindrical_obstacles_from_pgm_intensity")
+        println(io, "radius_formula=0.5 * cell_length * (1 - intensity / (max_gray + 1))")
+        println(io, "radius_denominator=$(space.max_gray + 1)")
+        println(io, "cylinder_height=$(space.lz)")
 
         if isempty(space.obstacles)
             println(io, "radius_min=")
             println(io, "radius_max=")
+            println(io, "radius_mean=")
         else
             radii = [obstacle.radius for obstacle in space.obstacles]
             println(io, "radius_min=$(minimum(radii))")
             println(io, "radius_max=$(maximum(radii))")
+            println(io, "radius_mean=$(sum(radii) / length(radii))")
+            for (label, count_value) in radius_histogram(space.obstacles)
+                println(io, "radius_bucket_$(label)=$(count_value)")
+            end
         end
     end
 end
 
 function write_obstacles_tsv(path::AbstractString, obstacles::Vector{SimulationObstacle})
     open(path, "w") do io
-        println(io, "x\ty\tcenter_x\tcenter_y\tintensity\tnormalized_intensity\tradius")
+        println(io, "x\ty\tcenter_x\tcenter_y\tcenter_z\tintensity\tnormalized_intensity\tradius\theight\tpreliminary_blocking")
 
         for obstacle in obstacles
             println(
                 io,
-                "$(obstacle.x)\t$(obstacle.y)\t$(obstacle.center_x)\t$(obstacle.center_y)\t$(obstacle.intensity)\t$(obstacle.normalized_intensity)\t$(obstacle.radius)",
+                "$(obstacle.x)\t$(obstacle.y)\t$(obstacle.center_x)\t$(obstacle.center_y)\t$(obstacle.center_z)\t$(obstacle.intensity)\t$(obstacle.normalized_intensity)\t$(obstacle.radius)\t$(obstacle.height)\t$(obstacle.preliminary_blocking)",
             )
+        end
+    end
+end
+
+function write_obstacle_radius_matrix_tsv(path::AbstractString, space::SimulationSpace)
+    radius_grid = obstacle_radius_grid(space)
+    blocking_grid = preliminary_blocking_grid(space)
+
+    open(path, "w") do io
+        println(io, "x\ty\tintensity\tnormalized_intensity\tradius\tis_domain\tpreliminary_blocking")
+
+        for y_index in 1:space.height
+            for x_index in 1:space.width
+                intensity = space.normalized_intensities[y_index, x_index] * space.max_gray
+                println(
+                    io,
+                    "$(x_index - 1)\t$(y_index - 1)\t$(round(Int, intensity))\t$(space.normalized_intensities[y_index, x_index])\t$(radius_grid[y_index, x_index])\t$(space.domain_mask[y_index, x_index])\t$(blocking_grid[y_index, x_index])",
+                )
+            end
+        end
+    end
+end
+
+function write_obstacle_radius_map_pgm(path::AbstractString, space::SimulationSpace)
+    radius_values = build_obstacle_radius_map_values(space)
+    height, width = size(radius_values)
+
+    open(path, "w") do io
+        println(io, "P2")
+        println(io, "# Mapa de radios de obstaculos cilindricos generado por MammographySimulation")
+        println(io, "$(width) $(height)")
+        println(io, "255")
+
+        for y_index in 1:height
+            println(io, join(vec(radius_values[y_index, :]), " "))
+        end
+    end
+end
+
+function write_obstacle_radius_histogram_tsv(path::AbstractString, space::SimulationSpace)
+    open(path, "w") do io
+        println(io, "bucket\tcount")
+
+        for (label, count_value) in radius_histogram(space.obstacles)
+            println(io, "$(label)\t$(count_value)")
         end
     end
 end
@@ -1039,6 +1135,8 @@ function write_simulation_summary(path::AbstractString, result::SimulationResult
         println(io, "seed=$(result.seed)")
         println(io, "particle_density=$(result.particle_density)")
         println(io, "particle_count=$(length(result.particles))")
+        println(io, "cylinder_obstacle_count=$(length(space.obstacles))")
+        println(io, "preliminary_blocking_obstacle_count=$(count_preliminary_blocking_obstacles(space))")
         println(io, "free_cell_count=$(free_cell_count)")
         println(io, "attempted_moves=$(result.attempted_moves)")
         println(io, "collision_count=$(result.collision_count)")
@@ -1080,7 +1178,78 @@ function count_excluded_background_cells(space::SimulationSpace)
 end
 
 function count_free_cells(space::SimulationSpace)
-    return count_domain_cells(space) - length(space.obstacles)
+    obstacle_grid = build_obstacle_grid(space)
+    free_cell_count = 0
+
+    for y_index in axes(space.domain_mask, 1)
+        for x_index in axes(space.domain_mask, 2)
+            if space.domain_mask[y_index, x_index] && !obstacle_grid[y_index, x_index]
+                free_cell_count += 1
+            end
+        end
+    end
+
+    return free_cell_count
+end
+
+function count_preliminary_blocking_obstacles(space::SimulationSpace)
+    return count(obstacle -> obstacle.preliminary_blocking, space.obstacles)
+end
+
+function obstacle_radius_grid(space::SimulationSpace)
+    radius_grid = zeros(Float64, space.height, space.width)
+
+    for obstacle in space.obstacles
+        radius_grid[obstacle.y + 1, obstacle.x + 1] = obstacle.radius
+    end
+
+    return radius_grid
+end
+
+function preliminary_blocking_grid(space::SimulationSpace)
+    return build_obstacle_grid(space)
+end
+
+function is_preliminary_blocking_cell(space::SimulationSpace, x_index::Int, y_index::Int)
+    if !space.domain_mask[y_index, x_index]
+        return false
+    end
+
+    return preliminary_blocking_grid(space)[y_index, x_index]
+end
+
+function build_obstacle_radius_map_values(space::SimulationSpace)
+    radius_grid = obstacle_radius_grid(space)
+    max_radius = maximum(radius_grid)
+    radius_values = zeros(Int, size(radius_grid))
+
+    if max_radius == 0
+        return radius_values
+    end
+
+    for index in eachindex(radius_grid)
+        radius_values[index] = round(Int, radius_grid[index] / max_radius * 255)
+    end
+
+    return radius_values
+end
+
+function radius_histogram(obstacles::Vector{SimulationObstacle})
+    buckets = [
+        ("0_00_0_10", 0.0, 0.10),
+        ("0_10_0_20", 0.10, 0.20),
+        ("0_20_0_30", 0.20, 0.30),
+        ("0_30_0_40", 0.30, 0.40),
+        ("0_40_0_50", 0.40, Inf),
+    ]
+
+    return [
+        (
+            label,
+            count(obstacle -> lower <= obstacle.radius < upper, obstacles),
+        )
+        for (label, lower, upper) in buckets
+    ]
 end
 
 function generate_preliminary_results(
@@ -1115,6 +1284,7 @@ function build_preliminary_metrics(result::SimulationResult, space::SimulationSp
     domain_cell_count = count_domain_cells(space)
     excluded_background_count = count_excluded_background_cells(space)
     obstacle_count = length(space.obstacles)
+    preliminary_blocking_obstacle_count = count_preliminary_blocking_obstacles(space)
     free_cell_count = count_free_cells(space)
     particle_count = length(result.particles)
     visited_cell_count = count(>(0), result.visit_counts)
@@ -1130,6 +1300,7 @@ function build_preliminary_metrics(result::SimulationResult, space::SimulationSp
         domain_cell_count,
         excluded_background_count,
         obstacle_count,
+        preliminary_blocking_obstacle_count,
         free_cell_count,
         particle_count,
         result.steps,
@@ -1156,6 +1327,7 @@ function write_metrics_json(path::AbstractString, metrics::PreliminarySimulation
         ("domain_cell_count", metrics.domain_cell_count),
         ("excluded_background_count", metrics.excluded_background_count),
         ("obstacle_count", metrics.obstacle_count),
+        ("preliminary_blocking_obstacle_count", metrics.preliminary_blocking_obstacle_count),
         ("free_cell_count", metrics.free_cell_count),
         ("particle_count", metrics.particle_count),
         ("steps", metrics.steps),

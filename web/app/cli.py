@@ -119,6 +119,9 @@ def register_cli_commands(app):
         click.echo(f"domain_mask_path={result.domain_mask_path}")
         click.echo(f"density_map_path={result.density_map_path}")
         click.echo(f"mpc_config_path={result.mpc_config_path}")
+        click.echo(f"obstacle_radius_matrix_path={result.obstacle_radius_matrix_path}")
+        click.echo(f"obstacle_radius_map_path={result.obstacle_radius_map_path}")
+        click.echo(f"obstacle_radius_histogram_path={result.obstacle_radius_histogram_path}")
         click.echo(f"simulation_log_path={result.simulation_log_path}")
         click.echo(f"worker_log_path={result.worker_log_path}")
 
