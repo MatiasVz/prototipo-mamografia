@@ -8,6 +8,7 @@ export PgmImage,
     MpcCollisionResult,
     MpcConcentrationResult,
     MpcConcentrationSnapshot,
+    MpcComparableDiffusionMetrics,
     MpcParticle,
     MpcParticleInitialization,
     MpcStreamingResult,
@@ -23,6 +24,8 @@ export PgmImage,
     build_simulation_space,
     build_mpc_concentration_grid,
     calculate_mpc_velocity_autocorrelation,
+    calculate_mdc_star,
+    calculate_theoretical_mdc0,
     calculate_velocity_autocorrelation,
     collide_mpc_particles,
     generate_mpc_concentration_maps,
@@ -151,6 +154,24 @@ struct MpcVelocityAutocorrelationResult
     cv_values::Vector{Float64}
     sample_counts::Vector{Int}
     mdc::Float64
+    characteristic_time::Union{Nothing,Float64}
+end
+
+struct MpcComparableDiffusionMetrics
+    metric_model::String
+    reference_origin::String
+    purpose_note::String
+    units::String
+    mdc::Float64
+    mdc0::Float64
+    mdc_star::Float64
+    n0::Float64
+    mass::Float64
+    kbt::Float64
+    tau::Float64
+    realizations::Int
+    labeled_particle_count::Int
+    initial_time_count::Int
     characteristic_time::Union{Nothing,Float64}
 end
 
@@ -390,6 +411,10 @@ function run_case(config::SimulationRunConfig)
         steps = config.steps,
         seed = config.seed,
     )
+    mpc_diffusion_metrics = build_comparable_diffusion_metrics(
+        mpc_velocity_autocorrelation,
+        config.mpc_config,
+    )
     simulation_result = run_minimal_simulation(
         simulation_space;
         seed = config.seed,
@@ -477,6 +502,12 @@ function run_case(config::SimulationRunConfig)
         println(io, "velocity_autocorrelation_labeled_particle_count=$(mpc_velocity_autocorrelation.labeled_particle_count)")
         println(io, "velocity_autocorrelation_initial_times=$(join(mpc_velocity_autocorrelation.initial_times, ","))")
         println(io, "velocity_autocorrelation_mdc=$(mpc_velocity_autocorrelation.mdc)")
+        println(io, "diffusion_metric_model=$(mpc_diffusion_metrics.metric_model)")
+        println(io, "diffusion_metric_mdc=$(mpc_diffusion_metrics.mdc)")
+        println(io, "diffusion_metric_mdc0=$(mpc_diffusion_metrics.mdc0)")
+        println(io, "diffusion_metric_mdc_star=$(mpc_diffusion_metrics.mdc_star)")
+        println(io, "diffusion_metric_units=$(mpc_diffusion_metrics.units)")
+        println(io, "diffusion_metric_reference_origin=$(mpc_diffusion_metrics.reference_origin)")
         println(io, "attempted_moves=$(simulation_result.attempted_moves)")
         println(io, "collision_count=$(simulation_result.collision_count)")
         println(io, "message=Simulacion minima secuencial ejecutada y resultados preliminares generados.")
@@ -526,6 +557,7 @@ function run_case(config::SimulationRunConfig)
         mpc_collision = mpc_collision,
         mpc_concentration = mpc_concentration,
         mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
+        mpc_diffusion_metrics = mpc_diffusion_metrics,
     )
     open(summary_path, "w") do io
         println(io, "width=$(pgm_image.width)")
@@ -556,6 +588,10 @@ function run_case(config::SimulationRunConfig)
         output_dir,
         mpc_velocity_autocorrelation,
     )
+    diffusion_metrics_outputs = write_comparable_diffusion_metrics_outputs(
+        output_dir,
+        mpc_diffusion_metrics,
+    )
     write_simulation_summary(
         simulation_summary_path,
         simulation_result,
@@ -565,6 +601,7 @@ function run_case(config::SimulationRunConfig)
         mpc_collision = mpc_collision,
         mpc_concentration = mpc_concentration,
         mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
+        mpc_diffusion_metrics = mpc_diffusion_metrics,
     )
     write_simulation_state(simulation_state_path, simulation_result.particles)
     write_visit_counts(visit_counts_path, simulation_result.visit_counts)
@@ -597,6 +634,9 @@ function run_case(config::SimulationRunConfig)
         velocity_autocorrelation_path = velocity_autocorrelation_outputs.autocorrelation_path,
         velocity_autocorrelation_summary_path = velocity_autocorrelation_outputs.summary_path,
         velocity_autocorrelation_realizations_path = velocity_autocorrelation_outputs.realizations_path,
+        diffusion_metrics_json_path = diffusion_metrics_outputs.json_path,
+        diffusion_metrics_tsv_path = diffusion_metrics_outputs.tsv_path,
+        diffusion_metrics_summary_path = diffusion_metrics_outputs.summary_path,
         simulation_summary_path = simulation_summary_path,
         simulation_state_path = simulation_state_path,
         visit_counts_path = visit_counts_path,
@@ -611,6 +651,7 @@ function run_case(config::SimulationRunConfig)
         mpc_collision = mpc_collision,
         mpc_concentration = mpc_concentration,
         mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
+        mpc_diffusion_metrics = mpc_diffusion_metrics,
         simulation = simulation_result,
         preliminary_results = preliminary_results,
     )
@@ -651,6 +692,9 @@ function cli_main(args::Vector{String} = ARGS)
         println("velocity_autocorrelation_path=$(result.velocity_autocorrelation_path)")
         println("velocity_autocorrelation_summary_path=$(result.velocity_autocorrelation_summary_path)")
         println("velocity_autocorrelation_realizations_path=$(result.velocity_autocorrelation_realizations_path)")
+        println("diffusion_metrics_json_path=$(result.diffusion_metrics_json_path)")
+        println("diffusion_metrics_tsv_path=$(result.diffusion_metrics_tsv_path)")
+        println("diffusion_metrics_summary_path=$(result.diffusion_metrics_summary_path)")
         println("simulation_summary_path=$(result.simulation_summary_path)")
         println("simulation_state_path=$(result.simulation_state_path)")
         println("visit_counts_path=$(result.visit_counts_path)")
@@ -1846,6 +1890,58 @@ function estimate_characteristic_decay_time(cv_values::Vector{Float64}, tau::Flo
     return -1 / slope
 end
 
+function calculate_theoretical_mdc0(config::MpcModelConfig)
+    validate_mpc_config(config)
+
+    denominator = config.n0 - 1 + exp(-config.n0)
+
+    if denominator <= 0
+        throw(ArgumentError("La referencia teorica MDC0 tiene denominador invalido."))
+    end
+
+    numerator = 2 * config.n0 + 1 - exp(-config.n0)
+
+    return (config.kbt * config.tau / (2 * config.mass)) * (numerator / denominator)
+end
+
+function calculate_mdc_star(mdc::Real, mdc0::Real)
+    if !isfinite(mdc)
+        throw(ArgumentError("MDC debe ser finito para normalizar."))
+    end
+
+    if !isfinite(mdc0) || mdc0 <= 0
+        throw(ArgumentError("MDC0 debe ser finito y mayor que cero para normalizar."))
+    end
+
+    return mdc / mdc0
+end
+
+function build_comparable_diffusion_metrics(
+    autocorrelation::MpcVelocityAutocorrelationResult,
+    config::MpcModelConfig,
+)
+    mdc0 = calculate_theoretical_mdc0(config)
+    mdc_star = calculate_mdc_star(autocorrelation.mdc, mdc0)
+
+    return MpcComparableDiffusionMetrics(
+        "mdc_normalized_against_theoretical_reference",
+        "theoretical_mdc0_without_obstacles",
+        "Metrica relativa para prototipo academico/investigativo; no constituye diagnostico clinico.",
+        "reduced_mpc_units",
+        autocorrelation.mdc,
+        mdc0,
+        mdc_star,
+        config.n0,
+        config.mass,
+        config.kbt,
+        config.tau,
+        config.realizations,
+        autocorrelation.labeled_particle_count,
+        length(autocorrelation.initial_times),
+        autocorrelation.characteristic_time,
+    )
+end
+
 function resolve_tissue_threshold(max_gray::Int, tissue_threshold::Union{Nothing,Int})
     if tissue_threshold !== nothing
         return tissue_threshold
@@ -2128,6 +2224,7 @@ function write_mpc_config_json(
     mpc_collision::Union{Nothing,MpcCollisionResult} = nothing,
     mpc_concentration::Union{Nothing,MpcConcentrationResult} = nothing,
     mpc_velocity_autocorrelation::Union{Nothing,MpcVelocityAutocorrelationResult} = nothing,
+    mpc_diffusion_metrics::Union{Nothing,MpcComparableDiffusionMetrics} = nothing,
 )
     config = run_config.mpc_config
     fields = Any[
@@ -2239,6 +2336,21 @@ function write_mpc_config_json(
                 ("velocity_autocorrelation_initial_times", mpc_velocity_autocorrelation.initial_times),
                 ("velocity_autocorrelation_mdc", mpc_velocity_autocorrelation.mdc),
                 ("velocity_autocorrelation_characteristic_time", mpc_velocity_autocorrelation.characteristic_time),
+            ],
+        )
+    end
+
+    if mpc_diffusion_metrics !== nothing
+        append!(
+            fields,
+            [
+                ("diffusion_metric_model", mpc_diffusion_metrics.metric_model),
+                ("diffusion_metric_reference_origin", mpc_diffusion_metrics.reference_origin),
+                ("diffusion_metric_units", mpc_diffusion_metrics.units),
+                ("diffusion_metric_mdc", mpc_diffusion_metrics.mdc),
+                ("diffusion_metric_mdc0", mpc_diffusion_metrics.mdc0),
+                ("diffusion_metric_mdc_star", mpc_diffusion_metrics.mdc_star),
+                ("diffusion_metric_purpose_note", mpc_diffusion_metrics.purpose_note),
             ],
         )
     end
@@ -2720,6 +2832,93 @@ function write_velocity_autocorrelation_realizations_tsv(
     end
 end
 
+function write_comparable_diffusion_metrics_outputs(
+    output_dir::AbstractString,
+    metrics::MpcComparableDiffusionMetrics,
+)
+    json_path = joinpath(output_dir, "diffusion_metrics.json")
+    tsv_path = joinpath(output_dir, "diffusion_metrics.tsv")
+    summary_path = joinpath(output_dir, "diffusion_metrics_summary.txt")
+
+    write_comparable_diffusion_metrics_json(json_path, metrics)
+    write_comparable_diffusion_metrics_tsv(tsv_path, metrics)
+    write_comparable_diffusion_metrics_summary(summary_path, metrics)
+
+    return (
+        json_path = json_path,
+        tsv_path = tsv_path,
+        summary_path = summary_path,
+    )
+end
+
+function write_comparable_diffusion_metrics_json(
+    path::AbstractString,
+    metrics::MpcComparableDiffusionMetrics,
+)
+    write_key_value_json(
+        path,
+        comparable_diffusion_metric_fields(metrics),
+    )
+end
+
+function write_comparable_diffusion_metrics_tsv(
+    path::AbstractString,
+    metrics::MpcComparableDiffusionMetrics,
+)
+    fields = comparable_diffusion_metric_fields(metrics)
+
+    open(path, "w") do io
+        println(io, join(first.(fields), "\t"))
+        println(io, join([tsv_value(value) for (_key, value) in fields], "\t"))
+    end
+end
+
+function write_comparable_diffusion_metrics_summary(
+    path::AbstractString,
+    metrics::MpcComparableDiffusionMetrics,
+)
+    open(path, "w") do io
+        println(io, "diffusion_metric_model=$(metrics.metric_model)")
+        println(io, "reference_origin=$(metrics.reference_origin)")
+        println(io, "purpose_note=$(metrics.purpose_note)")
+        println(io, "units=$(metrics.units)")
+        println(io, "formula_mdc_star=MDC* = MDC / MDC0")
+        println(io, "formula_mdc0=(kBT*tau/(2*m))*((2*n0 + 1 - exp(-n0))/(n0 - 1 + exp(-n0)))")
+        println(io, "mdc=$(metrics.mdc)")
+        println(io, "mdc0=$(metrics.mdc0)")
+        println(io, "mdc_star=$(metrics.mdc_star)")
+        println(io, "n0=$(metrics.n0)")
+        println(io, "mass=$(metrics.mass)")
+        println(io, "kbt=$(metrics.kbt)")
+        println(io, "tau=$(metrics.tau)")
+        println(io, "realizations=$(metrics.realizations)")
+        println(io, "labeled_particle_count=$(metrics.labeled_particle_count)")
+        println(io, "initial_time_count=$(metrics.initial_time_count)")
+        println(io, "characteristic_time=$(optional_value(metrics.characteristic_time))")
+    end
+end
+
+function comparable_diffusion_metric_fields(metrics::MpcComparableDiffusionMetrics)
+    return [
+        ("status", "relative_diffusion_metrics_ready"),
+        ("metric_model", metrics.metric_model),
+        ("reference_origin", metrics.reference_origin),
+        ("purpose_note", metrics.purpose_note),
+        ("units", metrics.units),
+        ("mdc", metrics.mdc),
+        ("mdc0", metrics.mdc0),
+        ("mdc_star", metrics.mdc_star),
+        ("n0", metrics.n0),
+        ("mass", metrics.mass),
+        ("kbt", metrics.kbt),
+        ("tau", metrics.tau),
+        ("realizations", metrics.realizations),
+        ("labeled_particle_count", metrics.labeled_particle_count),
+        ("initial_time_count", metrics.initial_time_count),
+        ("characteristic_time", metrics.characteristic_time),
+    ]
+end
+
 function write_simulation_summary(
     path::AbstractString,
     result::SimulationResult,
@@ -2729,6 +2928,7 @@ function write_simulation_summary(
     mpc_collision::Union{Nothing,MpcCollisionResult} = nothing,
     mpc_concentration::Union{Nothing,MpcConcentrationResult} = nothing,
     mpc_velocity_autocorrelation::Union{Nothing,MpcVelocityAutocorrelationResult} = nothing,
+    mpc_diffusion_metrics::Union{Nothing,MpcComparableDiffusionMetrics} = nothing,
 )
     free_cell_count = count_free_cells(space)
 
@@ -2784,6 +2984,15 @@ function write_simulation_summary(
             println(io, "velocity_autocorrelation_initial_times=$(join(mpc_velocity_autocorrelation.initial_times, ","))")
             println(io, "velocity_autocorrelation_mdc=$(mpc_velocity_autocorrelation.mdc)")
             println(io, "velocity_autocorrelation_characteristic_time=$(optional_value(mpc_velocity_autocorrelation.characteristic_time))")
+        end
+        if mpc_diffusion_metrics !== nothing
+            println(io, "diffusion_metric_model=$(mpc_diffusion_metrics.metric_model)")
+            println(io, "diffusion_metric_reference_origin=$(mpc_diffusion_metrics.reference_origin)")
+            println(io, "diffusion_metric_units=$(mpc_diffusion_metrics.units)")
+            println(io, "diffusion_metric_mdc=$(mpc_diffusion_metrics.mdc)")
+            println(io, "diffusion_metric_mdc0=$(mpc_diffusion_metrics.mdc0)")
+            println(io, "diffusion_metric_mdc_star=$(mpc_diffusion_metrics.mdc_star)")
+            println(io, "diffusion_metric_purpose_note=$(mpc_diffusion_metrics.purpose_note)")
         end
         println(io, "free_cell_count=$(free_cell_count)")
         println(io, "attempted_moves=$(result.attempted_moves)")
@@ -3086,6 +3295,14 @@ end
 
 function optional_value(value)
     return value
+end
+
+function tsv_value(value::Nothing)
+    return ""
+end
+
+function tsv_value(value)
+    return string(value)
 end
 
 function json_value(value::String)
