@@ -455,6 +455,64 @@ end
     @test isapprox(bounced_particle.vy, -0.0)
 end
 
+@testset "MPC multiparticle collision by cells" begin
+    space = empty_mpc_space()
+    config = MpcModelConfig(rotation_angle = pi / 2)
+    streaming = MpcStreamingResult(
+        1,
+        1.0,
+        3,
+        0,
+        0,
+        0,
+        1,
+        [
+            MpcParticle(1, 1.2, 1.2, 0.5, 1.0, 0.0, 0.0, 1.0, "fluid", false),
+            MpcParticle(2, 1.8, 1.7, 0.5, -1.0, 0.0, 0.0, 1.0, "fluid", false),
+            MpcParticle(3, 4.2, 4.2, 0.5, 2.0, 3.0, 0.0, 1.0, "fluid", false),
+        ],
+    )
+
+    collision_a = collide_mpc_particles(streaming, space, config; seed = 5)
+    collision_b = collide_mpc_particles(streaming, space, config; seed = 5)
+
+    velocities_a = [(particle.vx, particle.vy, particle.vz) for particle in collision_a.particles]
+    velocities_b = [(particle.vx, particle.vy, particle.vz) for particle in collision_b.particles]
+    collision_cell = only([
+        cell for cell in collision_a.cell_statistics
+        if cell.cell_x == 1 && cell.cell_y == 1
+    ])
+    singleton_cell = only([
+        cell for cell in collision_a.cell_statistics
+        if cell.cell_x == 4 && cell.cell_y == 4
+    ])
+
+    @test collision_a.seed == 5
+    @test collision_a.particle_count == 3
+    @test length(collision_a.particles) == 3
+    @test collision_a.active_cell_count == 2
+    @test collision_a.collision_cell_count == 1
+    @test collision_a.singleton_cell_count == 1
+    @test collision_a.max_particles_per_cell == 2
+    @test velocities_a == velocities_b
+    @test collision_cell.particle_count == 2
+    @test isapprox(collision_cell.center_vx_before, 0.0)
+    @test isapprox(collision_cell.center_vy_before, 0.0)
+    @test isapprox(collision_cell.center_vx_after, 0.0; atol = 1.0e-12)
+    @test isapprox(collision_cell.center_vy_after, 0.0; atol = 1.0e-12)
+    @test isapprox(abs(collision_cell.rotation_angle), pi / 2)
+    @test singleton_cell.rotation_angle == 0.0
+    @test isapprox(collision_a.particles[3].vx, 2.0)
+    @test isapprox(collision_a.particles[3].vy, 3.0)
+    @test all(particle -> particle.mass == 1.0, collision_a.particles)
+
+    rotated_speed_1 = hypot(collision_a.particles[1].vx, collision_a.particles[1].vy)
+    rotated_speed_2 = hypot(collision_a.particles[2].vx, collision_a.particles[2].vy)
+
+    @test isapprox(rotated_speed_1, 1.0; atol = 1.0e-12)
+    @test isapprox(rotated_speed_2, 1.0; atol = 1.0e-12)
+end
+
 @testset "Preliminary simulation results" begin
     space = build_simulation_space(synthetic_roi_image())
     simulation = run_minimal_simulation(
@@ -537,6 +595,9 @@ end
         @test isfile(result.mpc_initial_particles_path)
         @test isfile(result.mpc_streamed_particles_path)
         @test isfile(result.mpc_streaming_summary_path)
+        @test isfile(result.mpc_collided_particles_path)
+        @test isfile(result.mpc_collision_summary_path)
+        @test isfile(result.mpc_cell_collisions_path)
         @test isfile(result.simulation_summary_path)
         @test isfile(result.simulation_state_path)
         @test isfile(result.visit_counts_path)
@@ -559,6 +620,8 @@ end
         @test occursin("mpc_velocity_sigma=1.0", read(result.simulation_summary_path, String))
         @test occursin("mpc_streaming_model=free_translation_periodic_boundaries_bounce_back", read(result.simulation_summary_path, String))
         @test occursin("mpc_streaming_steps=3", read(result.simulation_summary_path, String))
+        @test occursin("mpc_collision_model=multiparticle_collision_by_cell", read(result.simulation_summary_path, String))
+        @test occursin("mpc_collision_particle_count=90", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
@@ -570,6 +633,8 @@ end
         @test occursin("\"mpc_particle_model\": \"continuous_position_maxwellian_velocity\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_particle_count\": 90", read(result.mpc_config_path, String))
         @test occursin("\"mpc_streaming_model\": \"free_translation_periodic_boundaries_bounce_back\"", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_collision_model\": \"multiparticle_collision_by_cell\"", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_collision_particle_count\": 90", read(result.mpc_config_path, String))
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
         @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
@@ -583,6 +648,9 @@ end
         @test occursin("# target_particle_count=90", read(result.mpc_initial_particles_path, String))
         @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_streamed_particles_path, String))
         @test occursin("obstacle_collision_count=", read(result.mpc_streaming_summary_path, String))
+        @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_collided_particles_path, String))
+        @test occursin("mpc_collision_model=multiparticle_collision_by_cell", read(result.mpc_collision_summary_path, String))
+        @test occursin("cell_x\tcell_y\tparticle_count", read(result.mpc_cell_collisions_path, String))
         @test startswith(read(result.domain_mask_path, String), "P2")
         @test startswith(read(result.density_map_path, String), "P2")
     end
