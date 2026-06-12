@@ -26,6 +26,10 @@ from ..services.simulation_queue_service import (
     SimulationQueueError,
     enqueue_case_simulation,
 )
+from ..services.simulation_results_service import (
+    build_mpc_results_view,
+    get_result_image_path,
+)
 from ..services.storage_service import get_case_roi_directory
 from ..services.upload_error_service import (
     safe_register_request_size_error,
@@ -112,6 +116,7 @@ def case_detail(case_id):
     preview = _get_case_preview(case)
     simulation_metrics = _get_simulation_metrics(case)
     simulation_density_map_url = _get_simulation_density_map_url(case)
+    mpc_results = _get_mpc_results(case)
 
     return render_template(
         "case_detail.html",
@@ -129,6 +134,7 @@ def case_detail(case_id):
         simulation_result_state_label=_get_simulation_result_state_label(case),
         simulation_metrics=simulation_metrics,
         simulation_density_map_url=simulation_density_map_url,
+        mpc_results=mpc_results,
         simulation_results_status_title=_get_simulation_results_status_title(case),
         simulation_results_status_message=_get_simulation_results_status_message(case),
         case_flow_steps=_get_case_flow_steps(case),
@@ -348,6 +354,31 @@ def case_simulation_density_map(case_id):
         abort(404)
 
     preview = ensure_preview_for_path(density_map_path)
+
+    if preview is None:
+        abort(404)
+
+    return send_file(preview.absolute_path, mimetype=preview.mimetype)
+
+
+@upload_bp.get("/casos/<int:case_id>/simulacion/resultados/<result_key>")
+def case_simulation_result_image(case_id, result_key):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    results_dir = _get_case_simulation_results_path(case)
+
+    if results_dir is None or not results_dir.exists():
+        abort(404)
+
+    result_path = get_result_image_path(results_dir, result_key)
+
+    if result_path is None or not result_path.exists():
+        abort(404)
+
+    preview = ensure_preview_for_path(result_path)
 
     if preview is None:
         abort(404)
@@ -744,7 +775,10 @@ def _get_simulation_results_status_title(case):
 
 def _get_simulation_results_status_message(case):
     if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
-        return "El caso tiene metricas preliminares y mapa de densidad asociados."
+        return (
+            "El caso tiene resultados MPC, mapas de concentracion y metricas "
+            "relativas de difusion asociadas."
+        )
 
     if case.status == CaseStatus.PROCESSING:
         return "El worker esta ejecutando la simulacion del caso."
@@ -822,6 +856,26 @@ def _get_simulation_density_map_url(case):
         return None
 
     return url_for("upload.case_simulation_density_map", case_id=case.id)
+
+
+def _get_mpc_results(case):
+    results_dir = _get_case_simulation_results_path(case)
+    results_view = build_mpc_results_view(results_dir)
+
+    for result_map in (
+        list(results_view["domain_maps"]) + list(results_view["concentration_maps"])
+    ):
+        result_map["url"] = url_for(
+            "upload.case_simulation_result_image",
+            case_id=case.id,
+            result_key=result_map["key"],
+        )
+
+    return results_view
+
+
+def _get_case_simulation_results_path(case):
+    return _resolve_storage_path(case.simulation_results_path)
 
 
 def _has_simulation_results(case):
@@ -915,10 +969,10 @@ def _get_case_preview(case):
 def _get_preview_message(case, preview):
     if preview is not None:
         if case.file_type == "dicom":
-            return "Vista previa DICOM generada como preview.png."
+            return "Vista previa DICOM generada en formato PNG."
 
         if preview.is_generated:
-            return "Archivo compatible generado como preview.png."
+            return "Archivo compatible convertido a vista previa PNG."
 
         return "Archivo original compatible con visualizacion web."
 
