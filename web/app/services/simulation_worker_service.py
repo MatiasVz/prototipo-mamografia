@@ -25,6 +25,7 @@ class SimulationWorkerResult:
     metrics_path: Path
     domain_mask_path: Path
     density_map_path: Path
+    mpc_config_path: Path
     simulation_log_path: Path
     worker_log_path: Path
     stdout: str
@@ -117,6 +118,7 @@ def process_case_simulation(
         metrics_path=result_paths["metrics"],
         domain_mask_path=result_paths["domain_mask"],
         density_map_path=result_paths["density_map"],
+        mpc_config_path=result_paths["mpc_config"],
         simulation_log_path=result_paths["simulation_log"],
         worker_log_path=worker_log_path,
         stdout=completed_process.stdout,
@@ -145,6 +147,24 @@ def _build_julia_command(app_config, input_path, output_dir, *, seed, steps, den
         str(simulation_steps),
         "--density",
         str(simulation_density),
+        "--n0",
+        str(app_config["SIMULATION_DEFAULT_N0"]),
+        "--mass",
+        str(app_config["SIMULATION_DEFAULT_MASS"]),
+        "--kbt",
+        str(app_config["SIMULATION_DEFAULT_KBT"]),
+        "--tau",
+        str(app_config["SIMULATION_DEFAULT_TAU"]),
+        "--rotation-angle",
+        str(app_config["SIMULATION_DEFAULT_ROTATION_ANGLE"]),
+        "--realizations",
+        str(app_config["SIMULATION_DEFAULT_REALIZATIONS"]),
+        "--labeled-particles",
+        str(app_config["SIMULATION_DEFAULT_LABELED_PARTICLES"]),
+        "--output-times",
+        app_config["SIMULATION_DEFAULT_OUTPUT_TIMES"],
+        "--grid-shift",
+        app_config["SIMULATION_GRID_SHIFT_ENABLED"],
     ]
 
 
@@ -212,6 +232,7 @@ def _get_expected_result_paths(output_dir):
         "metrics": output_dir / "metrics.json",
         "domain_mask": output_dir / "domain_mask.pgm",
         "density_map": output_dir / "density_map.pgm",
+        "mpc_config": output_dir / "mpc_config.json",
         "simulation_log": output_dir / "simulation.log",
     }
 

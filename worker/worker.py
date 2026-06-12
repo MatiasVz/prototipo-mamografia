@@ -109,6 +109,7 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None, density=None)
     print(f"metrics_path={result.metrics_path}", flush=True)
     print(f"domain_mask_path={result.domain_mask_path}", flush=True)
     print(f"density_map_path={result.density_map_path}", flush=True)
+    print(f"mpc_config_path={result.mpc_config_path}", flush=True)
     print(f"simulation_log_path={result.simulation_log_path}", flush=True)
     print(f"worker_log_path={result.worker_log_path}", flush=True)
     return 0

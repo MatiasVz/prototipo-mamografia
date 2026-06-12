@@ -4,6 +4,7 @@ using Dates
 using Random
 
 export PgmImage,
+    MpcModelConfig,
     SimulationObstacle,
     SimulationParticle,
     PreliminarySimulationMetrics,
@@ -97,6 +98,39 @@ end
 
 const DEFAULT_TISSUE_THRESHOLD_RATIO = 0.03
 const DEFAULT_OBSTACLE_THRESHOLD_RATIO = 0.85
+const SIMULATION_ENGINE_PRELIMINARY = "sequential_minimal_random_walk"
+const MPC_CONFIGURATION_MODEL = "mpc_base_configuration"
+const DEFAULT_MPC_INPUT_ROLE = "confirmed_roi_pgm"
+const DEFAULT_MPC_CELL_LENGTH = 1.0
+const DEFAULT_MPC_LZ = 1
+const DEFAULT_MPC_N0 = 10.0
+const DEFAULT_MPC_MASS = 1.0
+const DEFAULT_MPC_KBT = 1.0
+const DEFAULT_MPC_TAU = 1.0
+const DEFAULT_MPC_ROTATION_ANGLE = pi / 2
+const DEFAULT_MPC_ROTATION_POLICY = "random_sign_plus_minus_angle"
+const DEFAULT_MPC_REALIZATIONS = 1
+const DEFAULT_MPC_LABELED_PARTICLES = 0
+const DEFAULT_MPC_OUTPUT_TIMES = (0, 100, 500)
+const DEFAULT_MPC_GRID_SHIFT_ENABLED = false
+const DEFAULT_MPC_GRID_SHIFT_DECISION = "disabled_initially_to_match_article_conditions"
+
+Base.@kwdef struct MpcModelConfig
+    input_role::String = DEFAULT_MPC_INPUT_ROLE
+    cell_length::Float64 = DEFAULT_MPC_CELL_LENGTH
+    lz::Int = DEFAULT_MPC_LZ
+    n0::Float64 = DEFAULT_MPC_N0
+    mass::Float64 = DEFAULT_MPC_MASS
+    kbt::Float64 = DEFAULT_MPC_KBT
+    tau::Float64 = DEFAULT_MPC_TAU
+    rotation_angle::Float64 = DEFAULT_MPC_ROTATION_ANGLE
+    rotation_policy::String = DEFAULT_MPC_ROTATION_POLICY
+    realizations::Int = DEFAULT_MPC_REALIZATIONS
+    labeled_particles::Int = DEFAULT_MPC_LABELED_PARTICLES
+    output_times::Vector{Int} = collect(DEFAULT_MPC_OUTPUT_TIMES)
+    grid_shift_enabled::Bool = DEFAULT_MPC_GRID_SHIFT_ENABLED
+    grid_shift_decision::String = DEFAULT_MPC_GRID_SHIFT_DECISION
+end
 
 Base.@kwdef struct SimulationRunConfig
     input_path::String
@@ -104,22 +138,47 @@ Base.@kwdef struct SimulationRunConfig
     seed::Int = 1234
     steps::Int = 10
     particle_density::Float64 = 0.25
+    mpc_config::MpcModelConfig = MpcModelConfig()
 end
 
 const USAGE = """
 Uso:
-  julia --project=simulator simulator/scripts/run_case.jl --input <archivo.pgm> --output <directorio> [--seed <entero>] [--steps <entero>] [--density <decimal>]
+  julia --project=simulator simulator/scripts/run_case.jl --input <roi_confirmada.pgm> --output <directorio> [opciones]
 
 Opciones:
-  --input    Ruta del archivo PGM preparado para simulacion.
-  --output   Directorio donde se escribiran los resultados.
-  --seed     Semilla reproducible para etapas posteriores. Por defecto: 1234.
-  --steps    Numero de pasos de simulacion. Por defecto: 10.
-  --density  Densidad inicial de particulas sobre celdas libres. Por defecto: 0.25.
-  --help     Muestra esta ayuda.
+  --input              Ruta de la ROI confirmada convertida a PGM.
+  --output             Directorio donde se escribiran los resultados.
+  --seed               Semilla reproducible. Por defecto: 1234.
+  --steps              Numero de pasos de simulacion. Por defecto: 10.
+  --density            Densidad preliminar usada por el motor secuencial actual. Por defecto: 0.25.
+  --n0                 Densidad media MPC de particulas por celda. Por defecto: 10.
+  --mass               Masa reducida de particula MPC. Por defecto: 1.
+  --kbt                Temperatura reducida kBT. Por defecto: 1.
+  --tau                Paso temporal reducido. Por defecto: 1.
+  --rotation-angle     Angulo de rotacion MPC en radianes. Por defecto: pi/2.
+  --realizations       Numero de realizaciones estadisticas. Por defecto: 1.
+  --labeled-particles  Particulas etiquetadas para autocorrelacion. Por defecto: 0.
+  --output-times       Tiempos de salida separados por coma. Por defecto: 0,100,500.
+  --grid-shift         true/false. Por defecto: false.
+  --help               Muestra esta ayuda.
 """
 
-const VALUE_OPTIONS = Set(["--input", "--output", "--seed", "--steps", "--density"])
+const VALUE_OPTIONS = Set([
+    "--input",
+    "--output",
+    "--seed",
+    "--steps",
+    "--density",
+    "--n0",
+    "--mass",
+    "--kbt",
+    "--tau",
+    "--rotation-angle",
+    "--realizations",
+    "--labeled-particles",
+    "--output-times",
+    "--grid-shift",
+])
 
 function parse_cli_args(args::Vector{String})
     if any(arg -> arg in ("--help", "-h"), args)
@@ -169,6 +228,7 @@ function parse_cli_args(args::Vector{String})
     seed = parse_integer_option(get(options, "--seed", "1234"), "--seed")
     steps = parse_integer_option(get(options, "--steps", "10"), "--steps")
     particle_density = parse_float_option(get(options, "--density", "0.25"), "--density")
+    mpc_config = parse_mpc_config(options)
 
     if steps < 0
         throw(ArgumentError("La opcion --steps no puede ser negativa."))
@@ -184,10 +244,13 @@ function parse_cli_args(args::Vector{String})
         seed = seed,
         steps = steps,
         particle_density = particle_density,
+        mpc_config = mpc_config,
     )
 end
 
 function run_case(config::SimulationRunConfig)
+    validate_mpc_config(config.mpc_config)
+
     input_path = abspath(config.input_path)
     output_dir = abspath(config.output_dir)
     pgm_image = read_pgm(input_path)
@@ -204,6 +267,7 @@ function run_case(config::SimulationRunConfig)
     timestamp = Dates.format(Dates.now(), dateformat"yyyy-mm-ddTHH:MM:SS")
     log_path = joinpath(output_dir, "simulation.log")
     config_path = joinpath(output_dir, "simulation_config.txt")
+    mpc_config_path = joinpath(output_dir, "mpc_config.json")
     summary_path = joinpath(output_dir, "input_summary.txt")
     space_summary_path = joinpath(output_dir, "space_summary.txt")
     obstacles_path = joinpath(output_dir, "obstacles.tsv")
@@ -217,6 +281,12 @@ function run_case(config::SimulationRunConfig)
         println(io, "created_at=$(timestamp)")
         println(io, "input_path=$(input_path)")
         println(io, "output_dir=$(output_dir)")
+        println(io, "input_role=$(config.mpc_config.input_role)")
+        println(io, "configuration_model=$(MPC_CONFIGURATION_MODEL)")
+        println(io, "execution_engine=$(SIMULATION_ENGINE_PRELIMINARY)")
+        println(io, "lx=$(mpc_box_lx(simulation_space, config.mpc_config))")
+        println(io, "ly=$(mpc_box_ly(simulation_space, config.mpc_config))")
+        println(io, "lz=$(config.mpc_config.lz)")
         println(io, "width=$(pgm_image.width)")
         println(io, "height=$(pgm_image.height)")
         println(io, "max_gray=$(pgm_image.max_gray)")
@@ -228,6 +298,17 @@ function run_case(config::SimulationRunConfig)
         println(io, "seed=$(config.seed)")
         println(io, "steps=$(config.steps)")
         println(io, "particle_density=$(config.particle_density)")
+        println(io, "n0=$(config.mpc_config.n0)")
+        println(io, "mass=$(config.mpc_config.mass)")
+        println(io, "kbt=$(config.mpc_config.kbt)")
+        println(io, "tau=$(config.mpc_config.tau)")
+        println(io, "rotation_angle=$(config.mpc_config.rotation_angle)")
+        println(io, "rotation_policy=$(config.mpc_config.rotation_policy)")
+        println(io, "realizations=$(config.mpc_config.realizations)")
+        println(io, "labeled_particles=$(config.mpc_config.labeled_particles)")
+        println(io, "output_times=$(join(config.mpc_config.output_times, ","))")
+        println(io, "grid_shift_enabled=$(config.mpc_config.grid_shift_enabled)")
+        println(io, "grid_shift_decision=$(config.mpc_config.grid_shift_decision)")
         println(io, "particle_count=$(length(simulation_result.particles))")
         println(io, "attempted_moves=$(simulation_result.attempted_moves)")
         println(io, "collision_count=$(simulation_result.collision_count)")
@@ -237,6 +318,13 @@ function run_case(config::SimulationRunConfig)
     open(config_path, "w") do io
         println(io, "input_path=$(input_path)")
         println(io, "output_dir=$(output_dir)")
+        println(io, "input_role=$(config.mpc_config.input_role)")
+        println(io, "configuration_model=$(MPC_CONFIGURATION_MODEL)")
+        println(io, "execution_engine=$(SIMULATION_ENGINE_PRELIMINARY)")
+        println(io, "cell_length=$(config.mpc_config.cell_length)")
+        println(io, "lx=$(mpc_box_lx(simulation_space, config.mpc_config))")
+        println(io, "ly=$(mpc_box_ly(simulation_space, config.mpc_config))")
+        println(io, "lz=$(config.mpc_config.lz)")
         println(io, "width=$(pgm_image.width)")
         println(io, "height=$(pgm_image.height)")
         println(io, "max_gray=$(pgm_image.max_gray)")
@@ -245,9 +333,21 @@ function run_case(config::SimulationRunConfig)
         println(io, "seed=$(config.seed)")
         println(io, "steps=$(config.steps)")
         println(io, "particle_density=$(config.particle_density)")
+        println(io, "n0=$(config.mpc_config.n0)")
+        println(io, "mass=$(config.mpc_config.mass)")
+        println(io, "kbt=$(config.mpc_config.kbt)")
+        println(io, "tau=$(config.mpc_config.tau)")
+        println(io, "rotation_angle=$(config.mpc_config.rotation_angle)")
+        println(io, "rotation_policy=$(config.mpc_config.rotation_policy)")
+        println(io, "realizations=$(config.mpc_config.realizations)")
+        println(io, "labeled_particles=$(config.mpc_config.labeled_particles)")
+        println(io, "output_times=$(join(config.mpc_config.output_times, ","))")
+        println(io, "grid_shift_enabled=$(config.mpc_config.grid_shift_enabled)")
+        println(io, "grid_shift_decision=$(config.mpc_config.grid_shift_decision)")
         println(io, "created_at=$(timestamp)")
     end
 
+    write_mpc_config_json(mpc_config_path, config, pgm_image, simulation_space, timestamp)
     open(summary_path, "w") do io
         println(io, "width=$(pgm_image.width)")
         println(io, "height=$(pgm_image.height)")
@@ -257,7 +357,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "pixel_count=$(length(pgm_image.pixels))")
     end
 
-    write_space_summary(space_summary_path, simulation_space)
+    write_space_summary(space_summary_path, simulation_space; mpc_config = config.mpc_config)
     write_obstacles_tsv(obstacles_path, simulation_space.obstacles)
     write_simulation_summary(simulation_summary_path, simulation_result, simulation_space)
     write_simulation_state(simulation_state_path, simulation_result.particles)
@@ -267,6 +367,7 @@ function run_case(config::SimulationRunConfig)
     return (
         log_path = log_path,
         config_path = config_path,
+        mpc_config_path = mpc_config_path,
         summary_path = summary_path,
         space_summary_path = space_summary_path,
         obstacles_path = obstacles_path,
@@ -297,6 +398,7 @@ function cli_main(args::Vector{String} = ARGS)
         println("Simulacion mesoscopica minima ejecutada correctamente.")
         println("log_path=$(result.log_path)")
         println("config_path=$(result.config_path)")
+        println("mpc_config_path=$(result.mpc_config_path)")
         println("summary_path=$(result.summary_path)")
         println("space_summary_path=$(result.space_summary_path)")
         println("obstacles_path=$(result.obstacles_path)")
@@ -316,7 +418,7 @@ function cli_main(args::Vector{String} = ARGS)
     end
 end
 
-function parse_integer_option(value::String, option_name::String)
+function parse_integer_option(value::AbstractString, option_name::String)
     try
         return parse(Int, value)
     catch
@@ -324,11 +426,125 @@ function parse_integer_option(value::String, option_name::String)
     end
 end
 
-function parse_float_option(value::String, option_name::String)
+function parse_float_option(value::AbstractString, option_name::String)
     try
         return parse(Float64, value)
     catch
         throw(ArgumentError("La opcion $(option_name) debe ser un numero decimal."))
+    end
+end
+
+function parse_bool_option(value::AbstractString, option_name::String)
+    normalized = lowercase(strip(value))
+
+    if normalized in ("true", "1", "yes", "si")
+        return true
+    end
+
+    if normalized in ("false", "0", "no")
+        return false
+    end
+
+    throw(ArgumentError("La opcion $(option_name) debe ser true o false."))
+end
+
+function parse_output_times_option(value::String)
+    stripped = strip(value)
+
+    if isempty(stripped)
+        return Int[]
+    end
+
+    output_times = Int[]
+
+    for token in split(stripped, ",")
+        output_time = parse_integer_option(strip(token), "--output-times")
+
+        if output_time < 0
+            throw(ArgumentError("La opcion --output-times no puede contener tiempos negativos."))
+        end
+
+        push!(output_times, output_time)
+    end
+
+    return output_times
+end
+
+function parse_mpc_config(options::Dict{String,String})
+    config = MpcModelConfig(
+        n0 = parse_float_option(get(options, "--n0", string(DEFAULT_MPC_N0)), "--n0"),
+        mass = parse_float_option(get(options, "--mass", string(DEFAULT_MPC_MASS)), "--mass"),
+        kbt = parse_float_option(get(options, "--kbt", string(DEFAULT_MPC_KBT)), "--kbt"),
+        tau = parse_float_option(get(options, "--tau", string(DEFAULT_MPC_TAU)), "--tau"),
+        rotation_angle = parse_float_option(
+            get(options, "--rotation-angle", string(DEFAULT_MPC_ROTATION_ANGLE)),
+            "--rotation-angle",
+        ),
+        realizations = parse_integer_option(
+            get(options, "--realizations", string(DEFAULT_MPC_REALIZATIONS)),
+            "--realizations",
+        ),
+        labeled_particles = parse_integer_option(
+            get(options, "--labeled-particles", string(DEFAULT_MPC_LABELED_PARTICLES)),
+            "--labeled-particles",
+        ),
+        output_times = parse_output_times_option(
+            get(options, "--output-times", join(DEFAULT_MPC_OUTPUT_TIMES, ",")),
+        ),
+        grid_shift_enabled = parse_bool_option(
+            get(options, "--grid-shift", string(DEFAULT_MPC_GRID_SHIFT_ENABLED)),
+            "--grid-shift",
+        ),
+    )
+
+    validate_mpc_config(config)
+
+    return config
+end
+
+function validate_mpc_config(config::MpcModelConfig)
+    if config.input_role != DEFAULT_MPC_INPUT_ROLE
+        throw(ArgumentError("La entrada MPC debe ser una ROI confirmada convertida a PGM."))
+    end
+
+    if config.cell_length <= 0
+        throw(ArgumentError("El lado de celda MPC debe ser mayor que cero."))
+    end
+
+    if config.lz != DEFAULT_MPC_LZ
+        throw(ArgumentError("La configuracion base usa una caja plana con Lz = 1."))
+    end
+
+    if config.n0 <= 0
+        throw(ArgumentError("La densidad media MPC n0 debe ser mayor que cero."))
+    end
+
+    if config.mass <= 0
+        throw(ArgumentError("La masa reducida MPC debe ser mayor que cero."))
+    end
+
+    if config.kbt <= 0
+        throw(ArgumentError("La temperatura reducida kBT debe ser mayor que cero."))
+    end
+
+    if config.tau <= 0
+        throw(ArgumentError("El paso temporal tau debe ser mayor que cero."))
+    end
+
+    if config.rotation_angle == 0
+        throw(ArgumentError("El angulo de rotacion MPC no puede ser cero."))
+    end
+
+    if config.realizations < 1
+        throw(ArgumentError("Debe existir al menos una realizacion MPC."))
+    end
+
+    if config.labeled_particles < 0
+        throw(ArgumentError("El numero de particulas etiquetadas no puede ser negativo."))
+    end
+
+    if any(<(0), config.output_times)
+        throw(ArgumentError("Los tiempos de salida no pueden ser negativos."))
     end
 end
 
@@ -691,7 +907,76 @@ function obstacle_radius(intensity::Int, max_gray::Int)
     return 0.5 - (intensity / (max_gray + 1)) * 0.5
 end
 
-function write_space_summary(path::AbstractString, space::SimulationSpace)
+function mpc_box_lx(space::SimulationSpace, config::MpcModelConfig)
+    return space.width * config.cell_length
+end
+
+function mpc_box_ly(space::SimulationSpace, config::MpcModelConfig)
+    return space.height * config.cell_length
+end
+
+function write_mpc_config_json(
+    path::AbstractString,
+    run_config::SimulationRunConfig,
+    image::PgmImage,
+    space::SimulationSpace,
+    timestamp::String,
+)
+    config = run_config.mpc_config
+    fields = [
+        ("created_at", timestamp),
+        ("input_role", config.input_role),
+        ("configuration_model", MPC_CONFIGURATION_MODEL),
+        ("execution_engine", SIMULATION_ENGINE_PRELIMINARY),
+        ("simulation_note", "MPC parameters configured; full MPC dynamics implemented in later issues."),
+        ("input_width", image.width),
+        ("input_height", image.height),
+        ("input_max_gray", image.max_gray),
+        ("lx", mpc_box_lx(space, config)),
+        ("ly", mpc_box_ly(space, config)),
+        ("lz", config.lz),
+        ("cell_length", config.cell_length),
+        ("n0", config.n0),
+        ("mass", config.mass),
+        ("kbt", config.kbt),
+        ("tau", config.tau),
+        ("rotation_angle", config.rotation_angle),
+        ("rotation_policy", config.rotation_policy),
+        ("realizations", config.realizations),
+        ("labeled_particles", config.labeled_particles),
+        ("output_times", config.output_times),
+        ("grid_shift_enabled", config.grid_shift_enabled),
+        ("grid_shift_decision", config.grid_shift_decision),
+        ("seed", run_config.seed),
+        ("steps", run_config.steps),
+        ("preliminary_particle_density", run_config.particle_density),
+        ("tissue_threshold", space.tissue_threshold),
+        ("obstacle_threshold", space.obstacle_threshold),
+        ("domain_cell_count", count_domain_cells(space)),
+        ("obstacle_count", length(space.obstacles)),
+    ]
+
+    write_key_value_json(path, fields)
+end
+
+function write_key_value_json(path::AbstractString, fields)
+    open(path, "w") do io
+        println(io, "{")
+
+        for (index, (key, value)) in enumerate(fields)
+            suffix = index == length(fields) ? "" : ","
+            println(io, "  \"$(key)\": $(json_value(value))$(suffix)")
+        end
+
+        println(io, "}")
+    end
+end
+
+function write_space_summary(
+    path::AbstractString,
+    space::SimulationSpace;
+    mpc_config::MpcModelConfig = MpcModelConfig(),
+)
     cell_count = space.width * space.height
     domain_cell_count = count_domain_cells(space)
     excluded_background_count = count_excluded_background_cells(space)
@@ -702,6 +987,13 @@ function write_space_summary(path::AbstractString, space::SimulationSpace)
     open(path, "w") do io
         println(io, "width=$(space.width)")
         println(io, "height=$(space.height)")
+        println(io, "input_role=$(mpc_config.input_role)")
+        println(io, "configuration_model=$(MPC_CONFIGURATION_MODEL)")
+        println(io, "execution_engine=$(SIMULATION_ENGINE_PRELIMINARY)")
+        println(io, "cell_length=$(mpc_config.cell_length)")
+        println(io, "lx=$(mpc_box_lx(space, mpc_config))")
+        println(io, "ly=$(mpc_box_ly(space, mpc_config))")
+        println(io, "lz=$(mpc_config.lz)")
         println(io, "max_gray=$(space.max_gray)")
         println(io, "cell_count=$(cell_count)")
         println(io, "tissue_threshold=$(space.tissue_threshold)")
@@ -752,7 +1044,8 @@ function write_simulation_summary(path::AbstractString, result::SimulationResult
         println(io, "collision_count=$(result.collision_count)")
         println(io, "visited_cell_count=$(count(>(0), result.visit_counts))")
         println(io, "visit_count_total=$(sum(result.visit_counts))")
-        println(io, "simulation_model=sequential_minimal_random_walk")
+        println(io, "configuration_model=$(MPC_CONFIGURATION_MODEL)")
+        println(io, "execution_engine=$(SIMULATION_ENGINE_PRELIMINARY)")
     end
 end
 
@@ -986,6 +1279,10 @@ end
 
 function json_value(value::Bool)
     return value ? "true" : "false"
+end
+
+function json_value(value::AbstractVector{<:Integer})
+    return "[" * join(string.(value), ", ") * "]"
 end
 
 function read_ascii_pgm_pixels(bytes::Vector{UInt8}, index::Int, pixel_count::Int, max_gray::Int)
