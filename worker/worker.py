@@ -148,6 +148,12 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None, density=None)
         f"{result.velocity_autocorrelation_realizations_path}",
         flush=True,
     )
+    print(f"diffusion_metrics_json_path={result.diffusion_metrics_json_path}", flush=True)
+    print(f"diffusion_metrics_tsv_path={result.diffusion_metrics_tsv_path}", flush=True)
+    print(
+        f"diffusion_metrics_summary_path={result.diffusion_metrics_summary_path}",
+        flush=True,
+    )
     print(f"simulation_log_path={result.simulation_log_path}", flush=True)
     print(f"worker_log_path={result.worker_log_path}", flush=True)
     return 0

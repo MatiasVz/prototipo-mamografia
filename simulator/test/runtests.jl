@@ -640,6 +640,64 @@ end
     end
 end
 
+@testset "MPC normalized diffusion metrics" begin
+    config = MpcModelConfig(
+        n0 = 10.0,
+        mass = 1.0,
+        kbt = 1.0,
+        tau = 1.0,
+    )
+    mdc0 = calculate_theoretical_mdc0(config)
+
+    @test isapprox(mdc0, 1.16665; atol = 1.0e-4)
+    @test isapprox(calculate_mdc_star(0.583325, mdc0), 0.5; atol = 1.0e-4)
+    @test_throws ArgumentError calculate_mdc_star(1.0, 0.0)
+    @test_throws ArgumentError calculate_mdc_star(Inf, mdc0)
+
+    autocorrelation = MpcVelocityAutocorrelationResult(
+        2,
+        1.0,
+        2,
+        1,
+        2,
+        2,
+        1,
+        [0],
+        [101],
+        [2.5, 1.25, 0.0],
+        [2, 2, 2],
+        1.25,
+        1 / log(2),
+    )
+    metrics = MammographySimulation.build_comparable_diffusion_metrics(
+        autocorrelation,
+        config,
+    )
+
+    @test metrics.metric_model == "mdc_normalized_against_theoretical_reference"
+    @test metrics.reference_origin == "theoretical_mdc0_without_obstacles"
+    @test metrics.units == "reduced_mpc_units"
+    @test metrics.mdc == 1.25
+    @test isapprox(metrics.mdc0, mdc0)
+    @test isapprox(metrics.mdc_star, 1.25 / mdc0)
+    @test occursin("academico", metrics.purpose_note)
+
+    mktempdir() do dir
+        outputs = MammographySimulation.write_comparable_diffusion_metrics_outputs(
+            dir,
+            metrics,
+        )
+
+        @test isfile(outputs.json_path)
+        @test isfile(outputs.tsv_path)
+        @test isfile(outputs.summary_path)
+        @test occursin("\"mdc_star\"", read(outputs.json_path, String))
+        @test occursin("metric_model\treference_origin", read(outputs.tsv_path, String))
+        @test occursin("formula_mdc_star=MDC* = MDC / MDC0", read(outputs.summary_path, String))
+        @test occursin("no constituye diagnostico clinico", read(outputs.summary_path, String))
+    end
+end
+
 @testset "Preliminary simulation results" begin
     space = build_simulation_space(synthetic_roi_image())
     simulation = run_minimal_simulation(
@@ -738,6 +796,9 @@ end
         @test isfile(result.velocity_autocorrelation_path)
         @test isfile(result.velocity_autocorrelation_summary_path)
         @test isfile(result.velocity_autocorrelation_realizations_path)
+        @test isfile(result.diffusion_metrics_json_path)
+        @test isfile(result.diffusion_metrics_tsv_path)
+        @test isfile(result.diffusion_metrics_summary_path)
         @test isfile(result.simulation_summary_path)
         @test isfile(result.simulation_state_path)
         @test isfile(result.visit_counts_path)
@@ -766,6 +827,8 @@ end
         @test occursin("mpc_concentration_captured_output_times=0,3", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_model=green_kubo_xy", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_labeled_particle_count=15", read(result.simulation_summary_path, String))
+        @test occursin("diffusion_metric_model=mdc_normalized_against_theoretical_reference", read(result.simulation_summary_path, String))
+        @test occursin("diffusion_metric_mdc_star=", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
@@ -783,6 +846,8 @@ end
         @test occursin("\"mpc_concentration_snapshot_count\": 2", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_model\": \"green_kubo_xy\"", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_labeled_particle_count\": 15", read(result.mpc_config_path, String))
+        @test occursin("\"diffusion_metric_model\": \"mdc_normalized_against_theoretical_reference\"", read(result.mpc_config_path, String))
+        @test occursin("\"diffusion_metric_mdc0\"", read(result.mpc_config_path, String))
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
         @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
@@ -807,6 +872,9 @@ end
         @test occursin("lag\ttime\tcv", read(result.velocity_autocorrelation_path, String))
         @test occursin("mdc=", read(result.velocity_autocorrelation_summary_path, String))
         @test occursin("realization\tseed\tlabeled_particle_count", read(result.velocity_autocorrelation_realizations_path, String))
+        @test occursin("\"mdc_star\"", read(result.diffusion_metrics_json_path, String))
+        @test occursin("metric_model\treference_origin", read(result.diffusion_metrics_tsv_path, String))
+        @test occursin("MDC* = MDC / MDC0", read(result.diffusion_metrics_summary_path, String))
         @test startswith(read(result.domain_mask_path, String), "P2")
         @test startswith(read(result.density_map_path, String), "P2")
     end

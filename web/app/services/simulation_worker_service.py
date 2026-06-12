@@ -44,6 +44,9 @@ class SimulationWorkerResult:
     velocity_autocorrelation_path: Path
     velocity_autocorrelation_summary_path: Path
     velocity_autocorrelation_realizations_path: Path
+    diffusion_metrics_json_path: Path
+    diffusion_metrics_tsv_path: Path
+    diffusion_metrics_summary_path: Path
     simulation_log_path: Path
     worker_log_path: Path
     stdout: str
@@ -163,6 +166,9 @@ def process_case_simulation(
         velocity_autocorrelation_realizations_path=result_paths[
             "velocity_autocorrelation_realizations"
         ],
+        diffusion_metrics_json_path=result_paths["diffusion_metrics_json"],
+        diffusion_metrics_tsv_path=result_paths["diffusion_metrics_tsv"],
+        diffusion_metrics_summary_path=result_paths["diffusion_metrics_summary"],
         simulation_log_path=result_paths["simulation_log"],
         worker_log_path=worker_log_path,
         stdout=completed_process.stdout,
@@ -301,6 +307,9 @@ def _get_expected_result_paths(output_dir):
         / "velocity_autocorrelation_summary.txt",
         "velocity_autocorrelation_realizations": output_dir
         / "velocity_autocorrelation_realizations.tsv",
+        "diffusion_metrics_json": output_dir / "diffusion_metrics.json",
+        "diffusion_metrics_tsv": output_dir / "diffusion_metrics.tsv",
+        "diffusion_metrics_summary": output_dir / "diffusion_metrics_summary.txt",
         "simulation_log": output_dir / "simulation.log",
     }
 
