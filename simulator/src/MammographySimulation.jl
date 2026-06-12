@@ -15,6 +15,8 @@ export PgmImage,
     MpcVelocityAutocorrelationResult,
     SimulationObstacle,
     SimulationParticle,
+    SyntheticValidationCase,
+    SyntheticValidationResult,
     PreliminarySimulationMetrics,
     PreliminarySimulationResults,
     SimulationResult,
@@ -23,14 +25,18 @@ export PgmImage,
     read_pgm,
     build_simulation_space,
     build_mpc_concentration_grid,
+    build_synthetic_validation_case,
     calculate_mpc_velocity_autocorrelation,
     calculate_mdc_star,
     calculate_theoretical_mdc0,
     calculate_velocity_autocorrelation,
     collide_mpc_particles,
     generate_mpc_concentration_maps,
+    generate_synthetic_validation_cases,
     initialize_mpc_particles,
     stream_mpc_particles,
+    synthetic_validation_case_names,
+    validate_synthetic_cases,
     run_minimal_simulation,
     generate_preliminary_results,
     parse_cli_args,
@@ -175,6 +181,32 @@ struct MpcComparableDiffusionMetrics
     characteristic_time::Union{Nothing,Float64}
 end
 
+struct SyntheticValidationCase
+    name::String
+    description::String
+    image::PgmImage
+    expected_domain_cell_count::Int
+    expected_preliminary_blocking_obstacle_count::Int
+    expected_notes::String
+end
+
+struct SyntheticValidationResult
+    case_name::String
+    status::String
+    input_path::String
+    output_dir::String
+    expected_domain_cell_count::Int
+    actual_domain_cell_count::Int
+    expected_preliminary_blocking_obstacle_count::Int
+    actual_preliminary_blocking_obstacle_count::Int
+    mpc_particle_count::Int
+    concentration_particle_sum::Int
+    particle_conservation_ok::Bool
+    mdc::Float64
+    mdc0::Float64
+    mdc_star::Float64
+end
+
 struct SimulationResult
     steps::Int
     seed::Int
@@ -237,6 +269,13 @@ const DEFAULT_MPC_CORRELATION_INITIAL_TIMES = 1
 const DEFAULT_MPC_OUTPUT_TIMES = (0, 100, 500)
 const DEFAULT_MPC_GRID_SHIFT_ENABLED = false
 const DEFAULT_MPC_GRID_SHIFT_DECISION = "disabled_initially_to_match_article_conditions"
+const DEFAULT_SYNTHETIC_VALIDATION_CASES = (
+    "free_field",
+    "central_obstacle",
+    "intensity_pattern",
+    "clear_dark_channel",
+    "synthetic_roi",
+)
 
 Base.@kwdef struct MpcModelConfig
     input_role::String = DEFAULT_MPC_INPUT_ROLE
@@ -1832,6 +1871,10 @@ function select_correlation_initial_times(steps::Int, requested_count::Int)
         return available_times
     end
 
+    if requested_count == 1
+        return [first(available_times)]
+    end
+
     positions = round.(Int, range(1, length(available_times), length = requested_count))
 
     return sort(unique(available_times[positions]))
@@ -1940,6 +1983,194 @@ function build_comparable_diffusion_metrics(
         length(autocorrelation.initial_times),
         autocorrelation.characteristic_time,
     )
+end
+
+function synthetic_validation_case_names()
+    return collect(DEFAULT_SYNTHETIC_VALIDATION_CASES)
+end
+
+function build_synthetic_validation_case(name::AbstractString)
+    case_name = lowercase(String(name))
+
+    if case_name == "free_field"
+        image = PgmImage(8, 8, 255, fill(255, 8, 8))
+        return synthetic_validation_case(
+            case_name,
+            "Dominio completo con intensidad maxima; sirve como referencia sin obstaculos bloqueantes.",
+            image,
+            "Equivalente conceptual a noObstacles del programa C; los radios derivados son casi nulos.",
+        )
+    elseif case_name == "central_obstacle"
+        pixels = fill(255, 9, 9)
+        pixels[4:6, 4:6] .= 0
+        image = PgmImage(9, 9, 255, pixels)
+        return synthetic_validation_case(
+            case_name,
+            "Dominio completo con bloque oscuro central para validar rebote contra obstaculo cilindrico.",
+            image,
+            "Comparable con un obstaculo cilindrico central del programa C.",
+        )
+    elseif case_name == "intensity_pattern"
+        pixels = [
+            80 100 120 140 160 180 220 255
+            90 110 130 150 170 190 225 255
+            100 120 140 160 180 200 230 255
+            110 130 150 170 190 210 235 255
+            120 140 160 180 200 220 240 255
+            130 150 170 190 210 230 245 255
+            140 160 180 200 220 235 250 255
+            150 170 190 210 225 240 252 255
+        ]
+        image = PgmImage(8, 8, 255, pixels)
+        return synthetic_validation_case(
+            case_name,
+            "Gradiente simple de intensidades para validar radios y matriz de obstaculos.",
+            image,
+            "Caso de correspondencia intensidad-radio frente al uso de matrix.in del C.",
+        )
+    elseif case_name == "clear_dark_channel"
+        pixels = fill(80, 8, 10)
+        pixels[:, 5:6] .= 255
+        pixels[1, :] .= 255
+        pixels[end, :] .= 255
+        image = PgmImage(10, 8, 255, pixels)
+        return synthetic_validation_case(
+            case_name,
+            "Canal claro vertical rodeado de tejido oscuro para validar caminos de baja obstruccion.",
+            image,
+            "Sirve para comparar concentracion esperada en zonas con menor radio de obstaculos.",
+        )
+    elseif case_name == "synthetic_roi"
+        pixels = [
+            0 0 0 0 0 0 0 0 0 0 0 0
+            0 0 70 100 130 150 170 190 180 120 0 0
+            0 60 110 150 190 210 230 240 220 160 80 0
+            0 80 130 180 220 245 255 250 230 180 90 0
+            0 75 120 165 205 235 245 240 210 150 70 0
+            0 0 70 110 150 180 200 190 160 100 0 0
+            0 0 0 60 90 120 130 110 80 0 0 0
+            0 0 0 0 0 0 0 0 0 0 0 0
+        ]
+        image = PgmImage(12, 8, 255, pixels)
+        return synthetic_validation_case(
+            case_name,
+            "ROI mamaria sintetica no sensible con forma organica e intensidades internas variadas.",
+            image,
+            "Sustituye una ROI real para pruebas de repositorio sin datos clinicos.",
+        )
+    end
+
+    throw(ArgumentError("Caso sintetico de validacion no reconocido: $(name)"))
+end
+
+function synthetic_validation_case(
+    name::String,
+    description::String,
+    image::PgmImage,
+    notes::String,
+)
+    space = build_simulation_space(image)
+
+    return SyntheticValidationCase(
+        name,
+        description,
+        image,
+        count_domain_cells(space),
+        count_preliminary_blocking_obstacles(space),
+        notes,
+    )
+end
+
+function generate_synthetic_validation_cases(output_dir::AbstractString)
+    mkpath(output_dir)
+    cases = [build_synthetic_validation_case(name) for name in synthetic_validation_case_names()]
+
+    for validation_case in cases
+        case_dir = joinpath(output_dir, validation_case.name)
+        write_synthetic_validation_case(case_dir, validation_case)
+    end
+
+    write_validation_cases_index(joinpath(output_dir, "validation_cases.tsv"), cases)
+
+    return cases
+end
+
+function validate_synthetic_cases(
+    output_dir::AbstractString;
+    seed::Int = 1234,
+    steps::Int = 5,
+    mpc_config::Union{Nothing,MpcModelConfig} = nothing,
+)
+    if steps < 0
+        throw(ArgumentError("El numero de pasos de validacion no puede ser negativo."))
+    end
+
+    resolved_config = if mpc_config === nothing
+        MpcModelConfig(
+            n0 = 1.0,
+            labeled_particles = 8,
+            correlation_initial_times = 2,
+            output_times = [0, steps],
+        )
+    else
+        mpc_config
+    end
+
+    validate_mpc_config(resolved_config)
+    mkpath(output_dir)
+    cases = generate_synthetic_validation_cases(joinpath(output_dir, "cases"))
+    results = SyntheticValidationResult[]
+
+    for validation_case in cases
+        case_dir = joinpath(output_dir, "cases", validation_case.name)
+        input_path = joinpath(case_dir, "input.pgm")
+        result_dir = joinpath(case_dir, "results")
+        run_result = run_case(
+            SimulationRunConfig(
+                input_path = input_path,
+                output_dir = result_dir,
+                seed = seed,
+                steps = steps,
+                particle_density = 0.25,
+                mpc_config = resolved_config,
+            ),
+        )
+        concentration_particle_sum = last(run_result.mpc_concentration.snapshots).particle_count
+        actual_domain_cell_count = count_domain_cells(run_result.space)
+        actual_blocking_count = count_preliminary_blocking_obstacles(run_result.space)
+        particle_count = length(run_result.mpc_initialization.particles)
+        particle_conservation_ok = concentration_particle_sum == particle_count
+        status = (
+            actual_domain_cell_count == validation_case.expected_domain_cell_count &&
+            actual_blocking_count == validation_case.expected_preliminary_blocking_obstacle_count &&
+            particle_conservation_ok
+        ) ? "ok" : "review"
+
+        push!(
+            results,
+            SyntheticValidationResult(
+                validation_case.name,
+                status,
+                input_path,
+                result_dir,
+                validation_case.expected_domain_cell_count,
+                actual_domain_cell_count,
+                validation_case.expected_preliminary_blocking_obstacle_count,
+                actual_blocking_count,
+                particle_count,
+                concentration_particle_sum,
+                particle_conservation_ok,
+                run_result.mpc_diffusion_metrics.mdc,
+                run_result.mpc_diffusion_metrics.mdc0,
+                run_result.mpc_diffusion_metrics.mdc_star,
+            ),
+        )
+    end
+
+    write_validation_summary_tsv(joinpath(output_dir, "validation_summary.tsv"), results)
+    write_validation_summary_md(joinpath(output_dir, "validation_summary.md"), results)
+
+    return results
 end
 
 function resolve_tissue_threshold(max_gray::Int, tissue_threshold::Union{Nothing,Int})
@@ -2895,6 +3126,138 @@ function write_comparable_diffusion_metrics_summary(
         println(io, "labeled_particle_count=$(metrics.labeled_particle_count)")
         println(io, "initial_time_count=$(metrics.initial_time_count)")
         println(io, "characteristic_time=$(optional_value(metrics.characteristic_time))")
+    end
+end
+
+function write_synthetic_validation_case(
+    output_dir::AbstractString,
+    validation_case::SyntheticValidationCase,
+)
+    mkpath(output_dir)
+    write_pgm_ascii(joinpath(output_dir, "input.pgm"), validation_case.image)
+    write_c_reference_inputs(output_dir, validation_case.image)
+    write_synthetic_validation_metadata(joinpath(output_dir, "case_metadata.tsv"), validation_case)
+
+    return (
+        pgm_path = joinpath(output_dir, "input.pgm"),
+        matrix_path = joinpath(output_dir, "matrix.in"),
+        size_path = joinpath(output_dir, "size.in"),
+        metadata_path = joinpath(output_dir, "case_metadata.tsv"),
+    )
+end
+
+function write_pgm_ascii(path::AbstractString, image::PgmImage)
+    open(path, "w") do io
+        println(io, "P2")
+        println(io, "# Caso sintetico generado por MammographySimulation")
+        println(io, "$(image.width) $(image.height)")
+        println(io, "$(image.max_gray)")
+
+        for y_index in 1:image.height
+            println(io, join(vec(image.pixels[y_index, :]), " "))
+        end
+    end
+end
+
+function write_c_reference_inputs(output_dir::AbstractString, image::PgmImage)
+    mkpath(output_dir)
+    size_path = joinpath(output_dir, "size.in")
+    matrix_path = joinpath(output_dir, "matrix.in")
+
+    open(size_path, "w") do io
+        println(io, "$(image.width)\t$(image.height)\t0")
+    end
+
+    open(matrix_path, "w") do io
+        for y_index in 1:image.height
+            for x_index in 1:image.width
+                println(
+                    io,
+                    "$(x_index - 1)\t$(y_index - 1)\t$(image.pixels[y_index, x_index])",
+                )
+            end
+        end
+    end
+
+    return (
+        matrix_path = matrix_path,
+        size_path = size_path,
+    )
+end
+
+function write_synthetic_validation_metadata(
+    path::AbstractString,
+    validation_case::SyntheticValidationCase,
+)
+    open(path, "w") do io
+        println(io, "field\tvalue")
+        println(io, "name\t$(validation_case.name)")
+        println(io, "description\t$(validation_case.description)")
+        println(io, "width\t$(validation_case.image.width)")
+        println(io, "height\t$(validation_case.image.height)")
+        println(io, "max_gray\t$(validation_case.image.max_gray)")
+        println(io, "expected_domain_cell_count\t$(validation_case.expected_domain_cell_count)")
+        println(io, "expected_preliminary_blocking_obstacle_count\t$(validation_case.expected_preliminary_blocking_obstacle_count)")
+        println(io, "notes\t$(validation_case.expected_notes)")
+    end
+end
+
+function write_validation_cases_index(
+    path::AbstractString,
+    cases::Vector{SyntheticValidationCase},
+)
+    open(path, "w") do io
+        println(
+            io,
+            "case\twidth\theight\texpected_domain_cell_count\texpected_preliminary_blocking_obstacle_count\tdescription\tnotes",
+        )
+
+        for validation_case in cases
+            println(
+                io,
+                "$(validation_case.name)\t$(validation_case.image.width)\t$(validation_case.image.height)\t$(validation_case.expected_domain_cell_count)\t$(validation_case.expected_preliminary_blocking_obstacle_count)\t$(validation_case.description)\t$(validation_case.expected_notes)",
+            )
+        end
+    end
+end
+
+function write_validation_summary_tsv(
+    path::AbstractString,
+    results::Vector{SyntheticValidationResult},
+)
+    open(path, "w") do io
+        println(
+            io,
+            "case\tstatus\texpected_domain_cell_count\tactual_domain_cell_count\texpected_preliminary_blocking_obstacle_count\tactual_preliminary_blocking_obstacle_count\tmpc_particle_count\tconcentration_particle_sum\tparticle_conservation_ok\tmdc\tmdc0\tmdc_star\tinput_path\toutput_dir",
+        )
+
+        for result in results
+            println(
+                io,
+                "$(result.case_name)\t$(result.status)\t$(result.expected_domain_cell_count)\t$(result.actual_domain_cell_count)\t$(result.expected_preliminary_blocking_obstacle_count)\t$(result.actual_preliminary_blocking_obstacle_count)\t$(result.mpc_particle_count)\t$(result.concentration_particle_sum)\t$(result.particle_conservation_ok)\t$(result.mdc)\t$(result.mdc0)\t$(result.mdc_star)\t$(result.input_path)\t$(result.output_dir)",
+            )
+        end
+    end
+end
+
+function write_validation_summary_md(
+    path::AbstractString,
+    results::Vector{SyntheticValidationResult},
+)
+    open(path, "w") do io
+        println(io, "# Validacion sintetica del simulador Julia")
+        println(io)
+        println(io, "Esta salida resume casos sinteticos no sensibles usados para validar invariantes del simulador MPC.")
+        println(io)
+        println(io, "| Caso | Estado | Dominio esperado/real | Obstaculos bloqueantes esperado/real | Conservacion particulas | MDC* |")
+        println(io, "| --- | --- | --- | --- | --- | --- |")
+
+        for result in results
+            println(
+                io,
+                "| $(result.case_name) | $(result.status) | $(result.expected_domain_cell_count)/$(result.actual_domain_cell_count) | $(result.expected_preliminary_blocking_obstacle_count)/$(result.actual_preliminary_blocking_obstacle_count) | $(result.particle_conservation_ok) | $(result.mdc_star) |",
+            )
+        end
     end
 end
 
