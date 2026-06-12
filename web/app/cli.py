@@ -123,6 +123,8 @@ def register_cli_commands(app):
         click.echo(f"obstacle_radius_map_path={result.obstacle_radius_map_path}")
         click.echo(f"obstacle_radius_histogram_path={result.obstacle_radius_histogram_path}")
         click.echo(f"mpc_initial_particles_path={result.mpc_initial_particles_path}")
+        click.echo(f"mpc_streamed_particles_path={result.mpc_streamed_particles_path}")
+        click.echo(f"mpc_streaming_summary_path={result.mpc_streaming_summary_path}")
         click.echo(f"simulation_log_path={result.simulation_log_path}")
         click.echo(f"worker_log_path={result.worker_log_path}")
 
