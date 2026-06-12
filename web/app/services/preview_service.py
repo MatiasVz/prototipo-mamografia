@@ -11,6 +11,7 @@ DIRECT_PREVIEW_EXTENSIONS = {"png", "jpg", "jpeg"}
 GENERATED_PREVIEW_EXTENSIONS = {"bmp", "tif", "tiff", "pgm"}
 DICOM_PREVIEW_EXTENSIONS = {"dcm"}
 PREVIEW_FILENAME = "preview.png"
+PREVIEW_SUFFIX = "_preview.png"
 MAX_PREVIEW_SIZE = (1200, 1200)
 
 
@@ -50,7 +51,7 @@ def ensure_preview_for_path(original_path: Path):
         if not original_path.exists():
             return None
 
-        preview_path = original_path.parent / PREVIEW_FILENAME
+        preview_path = _get_generated_preview_path(original_path)
         if not _generate_image_png_preview(original_path, preview_path):
             return None
 
@@ -64,7 +65,7 @@ def ensure_preview_for_path(original_path: Path):
         if not original_path.exists():
             return None
 
-        preview_path = original_path.parent / PREVIEW_FILENAME
+        preview_path = _get_generated_preview_path(original_path)
         if not _generate_dicom_png_preview(original_path, preview_path):
             return None
 
@@ -236,6 +237,10 @@ def _is_big_endian(dataset):
 
 def _get_extension(path: Path):
     return path.suffix.lower().lstrip(".")
+
+
+def _get_generated_preview_path(original_path: Path):
+    return original_path.with_name(f"{original_path.stem}{PREVIEW_SUFFIX}")
 
 
 def _get_direct_mimetype(extension: str):

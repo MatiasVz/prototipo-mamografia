@@ -86,13 +86,152 @@
       <section class="simulation-results" aria-labelledby="simulation-results-title">
         <div class="simulation-results__header">
           <div>
-            <p class="eyebrow">Resultados preliminares</p>
+            <p class="eyebrow">Resultados MPC</p>
             <h3 id="simulation-results-title">{{ simulation_results_status_title }}</h3>
           </div>
         </div>
         <p class="simulation-results__message">{{ simulation_results_status_message }}</p>
 
-        {% if simulation_density_map_url or simulation_metrics %}
+        {% if mpc_results.available %}
+          <div class="simulation-results__content">
+            <div class="mpc-flow" aria-label="Flujo MPC del caso">
+              <span>ROI</span>
+              <span>Caja plana</span>
+              <span>Obstaculos</span>
+              <span>Particulas MPC</span>
+              <span>Concentracion</span>
+              <span>Cv / MDC*</span>
+            </div>
+
+            <p class="mpc-explanation">{{ mpc_results.explanation }}</p>
+
+            {% if mpc_results.primary_metrics %}
+              <section class="result-section" aria-labelledby="mpc-metrics-title">
+                <h4 id="mpc-metrics-title">Metricas principales</h4>
+                <dl class="metric-summary metric-summary--advanced" aria-label="Metricas MPC">
+                  {% for metric in mpc_results.primary_metrics %}
+                    <div class="metric-summary__item">
+                      <dt>{{ metric.label }}</dt>
+                      <dd>{{ metric.value }}</dd>
+                      <p>{{ metric.hint }}</p>
+                    </div>
+                  {% endfor %}
+                </dl>
+              </section>
+            {% endif %}
+
+            {% if mpc_results.domain_maps %}
+              <section class="result-section" aria-labelledby="domain-results-title">
+                <h4 id="domain-results-title">Dominio y obstaculos</h4>
+                <div class="result-map-grid">
+                  {% for result_map in mpc_results.domain_maps %}
+                    <article class="result-map-card">
+                      <h5>{{ result_map.title }}</h5>
+                      <div class="result-map-card__frame">
+                        <img
+                          src="{{ result_map.url }}"
+                          alt="{{ result_map.title }} del caso #{{ case.id }}"
+                        >
+                      </div>
+                      <p>{{ result_map.description }}</p>
+                    </article>
+                  {% endfor %}
+                </div>
+              </section>
+            {% endif %}
+
+            {% if mpc_results.concentration_maps %}
+              <section class="result-section" aria-labelledby="concentration-results-title">
+                <h4 id="concentration-results-title">Mapas de concentracion MPC</h4>
+                <div class="result-map-grid">
+                  {% for result_map in mpc_results.concentration_maps %}
+                    <article class="result-map-card">
+                      <h5>{{ result_map.title }}</h5>
+                      <div class="result-map-card__frame">
+                        <img
+                          src="{{ result_map.url }}"
+                          alt="{{ result_map.title }} del caso #{{ case.id }}"
+                        >
+                      </div>
+                      <p>{{ result_map.description }}</p>
+                    </article>
+                  {% endfor %}
+                </div>
+              </section>
+            {% endif %}
+
+            {% if mpc_results.autocorrelation_rows %}
+              <section class="result-section" aria-labelledby="autocorrelation-title">
+                <h4 id="autocorrelation-title">Autocorrelacion de velocidades Cv</h4>
+                <p class="result-section__note">
+                  Cv resume como cambia la direccion y velocidad de particulas
+                  etiquetadas durante la simulacion.
+                </p>
+                <div class="autocorrelation-table-wrap">
+                  <table class="autocorrelation-table">
+                    <thead>
+                      <tr>
+                        <th>Lag</th>
+                        <th>Tiempo</th>
+                        <th>Cv</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in mpc_results.autocorrelation_rows %}
+                        <tr>
+                          <td>{{ row.lag }}</td>
+                          <td>{{ row.time }}</td>
+                          <td>{{ row.cv }}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            {% endif %}
+
+            <details class="result-technical">
+              <summary>Parametros MPC y archivos generados</summary>
+              <div class="result-technical__body">
+                {% if mpc_results.parameter_items %}
+                  <dl class="metric-summary metric-summary--compact" aria-label="Parametros MPC">
+                    {% for parameter in mpc_results.parameter_items %}
+                      <div class="metric-summary__item">
+                        <dt>{{ parameter.label }}</dt>
+                        <dd>{{ parameter.value }}</dd>
+                        <p>{{ parameter.hint }}</p>
+                      </div>
+                    {% endfor %}
+                  </dl>
+                {% endif %}
+
+                {% if mpc_results.velocity_summary %}
+                  <h5>Resumen Cv</h5>
+                  <dl class="detail-list">
+                    {% for item in mpc_results.velocity_summary %}
+                      <div>
+                        <dt>{{ item.label }}</dt>
+                        <dd>{{ item.value }}</dd>
+                      </div>
+                    {% endfor %}
+                  </dl>
+                {% endif %}
+
+                {% if mpc_results.technical_files %}
+                  <h5>Trazabilidad</h5>
+                  <dl class="detail-list">
+                    {% for file in mpc_results.technical_files %}
+                      <div>
+                        <dt>{{ file.label }}</dt>
+                        <dd class="detail-path">{{ file.path }}</dd>
+                      </div>
+                    {% endfor %}
+                  </dl>
+                {% endif %}
+              </div>
+            </details>
+          </div>
+        {% elif simulation_density_map_url or simulation_metrics %}
           <div class="simulation-results__content">
             {% if simulation_density_map_url %}
               <div class="density-map">
