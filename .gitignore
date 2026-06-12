@@ -1,5 +1,6 @@
 # Documentación local para tesis / IA / evidencias
 docs/
+explicacion_articulo_tesis_mamografias.md
 .env
 venv/
 __pycache__/

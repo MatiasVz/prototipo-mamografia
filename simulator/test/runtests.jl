@@ -134,6 +134,79 @@ end
     @test_throws ArgumentError run_minimal_simulation(space; particle_density = 1.1)
 end
 
+@testset "MPC base configuration" begin
+    mktempdir() do dir
+        input_path = joinpath(dir, "simulation_input.pgm")
+        output_dir = joinpath(dir, "results")
+
+        write(input_path, "P2\n1 1\n255\n120\n")
+
+        config = parse_cli_args([
+            "--input",
+            input_path,
+            "--output",
+            output_dir,
+            "--seed",
+            "99",
+            "--steps",
+            "500",
+            "--n0",
+            "10",
+            "--mass",
+            "1",
+            "--kbt",
+            "1",
+            "--tau",
+            "1",
+            "--rotation-angle",
+            string(pi / 2),
+            "--realizations",
+            "2",
+            "--labeled-particles",
+            "15",
+            "--output-times",
+            "0,100,500",
+            "--grid-shift",
+            "false",
+        ])
+
+        @test config.input_path == input_path
+        @test config.output_dir == output_dir
+        @test config.seed == 99
+        @test config.steps == 500
+        @test config.mpc_config.input_role == "confirmed_roi_pgm"
+        @test config.mpc_config.cell_length == 1.0
+        @test config.mpc_config.lz == 1
+        @test config.mpc_config.n0 == 10.0
+        @test config.mpc_config.mass == 1.0
+        @test config.mpc_config.kbt == 1.0
+        @test config.mpc_config.tau == 1.0
+        @test isapprox(config.mpc_config.rotation_angle, pi / 2)
+        @test config.mpc_config.realizations == 2
+        @test config.mpc_config.labeled_particles == 15
+        @test config.mpc_config.output_times == [0, 100, 500]
+        @test !config.mpc_config.grid_shift_enabled
+        @test occursin("disabled_initially", config.mpc_config.grid_shift_decision)
+
+        @test_throws ArgumentError parse_cli_args([
+            "--input",
+            input_path,
+            "--output",
+            output_dir,
+            "--n0",
+            "0",
+        ])
+        @test_throws ArgumentError parse_cli_args([
+            "--input",
+            input_path,
+            "--output",
+            output_dir,
+            "--output-times",
+            "0,-1",
+        ])
+    end
+end
+
 @testset "Preliminary simulation results" begin
     space = build_simulation_space(synthetic_roi_image())
     simulation = run_minimal_simulation(
@@ -189,12 +262,21 @@ end
             seed = 42,
             steps = 3,
             particle_density = 0.5,
+            mpc_config = MpcModelConfig(
+                n0 = 10.0,
+                mass = 1.0,
+                kbt = 1.0,
+                tau = 1.0,
+                rotation_angle = pi / 2,
+                output_times = [0, 3],
+            ),
         )
 
         result = run_case(config)
 
         @test isfile(result.log_path)
         @test isfile(result.config_path)
+        @test isfile(result.mpc_config_path)
         @test isfile(result.summary_path)
         @test isfile(result.space_summary_path)
         @test isfile(result.obstacles_path)
@@ -210,8 +292,17 @@ end
         @test occursin("domain_cell_count=9", read(result.space_summary_path, String))
         @test occursin("excluded_background_count=16", read(result.space_summary_path, String))
         @test occursin("obstacle_count=1", read(result.space_summary_path, String))
+        @test occursin("configuration_model=mpc_base_configuration", read(result.simulation_summary_path, String))
+        @test occursin("execution_engine=sequential_minimal_random_walk", read(result.simulation_summary_path, String))
         @test occursin("particle_count=4", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=12", read(result.simulation_summary_path, String))
+        @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
+        @test occursin("\"configuration_model\": \"mpc_base_configuration\"", read(result.mpc_config_path, String))
+        @test occursin("\"lx\": 5.0", read(result.mpc_config_path, String))
+        @test occursin("\"ly\": 5.0", read(result.mpc_config_path, String))
+        @test occursin("\"lz\": 1", read(result.mpc_config_path, String))
+        @test occursin("\"n0\": 10.0", read(result.mpc_config_path, String))
+        @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
         @test occursin("\"status\": \"preliminary_results_ready\"", read(result.metrics_path, String))
         @test startswith(read(result.domain_mask_path, String), "P2")
         @test startswith(read(result.density_map_path, String), "P2")
