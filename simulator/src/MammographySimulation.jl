@@ -5,6 +5,8 @@ using Random
 
 export PgmImage,
     MpcModelConfig,
+    MpcParticle,
+    MpcParticleInitialization,
     SimulationObstacle,
     SimulationParticle,
     PreliminarySimulationMetrics,
@@ -14,6 +16,7 @@ export PgmImage,
     SimulationRunConfig,
     read_pgm,
     build_simulation_space,
+    initialize_mpc_particles,
     run_minimal_simulation,
     generate_preliminary_results,
     parse_cli_args,
@@ -59,6 +62,28 @@ mutable struct SimulationParticle
     id::Int
     x::Int
     y::Int
+end
+
+struct MpcParticle
+    id::Int
+    x::Float64
+    y::Float64
+    z::Float64
+    vx::Float64
+    vy::Float64
+    vz::Float64
+    mass::Float64
+    species::String
+    labeled::Bool
+end
+
+struct MpcParticleInitialization
+    seed::Int
+    target_particle_count::Int
+    domain_volume::Float64
+    velocity_sigma::Float64
+    rejected_samples::Int
+    particles::Vector{MpcParticle}
 end
 
 struct SimulationResult
@@ -263,6 +288,11 @@ function run_case(config::SimulationRunConfig)
     output_dir = abspath(config.output_dir)
     pgm_image = read_pgm(input_path)
     simulation_space = build_simulation_space(pgm_image; mpc_config = config.mpc_config)
+    mpc_initialization = initialize_mpc_particles(
+        simulation_space,
+        config.mpc_config;
+        seed = config.seed,
+    )
     simulation_result = run_minimal_simulation(
         simulation_space;
         seed = config.seed,
@@ -282,6 +312,7 @@ function run_case(config::SimulationRunConfig)
     obstacle_radius_matrix_path = joinpath(output_dir, "obstacle_radius_matrix.tsv")
     obstacle_radius_map_path = joinpath(output_dir, "obstacle_radius_map.pgm")
     obstacle_radius_histogram_path = joinpath(output_dir, "obstacle_radius_histogram.tsv")
+    mpc_initial_particles_path = joinpath(output_dir, "mpc_initial_particles.tsv")
     simulation_summary_path = joinpath(output_dir, "simulation_summary.txt")
     simulation_state_path = joinpath(output_dir, "simulation_state.tsv")
     visit_counts_path = joinpath(output_dir, "visit_counts.tsv")
@@ -322,6 +353,10 @@ function run_case(config::SimulationRunConfig)
         println(io, "grid_shift_enabled=$(config.mpc_config.grid_shift_enabled)")
         println(io, "grid_shift_decision=$(config.mpc_config.grid_shift_decision)")
         println(io, "particle_count=$(length(simulation_result.particles))")
+        println(io, "mpc_particle_count=$(length(mpc_initialization.particles))")
+        println(io, "mpc_domain_volume=$(mpc_initialization.domain_volume)")
+        println(io, "mpc_velocity_sigma=$(mpc_initialization.velocity_sigma)")
+        println(io, "mpc_rejected_samples=$(mpc_initialization.rejected_samples)")
         println(io, "attempted_moves=$(simulation_result.attempted_moves)")
         println(io, "collision_count=$(simulation_result.collision_count)")
         println(io, "message=Simulacion minima secuencial ejecutada y resultados preliminares generados.")
@@ -359,7 +394,14 @@ function run_case(config::SimulationRunConfig)
         println(io, "created_at=$(timestamp)")
     end
 
-    write_mpc_config_json(mpc_config_path, config, pgm_image, simulation_space, timestamp)
+    write_mpc_config_json(
+        mpc_config_path,
+        config,
+        pgm_image,
+        simulation_space,
+        timestamp;
+        mpc_initialization = mpc_initialization,
+    )
     open(summary_path, "w") do io
         println(io, "width=$(pgm_image.width)")
         println(io, "height=$(pgm_image.height)")
@@ -374,7 +416,13 @@ function run_case(config::SimulationRunConfig)
     write_obstacle_radius_matrix_tsv(obstacle_radius_matrix_path, simulation_space)
     write_obstacle_radius_map_pgm(obstacle_radius_map_path, simulation_space)
     write_obstacle_radius_histogram_tsv(obstacle_radius_histogram_path, simulation_space)
-    write_simulation_summary(simulation_summary_path, simulation_result, simulation_space)
+    write_mpc_initial_particles_tsv(mpc_initial_particles_path, mpc_initialization)
+    write_simulation_summary(
+        simulation_summary_path,
+        simulation_result,
+        simulation_space;
+        mpc_initialization = mpc_initialization,
+    )
     write_simulation_state(simulation_state_path, simulation_result.particles)
     write_visit_counts(visit_counts_path, simulation_result.visit_counts)
     preliminary_results = generate_preliminary_results(output_dir, simulation_result, simulation_space)
@@ -389,6 +437,7 @@ function run_case(config::SimulationRunConfig)
         obstacle_radius_matrix_path = obstacle_radius_matrix_path,
         obstacle_radius_map_path = obstacle_radius_map_path,
         obstacle_radius_histogram_path = obstacle_radius_histogram_path,
+        mpc_initial_particles_path = mpc_initial_particles_path,
         simulation_summary_path = simulation_summary_path,
         simulation_state_path = simulation_state_path,
         visit_counts_path = visit_counts_path,
@@ -398,6 +447,7 @@ function run_case(config::SimulationRunConfig)
         density_matrix_path = preliminary_results.density_matrix_path,
         image = pgm_image,
         space = simulation_space,
+        mpc_initialization = mpc_initialization,
         simulation = simulation_result,
         preliminary_results = preliminary_results,
     )
@@ -423,6 +473,7 @@ function cli_main(args::Vector{String} = ARGS)
         println("obstacle_radius_matrix_path=$(result.obstacle_radius_matrix_path)")
         println("obstacle_radius_map_path=$(result.obstacle_radius_map_path)")
         println("obstacle_radius_histogram_path=$(result.obstacle_radius_histogram_path)")
+        println("mpc_initial_particles_path=$(result.mpc_initial_particles_path)")
         println("simulation_summary_path=$(result.simulation_summary_path)")
         println("simulation_state_path=$(result.simulation_state_path)")
         println("visit_counts_path=$(result.visit_counts_path)")
@@ -676,6 +727,134 @@ function build_simulation_space(
         normalized_intensities,
         obstacles,
     )
+end
+
+function initialize_mpc_particles(
+    space::SimulationSpace,
+    config::MpcModelConfig;
+    seed::Int = 1234,
+)
+    validate_mpc_config(config)
+
+    target_particle_count = determine_mpc_particle_count(space, config)
+    domain_cells = collect_domain_cells(space.domain_mask)
+    velocity_sigma = sqrt(config.kbt / config.mass)
+    rng = Random.MersenneTwister(seed)
+    particles = MpcParticle[]
+    rejected_samples = 0
+    max_attempts = max(1000, target_particle_count * 1000)
+    attempts = 0
+
+    if isempty(domain_cells) && target_particle_count > 0
+        throw(ArgumentError("No existen celdas de dominio para inicializar particulas MPC."))
+    end
+
+    while length(particles) < target_particle_count
+        attempts += 1
+
+        if attempts > max_attempts
+            throw(ArgumentError("No se pudieron ubicar particulas MPC fuera de los obstaculos cilindricos."))
+        end
+
+        cell_x, cell_y = rand(rng, domain_cells)
+        x = (cell_x + rand(rng)) * space.cell_length
+        y = (cell_y + rand(rng)) * space.cell_length
+        z = rand(rng) * space.lz
+
+        if point_inside_cell_obstacle(space, x, y, cell_x, cell_y)
+            rejected_samples += 1
+            continue
+        end
+
+        particle_id = length(particles) + 1
+        vx = randn(rng) * velocity_sigma
+        vy = randn(rng) * velocity_sigma
+        vz = randn(rng) * velocity_sigma
+        labeled = particle_id <= min(config.labeled_particles, target_particle_count)
+
+        push!(
+            particles,
+            MpcParticle(
+                particle_id,
+                x,
+                y,
+                z,
+                vx,
+                vy,
+                vz,
+                config.mass,
+                "fluid",
+                labeled,
+            ),
+        )
+    end
+
+    return MpcParticleInitialization(
+        seed,
+        target_particle_count,
+        mpc_domain_volume(space),
+        velocity_sigma,
+        rejected_samples,
+        particles,
+    )
+end
+
+function determine_mpc_particle_count(space::SimulationSpace, config::MpcModelConfig)
+    volume = mpc_domain_volume(space)
+
+    if volume <= 0
+        return 0
+    end
+
+    return max(1, round(Int, config.n0 * volume))
+end
+
+function mpc_domain_volume(space::SimulationSpace)
+    return count_domain_cells(space) * space.cell_length^2 * space.lz
+end
+
+function collect_domain_cells(domain_mask::BitMatrix)
+    height, width = size(domain_mask)
+    cells = Tuple{Int,Int}[]
+
+    for y_index in 1:height
+        for x_index in 1:width
+            if domain_mask[y_index, x_index]
+                push!(cells, (x_index - 1, y_index - 1))
+            end
+        end
+    end
+
+    return cells
+end
+
+function point_inside_cell_obstacle(
+    space::SimulationSpace,
+    x::Float64,
+    y::Float64,
+    cell_x::Int,
+    cell_y::Int,
+)
+    obstacle = obstacle_at_cell(space, cell_x, cell_y)
+
+    if obstacle === nothing || obstacle.radius <= 0
+        return false
+    end
+
+    dx = x - obstacle.center_x
+    dy = y - obstacle.center_y
+
+    return dx^2 + dy^2 < obstacle.radius^2
+end
+
+function obstacle_at_cell(space::SimulationSpace, cell_x::Int, cell_y::Int)
+    for obstacle in space.obstacles
+        if obstacle.x == cell_x && obstacle.y == cell_y
+            return obstacle
+        end
+    end
+
+    return nothing
 end
 
 function resolve_tissue_threshold(max_gray::Int, tissue_threshold::Union{Nothing,Int})
@@ -954,10 +1133,11 @@ function write_mpc_config_json(
     run_config::SimulationRunConfig,
     image::PgmImage,
     space::SimulationSpace,
-    timestamp::String,
+    timestamp::String;
+    mpc_initialization::Union{Nothing,MpcParticleInitialization} = nothing,
 )
     config = run_config.mpc_config
-    fields = [
+    fields = Any[
         ("created_at", timestamp),
         ("input_role", config.input_role),
         ("configuration_model", MPC_CONFIGURATION_MODEL),
@@ -993,6 +1173,20 @@ function write_mpc_config_json(
         ("radius_formula", "radius = 0.5 * cell_length * (1 - intensity / (max_gray + 1))"),
         ("radius_denominator", space.max_gray + 1),
     ]
+
+    if mpc_initialization !== nothing
+        append!(
+            fields,
+            [
+                ("mpc_particle_model", "continuous_position_maxwellian_velocity"),
+                ("mpc_particle_count", length(mpc_initialization.particles)),
+                ("mpc_target_particle_count", mpc_initialization.target_particle_count),
+                ("mpc_domain_volume", mpc_initialization.domain_volume),
+                ("mpc_velocity_sigma", mpc_initialization.velocity_sigma),
+                ("mpc_rejected_samples", mpc_initialization.rejected_samples),
+            ],
+        )
+    end
 
     write_key_value_json(path, fields)
 end
@@ -1127,7 +1321,33 @@ function write_obstacle_radius_histogram_tsv(path::AbstractString, space::Simula
     end
 end
 
-function write_simulation_summary(path::AbstractString, result::SimulationResult, space::SimulationSpace)
+function write_mpc_initial_particles_tsv(
+    path::AbstractString,
+    initialization::MpcParticleInitialization,
+)
+    open(path, "w") do io
+        println(io, "# seed=$(initialization.seed)")
+        println(io, "# target_particle_count=$(initialization.target_particle_count)")
+        println(io, "# domain_volume=$(initialization.domain_volume)")
+        println(io, "# velocity_sigma=$(initialization.velocity_sigma)")
+        println(io, "# rejected_samples=$(initialization.rejected_samples)")
+        println(io, "id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled")
+
+        for particle in initialization.particles
+            println(
+                io,
+                "$(particle.id)\t$(particle.x)\t$(particle.y)\t$(particle.z)\t$(particle.vx)\t$(particle.vy)\t$(particle.vz)\t$(particle.mass)\t$(particle.species)\t$(particle.labeled)",
+            )
+        end
+    end
+end
+
+function write_simulation_summary(
+    path::AbstractString,
+    result::SimulationResult,
+    space::SimulationSpace;
+    mpc_initialization::Union{Nothing,MpcParticleInitialization} = nothing,
+)
     free_cell_count = count_free_cells(space)
 
     open(path, "w") do io
@@ -1137,6 +1357,14 @@ function write_simulation_summary(path::AbstractString, result::SimulationResult
         println(io, "particle_count=$(length(result.particles))")
         println(io, "cylinder_obstacle_count=$(length(space.obstacles))")
         println(io, "preliminary_blocking_obstacle_count=$(count_preliminary_blocking_obstacles(space))")
+        if mpc_initialization !== nothing
+            println(io, "mpc_particle_model=continuous_position_maxwellian_velocity")
+            println(io, "mpc_particle_count=$(length(mpc_initialization.particles))")
+            println(io, "mpc_target_particle_count=$(mpc_initialization.target_particle_count)")
+            println(io, "mpc_domain_volume=$(mpc_initialization.domain_volume)")
+            println(io, "mpc_velocity_sigma=$(mpc_initialization.velocity_sigma)")
+            println(io, "mpc_rejected_samples=$(mpc_initialization.rejected_samples)")
+        end
         println(io, "free_cell_count=$(free_cell_count)")
         println(io, "attempted_moves=$(result.attempted_moves)")
         println(io, "collision_count=$(result.collision_count)")

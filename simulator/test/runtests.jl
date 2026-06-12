@@ -229,6 +229,76 @@ end
     end
 end
 
+@testset "MPC continuous particle initialization" begin
+    space = build_simulation_space(synthetic_roi_image())
+    config = MpcModelConfig(
+        n0 = 1.0,
+        mass = 2.0,
+        kbt = 8.0,
+        labeled_particles = 3,
+    )
+
+    initialization_a = initialize_mpc_particles(space, config; seed = 21)
+    initialization_b = initialize_mpc_particles(space, config; seed = 21)
+
+    particle_state_a = [
+        (
+            particle.id,
+            particle.x,
+            particle.y,
+            particle.z,
+            particle.vx,
+            particle.vy,
+            particle.vz,
+            particle.labeled,
+        )
+        for particle in initialization_a.particles
+    ]
+    particle_state_b = [
+        (
+            particle.id,
+            particle.x,
+            particle.y,
+            particle.z,
+            particle.vx,
+            particle.vy,
+            particle.vz,
+            particle.labeled,
+        )
+        for particle in initialization_b.particles
+    ]
+
+    @test initialization_a.seed == 21
+    @test initialization_a.target_particle_count == 9
+    @test initialization_a.domain_volume == 9.0
+    @test initialization_a.velocity_sigma == 2.0
+    @test length(initialization_a.particles) == 9
+    @test particle_state_a == particle_state_b
+    @test count(particle -> particle.labeled, initialization_a.particles) == 3
+    @test all(particle -> particle.mass == 2.0, initialization_a.particles)
+    @test all(particle -> particle.species == "fluid", initialization_a.particles)
+
+    for particle in initialization_a.particles
+        @test 0.0 <= particle.x < space.lx
+        @test 0.0 <= particle.y < space.ly
+        @test 0.0 <= particle.z < space.lz
+
+        cell_x = floor(Int, particle.x / space.cell_length)
+        cell_y = floor(Int, particle.y / space.cell_length)
+
+        @test space.domain_mask[cell_y + 1, cell_x + 1]
+
+        obstacle = only([
+            obstacle for obstacle in space.obstacles
+            if obstacle.x == cell_x && obstacle.y == cell_y
+        ])
+        dx = particle.x - obstacle.center_x
+        dy = particle.y - obstacle.center_y
+
+        @test dx^2 + dy^2 >= obstacle.radius^2
+    end
+end
+
 @testset "Preliminary simulation results" begin
     space = build_simulation_space(synthetic_roi_image())
     simulation = run_minimal_simulation(
@@ -308,6 +378,7 @@ end
         @test isfile(result.obstacle_radius_matrix_path)
         @test isfile(result.obstacle_radius_map_path)
         @test isfile(result.obstacle_radius_histogram_path)
+        @test isfile(result.mpc_initial_particles_path)
         @test isfile(result.simulation_summary_path)
         @test isfile(result.simulation_state_path)
         @test isfile(result.visit_counts_path)
@@ -325,6 +396,9 @@ end
         @test occursin("configuration_model=mpc_base_configuration", read(result.simulation_summary_path, String))
         @test occursin("execution_engine=sequential_minimal_random_walk", read(result.simulation_summary_path, String))
         @test occursin("particle_count=1", read(result.simulation_summary_path, String))
+        @test occursin("mpc_particle_model=continuous_position_maxwellian_velocity", read(result.simulation_summary_path, String))
+        @test occursin("mpc_particle_count=90", read(result.simulation_summary_path, String))
+        @test occursin("mpc_velocity_sigma=1.0", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
@@ -333,6 +407,8 @@ end
         @test occursin("\"ly\": 5.0", read(result.mpc_config_path, String))
         @test occursin("\"lz\": 1", read(result.mpc_config_path, String))
         @test occursin("\"n0\": 10.0", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_particle_model\": \"continuous_position_maxwellian_velocity\"", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_particle_count\": 90", read(result.mpc_config_path, String))
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
         @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
@@ -342,6 +418,8 @@ end
         @test occursin("x\ty\tintensity\tnormalized_intensity\tradius\tis_domain\tpreliminary_blocking", read(result.obstacle_radius_matrix_path, String))
         @test startswith(read(result.obstacle_radius_map_path, String), "P2")
         @test occursin("bucket\tcount", read(result.obstacle_radius_histogram_path, String))
+        @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_initial_particles_path, String))
+        @test occursin("# target_particle_count=90", read(result.mpc_initial_particles_path, String))
         @test startswith(read(result.domain_mask_path, String), "P2")
         @test startswith(read(result.density_map_path, String), "P2")
     end
