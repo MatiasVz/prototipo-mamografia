@@ -13,6 +13,54 @@ function synthetic_roi_image()
     return PgmImage(5, 5, 255, SYNTHETIC_ROI_PIXELS)
 end
 
+function empty_mpc_space(width = 10, height = 10)
+    return SimulationSpace(
+        width,
+        height,
+        1.0,
+        Float64(width),
+        Float64(height),
+        1,
+        255,
+        1,
+        255,
+        trues(height, width),
+        zeros(Float64, height, width),
+        SimulationObstacle[],
+    )
+end
+
+function central_cylinder_space()
+    space = empty_mpc_space(10, 10)
+    obstacle = SimulationObstacle(
+        4,
+        4,
+        5.0,
+        5.0,
+        0.5,
+        0,
+        0.0,
+        1.0,
+        1.0,
+        true,
+    )
+
+    return SimulationSpace(
+        space.width,
+        space.height,
+        space.cell_length,
+        space.lx,
+        space.ly,
+        space.lz,
+        space.max_gray,
+        space.tissue_threshold,
+        space.obstacle_threshold,
+        space.domain_mask,
+        space.normalized_intensities,
+        [obstacle],
+    )
+end
+
 @testset "PGM reader" begin
     mktempdir() do dir
         ascii_path = joinpath(dir, "ascii.pgm")
@@ -299,6 +347,114 @@ end
     end
 end
 
+@testset "MPC free streaming, periodic borders and cylinder bounce" begin
+    no_obstacle_space = empty_mpc_space()
+    config = MpcModelConfig(tau = 0.5)
+    initialization = MpcParticleInitialization(
+        1,
+        1,
+        100.0,
+        1.0,
+        0,
+        [
+            MpcParticle(
+                1,
+                1.0,
+                1.0,
+                0.25,
+                2.0,
+                3.0,
+                0.0,
+                1.0,
+                "fluid",
+                false,
+            ),
+        ],
+    )
+
+    streamed = stream_mpc_particles(initialization, no_obstacle_space, config; steps = 1)
+    particle = streamed.particles[1]
+
+    @test streamed.obstacle_collision_count == 0
+    @test streamed.boundary_crossing_count_x == 0
+    @test streamed.boundary_crossing_count_y == 0
+    @test isapprox(particle.x, 2.0)
+    @test isapprox(particle.y, 2.5)
+    @test isapprox(particle.z, 0.25)
+    @test isapprox(particle.vx, 2.0)
+    @test isapprox(particle.vy, 3.0)
+
+    periodic_initialization = MpcParticleInitialization(
+        1,
+        1,
+        100.0,
+        1.0,
+        0,
+        [
+            MpcParticle(
+                1,
+                9.8,
+                5.0,
+                0.25,
+                1.0,
+                0.0,
+                0.0,
+                1.0,
+                "fluid",
+                false,
+            ),
+        ],
+    )
+
+    periodic_streamed = stream_mpc_particles(
+        periodic_initialization,
+        no_obstacle_space,
+        config;
+        steps = 1,
+    )
+    periodic_particle = periodic_streamed.particles[1]
+
+    @test periodic_streamed.boundary_crossing_count_x == 1
+    @test periodic_streamed.boundary_crossing_count_y == 0
+    @test isapprox(periodic_particle.x, 0.3; atol = 1.0e-12)
+    @test isapprox(periodic_particle.y, 5.0)
+    @test isapprox(periodic_particle.vx, 1.0)
+
+    bounce_space = central_cylinder_space()
+    bounce_config = MpcModelConfig(tau = 1.0)
+    bounce_initialization = MpcParticleInitialization(
+        1,
+        1,
+        100.0,
+        1.0,
+        0,
+        [
+            MpcParticle(
+                1,
+                3.0,
+                5.0,
+                0.5,
+                4.0,
+                0.0,
+                0.0,
+                1.0,
+                "fluid",
+                false,
+            ),
+        ],
+    )
+
+    bounced = stream_mpc_particles(bounce_initialization, bounce_space, bounce_config; steps = 1)
+    bounced_particle = bounced.particles[1]
+
+    @test bounced.obstacle_collision_count == 1
+    @test bounced.boundary_crossing_count_x == 0
+    @test isapprox(bounced_particle.x, 1.0; atol = 1.0e-8)
+    @test isapprox(bounced_particle.y, 5.0; atol = 1.0e-8)
+    @test isapprox(bounced_particle.vx, -4.0)
+    @test isapprox(bounced_particle.vy, -0.0)
+end
+
 @testset "Preliminary simulation results" begin
     space = build_simulation_space(synthetic_roi_image())
     simulation = run_minimal_simulation(
@@ -379,6 +535,8 @@ end
         @test isfile(result.obstacle_radius_map_path)
         @test isfile(result.obstacle_radius_histogram_path)
         @test isfile(result.mpc_initial_particles_path)
+        @test isfile(result.mpc_streamed_particles_path)
+        @test isfile(result.mpc_streaming_summary_path)
         @test isfile(result.simulation_summary_path)
         @test isfile(result.simulation_state_path)
         @test isfile(result.visit_counts_path)
@@ -399,6 +557,8 @@ end
         @test occursin("mpc_particle_model=continuous_position_maxwellian_velocity", read(result.simulation_summary_path, String))
         @test occursin("mpc_particle_count=90", read(result.simulation_summary_path, String))
         @test occursin("mpc_velocity_sigma=1.0", read(result.simulation_summary_path, String))
+        @test occursin("mpc_streaming_model=free_translation_periodic_boundaries_bounce_back", read(result.simulation_summary_path, String))
+        @test occursin("mpc_streaming_steps=3", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
@@ -409,6 +569,7 @@ end
         @test occursin("\"n0\": 10.0", read(result.mpc_config_path, String))
         @test occursin("\"mpc_particle_model\": \"continuous_position_maxwellian_velocity\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_particle_count\": 90", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_streaming_model\": \"free_translation_periodic_boundaries_bounce_back\"", read(result.mpc_config_path, String))
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
         @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
@@ -420,6 +581,8 @@ end
         @test occursin("bucket\tcount", read(result.obstacle_radius_histogram_path, String))
         @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_initial_particles_path, String))
         @test occursin("# target_particle_count=90", read(result.mpc_initial_particles_path, String))
+        @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_streamed_particles_path, String))
+        @test occursin("obstacle_collision_count=", read(result.mpc_streaming_summary_path, String))
         @test startswith(read(result.domain_mask_path, String), "P2")
         @test startswith(read(result.density_map_path, String), "P2")
     end

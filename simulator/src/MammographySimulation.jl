@@ -7,6 +7,7 @@ export PgmImage,
     MpcModelConfig,
     MpcParticle,
     MpcParticleInitialization,
+    MpcStreamingResult,
     SimulationObstacle,
     SimulationParticle,
     PreliminarySimulationMetrics,
@@ -17,6 +18,7 @@ export PgmImage,
     read_pgm,
     build_simulation_space,
     initialize_mpc_particles,
+    stream_mpc_particles,
     run_minimal_simulation,
     generate_preliminary_results,
     parse_cli_args,
@@ -64,7 +66,7 @@ mutable struct SimulationParticle
     y::Int
 end
 
-struct MpcParticle
+mutable struct MpcParticle
     id::Int
     x::Float64
     y::Float64
@@ -83,6 +85,17 @@ struct MpcParticleInitialization
     domain_volume::Float64
     velocity_sigma::Float64
     rejected_samples::Int
+    particles::Vector{MpcParticle}
+end
+
+struct MpcStreamingResult
+    steps::Int
+    tau::Float64
+    particle_count::Int
+    obstacle_collision_count::Int
+    boundary_crossing_count_x::Int
+    boundary_crossing_count_y::Int
+    completed_intervals::Int
     particles::Vector{MpcParticle}
 end
 
@@ -293,6 +306,12 @@ function run_case(config::SimulationRunConfig)
         config.mpc_config;
         seed = config.seed,
     )
+    mpc_streaming = stream_mpc_particles(
+        mpc_initialization,
+        simulation_space,
+        config.mpc_config;
+        steps = config.steps,
+    )
     simulation_result = run_minimal_simulation(
         simulation_space;
         seed = config.seed,
@@ -313,6 +332,8 @@ function run_case(config::SimulationRunConfig)
     obstacle_radius_map_path = joinpath(output_dir, "obstacle_radius_map.pgm")
     obstacle_radius_histogram_path = joinpath(output_dir, "obstacle_radius_histogram.tsv")
     mpc_initial_particles_path = joinpath(output_dir, "mpc_initial_particles.tsv")
+    mpc_streamed_particles_path = joinpath(output_dir, "mpc_streamed_particles.tsv")
+    mpc_streaming_summary_path = joinpath(output_dir, "mpc_streaming_summary.txt")
     simulation_summary_path = joinpath(output_dir, "simulation_summary.txt")
     simulation_state_path = joinpath(output_dir, "simulation_state.tsv")
     visit_counts_path = joinpath(output_dir, "visit_counts.tsv")
@@ -357,6 +378,9 @@ function run_case(config::SimulationRunConfig)
         println(io, "mpc_domain_volume=$(mpc_initialization.domain_volume)")
         println(io, "mpc_velocity_sigma=$(mpc_initialization.velocity_sigma)")
         println(io, "mpc_rejected_samples=$(mpc_initialization.rejected_samples)")
+        println(io, "mpc_streaming_obstacle_collision_count=$(mpc_streaming.obstacle_collision_count)")
+        println(io, "mpc_streaming_boundary_crossing_count_x=$(mpc_streaming.boundary_crossing_count_x)")
+        println(io, "mpc_streaming_boundary_crossing_count_y=$(mpc_streaming.boundary_crossing_count_y)")
         println(io, "attempted_moves=$(simulation_result.attempted_moves)")
         println(io, "collision_count=$(simulation_result.collision_count)")
         println(io, "message=Simulacion minima secuencial ejecutada y resultados preliminares generados.")
@@ -401,6 +425,7 @@ function run_case(config::SimulationRunConfig)
         simulation_space,
         timestamp;
         mpc_initialization = mpc_initialization,
+        mpc_streaming = mpc_streaming,
     )
     open(summary_path, "w") do io
         println(io, "width=$(pgm_image.width)")
@@ -417,11 +442,14 @@ function run_case(config::SimulationRunConfig)
     write_obstacle_radius_map_pgm(obstacle_radius_map_path, simulation_space)
     write_obstacle_radius_histogram_tsv(obstacle_radius_histogram_path, simulation_space)
     write_mpc_initial_particles_tsv(mpc_initial_particles_path, mpc_initialization)
+    write_mpc_streamed_particles_tsv(mpc_streamed_particles_path, mpc_streaming)
+    write_mpc_streaming_summary(mpc_streaming_summary_path, mpc_streaming)
     write_simulation_summary(
         simulation_summary_path,
         simulation_result,
         simulation_space;
         mpc_initialization = mpc_initialization,
+        mpc_streaming = mpc_streaming,
     )
     write_simulation_state(simulation_state_path, simulation_result.particles)
     write_visit_counts(visit_counts_path, simulation_result.visit_counts)
@@ -438,6 +466,8 @@ function run_case(config::SimulationRunConfig)
         obstacle_radius_map_path = obstacle_radius_map_path,
         obstacle_radius_histogram_path = obstacle_radius_histogram_path,
         mpc_initial_particles_path = mpc_initial_particles_path,
+        mpc_streamed_particles_path = mpc_streamed_particles_path,
+        mpc_streaming_summary_path = mpc_streaming_summary_path,
         simulation_summary_path = simulation_summary_path,
         simulation_state_path = simulation_state_path,
         visit_counts_path = visit_counts_path,
@@ -448,6 +478,7 @@ function run_case(config::SimulationRunConfig)
         image = pgm_image,
         space = simulation_space,
         mpc_initialization = mpc_initialization,
+        mpc_streaming = mpc_streaming,
         simulation = simulation_result,
         preliminary_results = preliminary_results,
     )
@@ -474,6 +505,8 @@ function cli_main(args::Vector{String} = ARGS)
         println("obstacle_radius_map_path=$(result.obstacle_radius_map_path)")
         println("obstacle_radius_histogram_path=$(result.obstacle_radius_histogram_path)")
         println("mpc_initial_particles_path=$(result.mpc_initial_particles_path)")
+        println("mpc_streamed_particles_path=$(result.mpc_streamed_particles_path)")
+        println("mpc_streaming_summary_path=$(result.mpc_streaming_summary_path)")
         println("simulation_summary_path=$(result.simulation_summary_path)")
         println("simulation_state_path=$(result.simulation_state_path)")
         println("visit_counts_path=$(result.visit_counts_path)")
@@ -857,6 +890,262 @@ function obstacle_at_cell(space::SimulationSpace, cell_x::Int, cell_y::Int)
     return nothing
 end
 
+function stream_mpc_particles(
+    initialization::MpcParticleInitialization,
+    space::SimulationSpace,
+    config::MpcModelConfig;
+    steps::Int = 1,
+)
+    if steps < 0
+        throw(ArgumentError("El numero de pasos de streaming MPC no puede ser negativo."))
+    end
+
+    particles = copy_mpc_particles(initialization.particles)
+    obstacle_collision_count = 0
+    boundary_crossing_count_x = 0
+    boundary_crossing_count_y = 0
+
+    for _step in 1:steps
+        for particle in particles
+            collisions, crossings_x, crossings_y = stream_single_mpc_particle!(
+                particle,
+                space,
+                config.tau,
+            )
+            obstacle_collision_count += collisions
+            boundary_crossing_count_x += crossings_x
+            boundary_crossing_count_y += crossings_y
+        end
+    end
+
+    return MpcStreamingResult(
+        steps,
+        config.tau,
+        length(particles),
+        obstacle_collision_count,
+        boundary_crossing_count_x,
+        boundary_crossing_count_y,
+        steps,
+        particles,
+    )
+end
+
+function copy_mpc_particles(particles::Vector{MpcParticle})
+    return [
+        MpcParticle(
+            particle.id,
+            particle.x,
+            particle.y,
+            particle.z,
+            particle.vx,
+            particle.vy,
+            particle.vz,
+            particle.mass,
+            particle.species,
+            particle.labeled,
+        )
+        for particle in particles
+    ]
+end
+
+function stream_single_mpc_particle!(
+    particle::MpcParticle,
+    space::SimulationSpace,
+    tau::Float64,
+)
+    remaining_time = tau
+    obstacle_collisions = 0
+    boundary_crossings_x = 0
+    boundary_crossings_y = 0
+    event_limit = 1000
+    event_count = 0
+    epsilon = 1.0e-9
+
+    while remaining_time > epsilon
+        event_count += 1
+
+        if event_count > event_limit
+            throw(ArgumentError("Se supero el limite de eventos durante el streaming MPC."))
+        end
+
+        boundary_time, boundary_axis = next_periodic_boundary_event(particle, space, remaining_time)
+        collision_time, _obstacle = next_cylinder_collision_event(particle, space, remaining_time)
+
+        if collision_time !== nothing && collision_time <= boundary_time + epsilon
+            advance_mpc_particle!(particle, collision_time)
+            apply_periodic_boundaries!(particle, space)
+            particle.vx = -particle.vx
+            particle.vy = -particle.vy
+            particle.vz = -particle.vz
+            obstacle_collisions += 1
+            remaining_time -= collision_time
+            advance_mpc_particle!(particle, min(epsilon, remaining_time))
+            apply_periodic_boundaries!(particle, space)
+            remaining_time -= min(epsilon, max(remaining_time, 0.0))
+            continue
+        end
+
+        if boundary_axis !== nothing && boundary_time <= remaining_time + epsilon
+            advance_mpc_particle!(particle, boundary_time)
+            apply_periodic_boundaries!(particle, space)
+
+            if boundary_axis == :x
+                boundary_crossings_x += 1
+            elseif boundary_axis == :y
+                boundary_crossings_y += 1
+            end
+
+            remaining_time -= boundary_time
+            continue
+        end
+
+        advance_mpc_particle!(particle, remaining_time)
+        apply_periodic_boundaries!(particle, space)
+        remaining_time = 0.0
+    end
+
+    return obstacle_collisions, boundary_crossings_x, boundary_crossings_y
+end
+
+function advance_mpc_particle!(particle::MpcParticle, delta_time::Float64)
+    particle.x += particle.vx * delta_time
+    particle.y += particle.vy * delta_time
+    particle.z += particle.vz * delta_time
+end
+
+function apply_periodic_boundaries!(particle::MpcParticle, space::SimulationSpace)
+    particle.x = wrap_coordinate(particle.x, space.lx)
+    particle.y = wrap_coordinate(particle.y, space.ly)
+
+    if space.lz > 0
+        particle.z = wrap_coordinate(particle.z, space.lz)
+    end
+end
+
+function wrap_coordinate(value::Float64, length::Real)
+    wrapped = mod(value, float(length))
+
+    if isapprox(wrapped, float(length); atol = 1.0e-12)
+        return 0.0
+    end
+
+    return wrapped
+end
+
+function next_periodic_boundary_event(
+    particle::MpcParticle,
+    space::SimulationSpace,
+    max_time::Float64,
+)
+    epsilon = 1.0e-12
+    best_time = max_time + 1
+    best_axis = nothing
+
+    x_time = time_to_periodic_boundary(particle.x, particle.vx, space.lx)
+    y_time = time_to_periodic_boundary(particle.y, particle.vy, space.ly)
+
+    if x_time !== nothing && epsilon < x_time <= max_time + epsilon && x_time < best_time
+        best_time = x_time
+        best_axis = :x
+    end
+
+    if y_time !== nothing && epsilon < y_time <= max_time + epsilon && y_time < best_time
+        best_time = y_time
+        best_axis = :y
+    end
+
+    if best_axis === nothing
+        return Inf, nothing
+    end
+
+    return best_time, best_axis
+end
+
+function time_to_periodic_boundary(position::Float64, velocity::Float64, length::Real)
+    if velocity > 0
+        return (float(length) - position) / velocity
+    elseif velocity < 0
+        return position / -velocity
+    end
+
+    return nothing
+end
+
+function next_cylinder_collision_event(
+    particle::MpcParticle,
+    space::SimulationSpace,
+    max_time::Float64,
+)
+    best_time = nothing
+    best_obstacle = nothing
+    epsilon = 1.0e-10
+
+    for obstacle in space.obstacles
+        if obstacle.radius <= 0
+            continue
+        end
+
+        collision_time = ray_circle_collision_time(
+            particle.x,
+            particle.y,
+            particle.vx,
+            particle.vy,
+            obstacle.center_x,
+            obstacle.center_y,
+            obstacle.radius,
+        )
+
+        if collision_time === nothing
+            continue
+        end
+
+        if epsilon < collision_time <= max_time + epsilon &&
+            (best_time === nothing || collision_time < best_time)
+            best_time = collision_time
+            best_obstacle = obstacle
+        end
+    end
+
+    return best_time, best_obstacle
+end
+
+function ray_circle_collision_time(
+    x::Float64,
+    y::Float64,
+    vx::Float64,
+    vy::Float64,
+    center_x::Float64,
+    center_y::Float64,
+    radius::Float64,
+)
+    a = vx^2 + vy^2
+
+    if a == 0
+        return nothing
+    end
+
+    dx = x - center_x
+    dy = y - center_y
+    b = 2 * (dx * vx + dy * vy)
+    c = dx^2 + dy^2 - radius^2
+    discriminant = b^2 - 4 * a * c
+
+    if discriminant < 0
+        return nothing
+    end
+
+    root = sqrt(discriminant)
+    candidate_a = (-b - root) / (2 * a)
+    candidate_b = (-b + root) / (2 * a)
+    candidates = [candidate for candidate in (candidate_a, candidate_b) if candidate > 0]
+
+    if isempty(candidates)
+        return nothing
+    end
+
+    return minimum(candidates)
+end
+
 function resolve_tissue_threshold(max_gray::Int, tissue_threshold::Union{Nothing,Int})
     if tissue_threshold !== nothing
         return tissue_threshold
@@ -1135,6 +1424,7 @@ function write_mpc_config_json(
     space::SimulationSpace,
     timestamp::String;
     mpc_initialization::Union{Nothing,MpcParticleInitialization} = nothing,
+    mpc_streaming::Union{Nothing,MpcStreamingResult} = nothing,
 )
     config = run_config.mpc_config
     fields = Any[
@@ -1184,6 +1474,20 @@ function write_mpc_config_json(
                 ("mpc_domain_volume", mpc_initialization.domain_volume),
                 ("mpc_velocity_sigma", mpc_initialization.velocity_sigma),
                 ("mpc_rejected_samples", mpc_initialization.rejected_samples),
+            ],
+        )
+    end
+
+    if mpc_streaming !== nothing
+        append!(
+            fields,
+            [
+                ("mpc_streaming_model", "free_translation_periodic_boundaries_bounce_back"),
+                ("mpc_streaming_steps", mpc_streaming.steps),
+                ("mpc_streaming_tau", mpc_streaming.tau),
+                ("mpc_streaming_obstacle_collision_count", mpc_streaming.obstacle_collision_count),
+                ("mpc_streaming_boundary_crossing_count_x", mpc_streaming.boundary_crossing_count_x),
+                ("mpc_streaming_boundary_crossing_count_y", mpc_streaming.boundary_crossing_count_y),
             ],
         )
     end
@@ -1342,11 +1646,46 @@ function write_mpc_initial_particles_tsv(
     end
 end
 
+function write_mpc_streamed_particles_tsv(
+    path::AbstractString,
+    streaming::MpcStreamingResult,
+)
+    open(path, "w") do io
+        println(io, "# steps=$(streaming.steps)")
+        println(io, "# tau=$(streaming.tau)")
+        println(io, "# obstacle_collision_count=$(streaming.obstacle_collision_count)")
+        println(io, "# boundary_crossing_count_x=$(streaming.boundary_crossing_count_x)")
+        println(io, "# boundary_crossing_count_y=$(streaming.boundary_crossing_count_y)")
+        println(io, "id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled")
+
+        for particle in streaming.particles
+            println(
+                io,
+                "$(particle.id)\t$(particle.x)\t$(particle.y)\t$(particle.z)\t$(particle.vx)\t$(particle.vy)\t$(particle.vz)\t$(particle.mass)\t$(particle.species)\t$(particle.labeled)",
+            )
+        end
+    end
+end
+
+function write_mpc_streaming_summary(path::AbstractString, streaming::MpcStreamingResult)
+    open(path, "w") do io
+        println(io, "mpc_streaming_model=free_translation_periodic_boundaries_bounce_back")
+        println(io, "steps=$(streaming.steps)")
+        println(io, "tau=$(streaming.tau)")
+        println(io, "particle_count=$(streaming.particle_count)")
+        println(io, "obstacle_collision_count=$(streaming.obstacle_collision_count)")
+        println(io, "boundary_crossing_count_x=$(streaming.boundary_crossing_count_x)")
+        println(io, "boundary_crossing_count_y=$(streaming.boundary_crossing_count_y)")
+        println(io, "completed_intervals=$(streaming.completed_intervals)")
+    end
+end
+
 function write_simulation_summary(
     path::AbstractString,
     result::SimulationResult,
     space::SimulationSpace;
     mpc_initialization::Union{Nothing,MpcParticleInitialization} = nothing,
+    mpc_streaming::Union{Nothing,MpcStreamingResult} = nothing,
 )
     free_cell_count = count_free_cells(space)
 
@@ -1364,6 +1703,14 @@ function write_simulation_summary(
             println(io, "mpc_domain_volume=$(mpc_initialization.domain_volume)")
             println(io, "mpc_velocity_sigma=$(mpc_initialization.velocity_sigma)")
             println(io, "mpc_rejected_samples=$(mpc_initialization.rejected_samples)")
+        end
+        if mpc_streaming !== nothing
+            println(io, "mpc_streaming_model=free_translation_periodic_boundaries_bounce_back")
+            println(io, "mpc_streaming_steps=$(mpc_streaming.steps)")
+            println(io, "mpc_streaming_tau=$(mpc_streaming.tau)")
+            println(io, "mpc_streaming_obstacle_collision_count=$(mpc_streaming.obstacle_collision_count)")
+            println(io, "mpc_streaming_boundary_crossing_count_x=$(mpc_streaming.boundary_crossing_count_x)")
+            println(io, "mpc_streaming_boundary_crossing_count_y=$(mpc_streaming.boundary_crossing_count_y)")
         end
         println(io, "free_cell_count=$(free_cell_count)")
         println(io, "attempted_moves=$(result.attempted_moves)")

@@ -114,6 +114,8 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None, density=None)
     print(f"obstacle_radius_map_path={result.obstacle_radius_map_path}", flush=True)
     print(f"obstacle_radius_histogram_path={result.obstacle_radius_histogram_path}", flush=True)
     print(f"mpc_initial_particles_path={result.mpc_initial_particles_path}", flush=True)
+    print(f"mpc_streamed_particles_path={result.mpc_streamed_particles_path}", flush=True)
+    print(f"mpc_streaming_summary_path={result.mpc_streaming_summary_path}", flush=True)
     print(f"simulation_log_path={result.simulation_log_path}", flush=True)
     print(f"worker_log_path={result.worker_log_path}", flush=True)
     return 0
