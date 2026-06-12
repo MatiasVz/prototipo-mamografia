@@ -698,6 +698,89 @@ end
     end
 end
 
+@testset "Synthetic validation cases for C tutor comparison" begin
+    case_names = synthetic_validation_case_names()
+
+    @test case_names == [
+        "free_field",
+        "central_obstacle",
+        "intensity_pattern",
+        "clear_dark_channel",
+        "synthetic_roi",
+    ]
+
+    free_field = build_synthetic_validation_case("free_field")
+    central_obstacle = build_synthetic_validation_case("central_obstacle")
+
+    @test free_field.expected_domain_cell_count == 64
+    @test free_field.expected_preliminary_blocking_obstacle_count == 0
+    @test central_obstacle.expected_domain_cell_count == 81
+    @test central_obstacle.expected_preliminary_blocking_obstacle_count == 9
+
+    mktempdir() do dir
+        written = MammographySimulation.write_synthetic_validation_case(
+            dir,
+            central_obstacle,
+        )
+
+        @test isfile(written.pgm_path)
+        @test isfile(written.matrix_path)
+        @test isfile(written.size_path)
+        @test isfile(written.metadata_path)
+        @test read(written.size_path, String) == "9\t9\t0\n"
+        @test length(readlines(written.matrix_path)) == 81
+        @test startswith(read(written.pgm_path, String), "P2")
+        @test occursin("expected_domain_cell_count\t81", read(written.metadata_path, String))
+    end
+
+    mktempdir() do dir
+        cases = generate_synthetic_validation_cases(joinpath(dir, "cases"))
+
+        @test length(cases) == 5
+        @test isfile(joinpath(dir, "cases", "validation_cases.tsv"))
+        @test isfile(joinpath(dir, "cases", "free_field", "matrix.in"))
+        @test isfile(joinpath(dir, "cases", "synthetic_roi", "size.in"))
+    end
+
+    mktempdir() do dir
+        config = MpcModelConfig(
+            n0 = 0.25,
+            labeled_particles = 2,
+            correlation_initial_times = 1,
+            output_times = [0, 2],
+        )
+        results = validate_synthetic_cases(
+            dir;
+            seed = 11,
+            steps = 2,
+            mpc_config = config,
+        )
+
+        @test length(results) == 5
+        @test all(result -> result.status == "ok", results)
+        @test all(result -> result.particle_conservation_ok, results)
+        @test all(result -> result.mpc_particle_count == result.concentration_particle_sum, results)
+        @test all(result -> isfinite(result.mdc), results)
+        @test all(result -> isfinite(result.mdc0), results)
+        @test all(result -> isfinite(result.mdc_star), results)
+        @test isfile(joinpath(dir, "validation_summary.tsv"))
+        @test isfile(joinpath(dir, "validation_summary.md"))
+        @test occursin(
+            "Validacion sintetica del simulador Julia",
+            read(joinpath(dir, "validation_summary.md"), String),
+        )
+
+        free_field_result = only([
+            result for result in results
+            if result.case_name == "free_field"
+        ])
+
+        @test isfile(joinpath(free_field_result.output_dir, "diffusion_metrics.json"))
+        @test isfile(joinpath(free_field_result.output_dir, "mpc_concentration_summary.txt"))
+        @test isfile(joinpath(free_field_result.output_dir, "mpc_concentration_times.tsv"))
+    end
+end
+
 @testset "Preliminary simulation results" begin
     space = build_simulation_space(synthetic_roi_image())
     simulation = run_minimal_simulation(
