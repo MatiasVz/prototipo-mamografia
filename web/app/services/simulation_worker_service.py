@@ -41,6 +41,9 @@ class SimulationWorkerResult:
     mpc_concentration_final_map_path: Path
     mpc_high_concentration_initial_map_path: Path
     mpc_high_concentration_final_map_path: Path
+    velocity_autocorrelation_path: Path
+    velocity_autocorrelation_summary_path: Path
+    velocity_autocorrelation_realizations_path: Path
     simulation_log_path: Path
     worker_log_path: Path
     stdout: str
@@ -153,6 +156,13 @@ def process_case_simulation(
         mpc_high_concentration_final_map_path=result_paths[
             "mpc_high_concentration_final_map"
         ],
+        velocity_autocorrelation_path=result_paths["velocity_autocorrelation"],
+        velocity_autocorrelation_summary_path=result_paths[
+            "velocity_autocorrelation_summary"
+        ],
+        velocity_autocorrelation_realizations_path=result_paths[
+            "velocity_autocorrelation_realizations"
+        ],
         simulation_log_path=result_paths["simulation_log"],
         worker_log_path=worker_log_path,
         stdout=completed_process.stdout,
@@ -195,6 +205,8 @@ def _build_julia_command(app_config, input_path, output_dir, *, seed, steps, den
         str(app_config["SIMULATION_DEFAULT_REALIZATIONS"]),
         "--labeled-particles",
         str(app_config["SIMULATION_DEFAULT_LABELED_PARTICLES"]),
+        "--correlation-initial-times",
+        str(app_config["SIMULATION_CORRELATION_INITIAL_TIMES"]),
         "--output-times",
         app_config["SIMULATION_DEFAULT_OUTPUT_TIMES"],
         "--grid-shift",
@@ -284,6 +296,11 @@ def _get_expected_result_paths(output_dir):
         / "mpc_high_concentration_initial.pgm",
         "mpc_high_concentration_final_map": output_dir
         / "mpc_high_concentration_final.pgm",
+        "velocity_autocorrelation": output_dir / "velocity_autocorrelation.tsv",
+        "velocity_autocorrelation_summary": output_dir
+        / "velocity_autocorrelation_summary.txt",
+        "velocity_autocorrelation_realizations": output_dir
+        / "velocity_autocorrelation_realizations.tsv",
         "simulation_log": output_dir / "simulation.log",
     }
 

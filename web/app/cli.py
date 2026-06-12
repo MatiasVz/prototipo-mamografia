@@ -146,6 +146,15 @@ def register_cli_commands(app):
             "mpc_high_concentration_final_map_path="
             f"{result.mpc_high_concentration_final_map_path}"
         )
+        click.echo(f"velocity_autocorrelation_path={result.velocity_autocorrelation_path}")
+        click.echo(
+            "velocity_autocorrelation_summary_path="
+            f"{result.velocity_autocorrelation_summary_path}"
+        )
+        click.echo(
+            "velocity_autocorrelation_realizations_path="
+            f"{result.velocity_autocorrelation_realizations_path}"
+        )
         click.echo(f"simulation_log_path={result.simulation_log_path}")
         click.echo(f"worker_log_path={result.worker_log_path}")
 
