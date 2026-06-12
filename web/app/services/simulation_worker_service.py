@@ -32,6 +32,9 @@ class SimulationWorkerResult:
     mpc_initial_particles_path: Path
     mpc_streamed_particles_path: Path
     mpc_streaming_summary_path: Path
+    mpc_collided_particles_path: Path
+    mpc_collision_summary_path: Path
+    mpc_cell_collisions_path: Path
     simulation_log_path: Path
     worker_log_path: Path
     stdout: str
@@ -131,6 +134,9 @@ def process_case_simulation(
         mpc_initial_particles_path=result_paths["mpc_initial_particles"],
         mpc_streamed_particles_path=result_paths["mpc_streamed_particles"],
         mpc_streaming_summary_path=result_paths["mpc_streaming_summary"],
+        mpc_collided_particles_path=result_paths["mpc_collided_particles"],
+        mpc_collision_summary_path=result_paths["mpc_collision_summary"],
+        mpc_cell_collisions_path=result_paths["mpc_cell_collisions"],
         simulation_log_path=result_paths["simulation_log"],
         worker_log_path=worker_log_path,
         stdout=completed_process.stdout,
@@ -251,6 +257,9 @@ def _get_expected_result_paths(output_dir):
         "mpc_initial_particles": output_dir / "mpc_initial_particles.tsv",
         "mpc_streamed_particles": output_dir / "mpc_streamed_particles.tsv",
         "mpc_streaming_summary": output_dir / "mpc_streaming_summary.txt",
+        "mpc_collided_particles": output_dir / "mpc_collided_particles.tsv",
+        "mpc_collision_summary": output_dir / "mpc_collision_summary.txt",
+        "mpc_cell_collisions": output_dir / "mpc_cell_collisions.tsv",
         "simulation_log": output_dir / "simulation.log",
     }
 

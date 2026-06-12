@@ -5,6 +5,7 @@ using Random
 
 export PgmImage,
     MpcModelConfig,
+    MpcCollisionResult,
     MpcParticle,
     MpcParticleInitialization,
     MpcStreamingResult,
@@ -17,6 +18,7 @@ export PgmImage,
     SimulationRunConfig,
     read_pgm,
     build_simulation_space,
+    collide_mpc_particles,
     initialize_mpc_particles,
     stream_mpc_particles,
     run_minimal_simulation,
@@ -97,6 +99,18 @@ struct MpcStreamingResult
     boundary_crossing_count_y::Int
     completed_intervals::Int
     particles::Vector{MpcParticle}
+end
+
+struct MpcCollisionResult
+    seed::Int
+    rotation_angle::Float64
+    active_cell_count::Int
+    collision_cell_count::Int
+    singleton_cell_count::Int
+    particle_count::Int
+    max_particles_per_cell::Int
+    particles::Vector{MpcParticle}
+    cell_statistics::Vector{NamedTuple}
 end
 
 struct SimulationResult
@@ -312,6 +326,12 @@ function run_case(config::SimulationRunConfig)
         config.mpc_config;
         steps = config.steps,
     )
+    mpc_collision = collide_mpc_particles(
+        mpc_streaming,
+        simulation_space,
+        config.mpc_config;
+        seed = config.seed,
+    )
     simulation_result = run_minimal_simulation(
         simulation_space;
         seed = config.seed,
@@ -334,6 +354,9 @@ function run_case(config::SimulationRunConfig)
     mpc_initial_particles_path = joinpath(output_dir, "mpc_initial_particles.tsv")
     mpc_streamed_particles_path = joinpath(output_dir, "mpc_streamed_particles.tsv")
     mpc_streaming_summary_path = joinpath(output_dir, "mpc_streaming_summary.txt")
+    mpc_collided_particles_path = joinpath(output_dir, "mpc_collided_particles.tsv")
+    mpc_collision_summary_path = joinpath(output_dir, "mpc_collision_summary.txt")
+    mpc_cell_collisions_path = joinpath(output_dir, "mpc_cell_collisions.tsv")
     simulation_summary_path = joinpath(output_dir, "simulation_summary.txt")
     simulation_state_path = joinpath(output_dir, "simulation_state.tsv")
     visit_counts_path = joinpath(output_dir, "visit_counts.tsv")
@@ -381,6 +404,9 @@ function run_case(config::SimulationRunConfig)
         println(io, "mpc_streaming_obstacle_collision_count=$(mpc_streaming.obstacle_collision_count)")
         println(io, "mpc_streaming_boundary_crossing_count_x=$(mpc_streaming.boundary_crossing_count_x)")
         println(io, "mpc_streaming_boundary_crossing_count_y=$(mpc_streaming.boundary_crossing_count_y)")
+        println(io, "mpc_collision_active_cell_count=$(mpc_collision.active_cell_count)")
+        println(io, "mpc_collision_cell_count=$(mpc_collision.collision_cell_count)")
+        println(io, "mpc_collision_particle_count=$(mpc_collision.particle_count)")
         println(io, "attempted_moves=$(simulation_result.attempted_moves)")
         println(io, "collision_count=$(simulation_result.collision_count)")
         println(io, "message=Simulacion minima secuencial ejecutada y resultados preliminares generados.")
@@ -426,6 +452,7 @@ function run_case(config::SimulationRunConfig)
         timestamp;
         mpc_initialization = mpc_initialization,
         mpc_streaming = mpc_streaming,
+        mpc_collision = mpc_collision,
     )
     open(summary_path, "w") do io
         println(io, "width=$(pgm_image.width)")
@@ -444,12 +471,16 @@ function run_case(config::SimulationRunConfig)
     write_mpc_initial_particles_tsv(mpc_initial_particles_path, mpc_initialization)
     write_mpc_streamed_particles_tsv(mpc_streamed_particles_path, mpc_streaming)
     write_mpc_streaming_summary(mpc_streaming_summary_path, mpc_streaming)
+    write_mpc_collided_particles_tsv(mpc_collided_particles_path, mpc_collision)
+    write_mpc_collision_summary(mpc_collision_summary_path, mpc_collision)
+    write_mpc_cell_collisions_tsv(mpc_cell_collisions_path, mpc_collision)
     write_simulation_summary(
         simulation_summary_path,
         simulation_result,
         simulation_space;
         mpc_initialization = mpc_initialization,
         mpc_streaming = mpc_streaming,
+        mpc_collision = mpc_collision,
     )
     write_simulation_state(simulation_state_path, simulation_result.particles)
     write_visit_counts(visit_counts_path, simulation_result.visit_counts)
@@ -468,6 +499,9 @@ function run_case(config::SimulationRunConfig)
         mpc_initial_particles_path = mpc_initial_particles_path,
         mpc_streamed_particles_path = mpc_streamed_particles_path,
         mpc_streaming_summary_path = mpc_streaming_summary_path,
+        mpc_collided_particles_path = mpc_collided_particles_path,
+        mpc_collision_summary_path = mpc_collision_summary_path,
+        mpc_cell_collisions_path = mpc_cell_collisions_path,
         simulation_summary_path = simulation_summary_path,
         simulation_state_path = simulation_state_path,
         visit_counts_path = visit_counts_path,
@@ -479,6 +513,7 @@ function run_case(config::SimulationRunConfig)
         space = simulation_space,
         mpc_initialization = mpc_initialization,
         mpc_streaming = mpc_streaming,
+        mpc_collision = mpc_collision,
         simulation = simulation_result,
         preliminary_results = preliminary_results,
     )
@@ -507,6 +542,9 @@ function cli_main(args::Vector{String} = ARGS)
         println("mpc_initial_particles_path=$(result.mpc_initial_particles_path)")
         println("mpc_streamed_particles_path=$(result.mpc_streamed_particles_path)")
         println("mpc_streaming_summary_path=$(result.mpc_streaming_summary_path)")
+        println("mpc_collided_particles_path=$(result.mpc_collided_particles_path)")
+        println("mpc_collision_summary_path=$(result.mpc_collision_summary_path)")
+        println("mpc_cell_collisions_path=$(result.mpc_cell_collisions_path)")
         println("simulation_summary_path=$(result.simulation_summary_path)")
         println("simulation_state_path=$(result.simulation_state_path)")
         println("visit_counts_path=$(result.visit_counts_path)")
@@ -1146,6 +1184,144 @@ function ray_circle_collision_time(
     return minimum(candidates)
 end
 
+function collide_mpc_particles(
+    streaming::MpcStreamingResult,
+    space::SimulationSpace,
+    config::MpcModelConfig;
+    seed::Int = 1234,
+)
+    particles = copy_mpc_particles(streaming.particles)
+    cell_groups = group_particle_indices_by_cell(particles, space)
+    rng = Random.MersenneTwister(seed)
+    cell_statistics = NamedTuple[]
+    collision_cell_count = 0
+    singleton_cell_count = 0
+    max_particles_per_cell = 0
+
+    for (cell, particle_indices) in sort(collect(cell_groups), by = item -> item[1])
+        cell_x, cell_y = cell
+        cell_particle_count = length(particle_indices)
+        max_particles_per_cell = max(max_particles_per_cell, cell_particle_count)
+
+        if cell_particle_count == 1
+            singleton_cell_count += 1
+        else
+            collision_cell_count += 1
+        end
+
+        center_vx, center_vy, center_vz = center_of_mass_velocity(particles, particle_indices)
+        signed_rotation_angle = cell_particle_count > 1 ? random_rotation_angle(rng, config) : 0.0
+
+        if cell_particle_count > 1
+            rotate_relative_velocities!(
+                particles,
+                particle_indices,
+                center_vx,
+                center_vy,
+                center_vz,
+                signed_rotation_angle,
+            )
+        end
+
+        center_vx_after, center_vy_after, center_vz_after = center_of_mass_velocity(
+            particles,
+            particle_indices,
+        )
+
+        push!(
+            cell_statistics,
+            (
+                cell_x = cell_x,
+                cell_y = cell_y,
+                particle_count = cell_particle_count,
+                center_vx_before = center_vx,
+                center_vy_before = center_vy,
+                center_vz_before = center_vz,
+                center_vx_after = center_vx_after,
+                center_vy_after = center_vy_after,
+                center_vz_after = center_vz_after,
+                rotation_angle = signed_rotation_angle,
+            ),
+        )
+    end
+
+    return MpcCollisionResult(
+        seed,
+        config.rotation_angle,
+        length(cell_groups),
+        collision_cell_count,
+        singleton_cell_count,
+        length(particles),
+        max_particles_per_cell,
+        particles,
+        cell_statistics,
+    )
+end
+
+function group_particle_indices_by_cell(particles::Vector{MpcParticle}, space::SimulationSpace)
+    groups = Dict{Tuple{Int,Int},Vector{Int}}()
+
+    for (index, particle) in enumerate(particles)
+        cell = particle_cell_indices(particle, space)
+
+        if !haskey(groups, cell)
+            groups[cell] = Int[]
+        end
+
+        push!(groups[cell], index)
+    end
+
+    return groups
+end
+
+function particle_cell_indices(particle::MpcParticle, space::SimulationSpace)
+    cell_x = clamp(floor(Int, particle.x / space.cell_length), 0, space.width - 1)
+    cell_y = clamp(floor(Int, particle.y / space.cell_length), 0, space.height - 1)
+
+    return (cell_x, cell_y)
+end
+
+function center_of_mass_velocity(particles::Vector{MpcParticle}, particle_indices::Vector{Int})
+    total_mass = sum(particles[index].mass for index in particle_indices)
+
+    if total_mass == 0
+        throw(ArgumentError("La masa total de una celda MPC no puede ser cero."))
+    end
+
+    center_vx = sum(particles[index].mass * particles[index].vx for index in particle_indices) / total_mass
+    center_vy = sum(particles[index].mass * particles[index].vy for index in particle_indices) / total_mass
+    center_vz = sum(particles[index].mass * particles[index].vz for index in particle_indices) / total_mass
+
+    return center_vx, center_vy, center_vz
+end
+
+function random_rotation_angle(rng::Random.AbstractRNG, config::MpcModelConfig)
+    return (rand(rng, Bool) ? 1.0 : -1.0) * config.rotation_angle
+end
+
+function rotate_relative_velocities!(
+    particles::Vector{MpcParticle},
+    particle_indices::Vector{Int},
+    center_vx::Float64,
+    center_vy::Float64,
+    center_vz::Float64,
+    signed_rotation_angle::Float64,
+)
+    cos_angle = cos(signed_rotation_angle)
+    sin_angle = sin(signed_rotation_angle)
+
+    for index in particle_indices
+        particle = particles[index]
+        relative_vx = particle.vx - center_vx
+        relative_vy = particle.vy - center_vy
+        relative_vz = particle.vz - center_vz
+
+        particle.vx = center_vx + cos_angle * relative_vx - sin_angle * relative_vy
+        particle.vy = center_vy + sin_angle * relative_vx + cos_angle * relative_vy
+        particle.vz = center_vz + relative_vz
+    end
+end
+
 function resolve_tissue_threshold(max_gray::Int, tissue_threshold::Union{Nothing,Int})
     if tissue_threshold !== nothing
         return tissue_threshold
@@ -1425,6 +1601,7 @@ function write_mpc_config_json(
     timestamp::String;
     mpc_initialization::Union{Nothing,MpcParticleInitialization} = nothing,
     mpc_streaming::Union{Nothing,MpcStreamingResult} = nothing,
+    mpc_collision::Union{Nothing,MpcCollisionResult} = nothing,
 )
     config = run_config.mpc_config
     fields = Any[
@@ -1488,6 +1665,22 @@ function write_mpc_config_json(
                 ("mpc_streaming_obstacle_collision_count", mpc_streaming.obstacle_collision_count),
                 ("mpc_streaming_boundary_crossing_count_x", mpc_streaming.boundary_crossing_count_x),
                 ("mpc_streaming_boundary_crossing_count_y", mpc_streaming.boundary_crossing_count_y),
+            ],
+        )
+    end
+
+    if mpc_collision !== nothing
+        append!(
+            fields,
+            [
+                ("mpc_collision_model", "multiparticle_collision_by_cell"),
+                ("mpc_collision_seed", mpc_collision.seed),
+                ("mpc_collision_rotation_angle", mpc_collision.rotation_angle),
+                ("mpc_collision_active_cell_count", mpc_collision.active_cell_count),
+                ("mpc_collision_cell_count", mpc_collision.collision_cell_count),
+                ("mpc_collision_singleton_cell_count", mpc_collision.singleton_cell_count),
+                ("mpc_collision_particle_count", mpc_collision.particle_count),
+                ("mpc_collision_max_particles_per_cell", mpc_collision.max_particles_per_cell),
             ],
         )
     end
@@ -1680,12 +1873,64 @@ function write_mpc_streaming_summary(path::AbstractString, streaming::MpcStreami
     end
 end
 
+function write_mpc_collided_particles_tsv(
+    path::AbstractString,
+    collision::MpcCollisionResult,
+)
+    open(path, "w") do io
+        println(io, "# seed=$(collision.seed)")
+        println(io, "# rotation_angle=$(collision.rotation_angle)")
+        println(io, "# active_cell_count=$(collision.active_cell_count)")
+        println(io, "# collision_cell_count=$(collision.collision_cell_count)")
+        println(io, "# singleton_cell_count=$(collision.singleton_cell_count)")
+        println(io, "# particle_count=$(collision.particle_count)")
+        println(io, "id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled")
+
+        for particle in collision.particles
+            println(
+                io,
+                "$(particle.id)\t$(particle.x)\t$(particle.y)\t$(particle.z)\t$(particle.vx)\t$(particle.vy)\t$(particle.vz)\t$(particle.mass)\t$(particle.species)\t$(particle.labeled)",
+            )
+        end
+    end
+end
+
+function write_mpc_collision_summary(path::AbstractString, collision::MpcCollisionResult)
+    open(path, "w") do io
+        println(io, "mpc_collision_model=multiparticle_collision_by_cell")
+        println(io, "seed=$(collision.seed)")
+        println(io, "rotation_angle=$(collision.rotation_angle)")
+        println(io, "active_cell_count=$(collision.active_cell_count)")
+        println(io, "collision_cell_count=$(collision.collision_cell_count)")
+        println(io, "singleton_cell_count=$(collision.singleton_cell_count)")
+        println(io, "particle_count=$(collision.particle_count)")
+        println(io, "max_particles_per_cell=$(collision.max_particles_per_cell)")
+    end
+end
+
+function write_mpc_cell_collisions_tsv(path::AbstractString, collision::MpcCollisionResult)
+    open(path, "w") do io
+        println(
+            io,
+            "cell_x\tcell_y\tparticle_count\tcenter_vx_before\tcenter_vy_before\tcenter_vz_before\tcenter_vx_after\tcenter_vy_after\tcenter_vz_after\trotation_angle",
+        )
+
+        for cell in collision.cell_statistics
+            println(
+                io,
+                "$(cell.cell_x)\t$(cell.cell_y)\t$(cell.particle_count)\t$(cell.center_vx_before)\t$(cell.center_vy_before)\t$(cell.center_vz_before)\t$(cell.center_vx_after)\t$(cell.center_vy_after)\t$(cell.center_vz_after)\t$(cell.rotation_angle)",
+            )
+        end
+    end
+end
+
 function write_simulation_summary(
     path::AbstractString,
     result::SimulationResult,
     space::SimulationSpace;
     mpc_initialization::Union{Nothing,MpcParticleInitialization} = nothing,
     mpc_streaming::Union{Nothing,MpcStreamingResult} = nothing,
+    mpc_collision::Union{Nothing,MpcCollisionResult} = nothing,
 )
     free_cell_count = count_free_cells(space)
 
@@ -1711,6 +1956,16 @@ function write_simulation_summary(
             println(io, "mpc_streaming_obstacle_collision_count=$(mpc_streaming.obstacle_collision_count)")
             println(io, "mpc_streaming_boundary_crossing_count_x=$(mpc_streaming.boundary_crossing_count_x)")
             println(io, "mpc_streaming_boundary_crossing_count_y=$(mpc_streaming.boundary_crossing_count_y)")
+        end
+        if mpc_collision !== nothing
+            println(io, "mpc_collision_model=multiparticle_collision_by_cell")
+            println(io, "mpc_collision_seed=$(mpc_collision.seed)")
+            println(io, "mpc_collision_rotation_angle=$(mpc_collision.rotation_angle)")
+            println(io, "mpc_collision_active_cell_count=$(mpc_collision.active_cell_count)")
+            println(io, "mpc_collision_cell_count=$(mpc_collision.collision_cell_count)")
+            println(io, "mpc_collision_singleton_cell_count=$(mpc_collision.singleton_cell_count)")
+            println(io, "mpc_collision_particle_count=$(mpc_collision.particle_count)")
+            println(io, "mpc_collision_max_particles_per_cell=$(mpc_collision.max_particles_per_cell)")
         end
         println(io, "free_cell_count=$(free_cell_count)")
         println(io, "attempted_moves=$(result.attempted_moves)")
