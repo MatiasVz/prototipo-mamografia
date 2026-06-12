@@ -11,6 +11,7 @@ export PgmImage,
     MpcParticle,
     MpcParticleInitialization,
     MpcStreamingResult,
+    MpcVelocityAutocorrelationResult,
     SimulationObstacle,
     SimulationParticle,
     PreliminarySimulationMetrics,
@@ -21,6 +22,8 @@ export PgmImage,
     read_pgm,
     build_simulation_space,
     build_mpc_concentration_grid,
+    calculate_mpc_velocity_autocorrelation,
+    calculate_velocity_autocorrelation,
     collide_mpc_particles,
     generate_mpc_concentration_maps,
     initialize_mpc_particles,
@@ -135,6 +138,22 @@ struct MpcConcentrationResult
     snapshots::Vector{MpcConcentrationSnapshot}
 end
 
+struct MpcVelocityAutocorrelationResult
+    steps::Int
+    tau::Float64
+    dimension::Int
+    realization_count::Int
+    requested_labeled_particles::Int
+    labeled_particle_count::Int
+    requested_initial_time_count::Int
+    initial_times::Vector{Int}
+    realization_seeds::Vector{Int}
+    cv_values::Vector{Float64}
+    sample_counts::Vector{Int}
+    mdc::Float64
+    characteristic_time::Union{Nothing,Float64}
+end
+
 struct SimulationResult
     steps::Int
     seed::Int
@@ -192,7 +211,8 @@ const DEFAULT_MPC_TAU = 1.0
 const DEFAULT_MPC_ROTATION_ANGLE = pi / 2
 const DEFAULT_MPC_ROTATION_POLICY = "random_sign_plus_minus_angle"
 const DEFAULT_MPC_REALIZATIONS = 1
-const DEFAULT_MPC_LABELED_PARTICLES = 0
+const DEFAULT_MPC_LABELED_PARTICLES = 25
+const DEFAULT_MPC_CORRELATION_INITIAL_TIMES = 1
 const DEFAULT_MPC_OUTPUT_TIMES = (0, 100, 500)
 const DEFAULT_MPC_GRID_SHIFT_ENABLED = false
 const DEFAULT_MPC_GRID_SHIFT_DECISION = "disabled_initially_to_match_article_conditions"
@@ -209,6 +229,7 @@ Base.@kwdef struct MpcModelConfig
     rotation_policy::String = DEFAULT_MPC_ROTATION_POLICY
     realizations::Int = DEFAULT_MPC_REALIZATIONS
     labeled_particles::Int = DEFAULT_MPC_LABELED_PARTICLES
+    correlation_initial_times::Int = DEFAULT_MPC_CORRELATION_INITIAL_TIMES
     output_times::Vector{Int} = collect(DEFAULT_MPC_OUTPUT_TIMES)
     grid_shift_enabled::Bool = DEFAULT_MPC_GRID_SHIFT_ENABLED
     grid_shift_decision::String = DEFAULT_MPC_GRID_SHIFT_DECISION
@@ -239,7 +260,8 @@ Opciones:
   --tau                Paso temporal reducido. Por defecto: 1.
   --rotation-angle     Angulo de rotacion MPC en radianes. Por defecto: pi/2.
   --realizations       Numero de realizaciones estadisticas. Por defecto: 1.
-  --labeled-particles  Particulas etiquetadas para autocorrelacion. Por defecto: 0.
+  --labeled-particles  Particulas etiquetadas para autocorrelacion. Por defecto: 25.
+  --correlation-initial-times  Numero de tiempos iniciales para Cv(t). Por defecto: 1.
   --output-times       Tiempos de salida separados por coma. Por defecto: 0,100,500.
   --grid-shift         true/false. Por defecto: false.
   --help               Muestra esta ayuda.
@@ -258,6 +280,7 @@ const VALUE_OPTIONS = Set([
     "--rotation-angle",
     "--realizations",
     "--labeled-particles",
+    "--correlation-initial-times",
     "--output-times",
     "--grid-shift",
 ])
@@ -361,6 +384,12 @@ function run_case(config::SimulationRunConfig)
         steps = config.steps,
         seed = config.seed,
     )
+    mpc_velocity_autocorrelation = calculate_mpc_velocity_autocorrelation(
+        simulation_space,
+        config.mpc_config;
+        steps = config.steps,
+        seed = config.seed,
+    )
     simulation_result = run_minimal_simulation(
         simulation_space;
         seed = config.seed,
@@ -422,6 +451,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "rotation_policy=$(config.mpc_config.rotation_policy)")
         println(io, "realizations=$(config.mpc_config.realizations)")
         println(io, "labeled_particles=$(config.mpc_config.labeled_particles)")
+        println(io, "correlation_initial_times=$(config.mpc_config.correlation_initial_times)")
         println(io, "output_times=$(join(config.mpc_config.output_times, ","))")
         println(io, "grid_shift_enabled=$(config.mpc_config.grid_shift_enabled)")
         println(io, "grid_shift_decision=$(config.mpc_config.grid_shift_decision)")
@@ -442,6 +472,11 @@ function run_case(config::SimulationRunConfig)
         println(io, "mpc_concentration_expected_density_n0=$(mpc_concentration.expected_density)")
         println(io, "mpc_concentration_high_threshold=$(mpc_concentration.high_concentration_threshold)")
         println(io, "mpc_concentration_snapshot_count=$(length(mpc_concentration.snapshots))")
+        println(io, "velocity_autocorrelation_model=green_kubo_xy")
+        println(io, "velocity_autocorrelation_dimension=$(mpc_velocity_autocorrelation.dimension)")
+        println(io, "velocity_autocorrelation_labeled_particle_count=$(mpc_velocity_autocorrelation.labeled_particle_count)")
+        println(io, "velocity_autocorrelation_initial_times=$(join(mpc_velocity_autocorrelation.initial_times, ","))")
+        println(io, "velocity_autocorrelation_mdc=$(mpc_velocity_autocorrelation.mdc)")
         println(io, "attempted_moves=$(simulation_result.attempted_moves)")
         println(io, "collision_count=$(simulation_result.collision_count)")
         println(io, "message=Simulacion minima secuencial ejecutada y resultados preliminares generados.")
@@ -473,6 +508,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "rotation_policy=$(config.mpc_config.rotation_policy)")
         println(io, "realizations=$(config.mpc_config.realizations)")
         println(io, "labeled_particles=$(config.mpc_config.labeled_particles)")
+        println(io, "correlation_initial_times=$(config.mpc_config.correlation_initial_times)")
         println(io, "output_times=$(join(config.mpc_config.output_times, ","))")
         println(io, "grid_shift_enabled=$(config.mpc_config.grid_shift_enabled)")
         println(io, "grid_shift_decision=$(config.mpc_config.grid_shift_decision)")
@@ -489,6 +525,7 @@ function run_case(config::SimulationRunConfig)
         mpc_streaming = mpc_streaming,
         mpc_collision = mpc_collision,
         mpc_concentration = mpc_concentration,
+        mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
     )
     open(summary_path, "w") do io
         println(io, "width=$(pgm_image.width)")
@@ -515,6 +552,10 @@ function run_case(config::SimulationRunConfig)
         mpc_concentration,
         simulation_space,
     )
+    velocity_autocorrelation_outputs = write_velocity_autocorrelation_outputs(
+        output_dir,
+        mpc_velocity_autocorrelation,
+    )
     write_simulation_summary(
         simulation_summary_path,
         simulation_result,
@@ -523,6 +564,7 @@ function run_case(config::SimulationRunConfig)
         mpc_streaming = mpc_streaming,
         mpc_collision = mpc_collision,
         mpc_concentration = mpc_concentration,
+        mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
     )
     write_simulation_state(simulation_state_path, simulation_result.particles)
     write_visit_counts(visit_counts_path, simulation_result.visit_counts)
@@ -552,6 +594,9 @@ function run_case(config::SimulationRunConfig)
         mpc_high_concentration_final_map_path = mpc_concentration_outputs.final_high_map_path,
         mpc_concentration_time_map_paths = mpc_concentration_outputs.time_map_paths,
         mpc_high_concentration_time_map_paths = mpc_concentration_outputs.time_high_map_paths,
+        velocity_autocorrelation_path = velocity_autocorrelation_outputs.autocorrelation_path,
+        velocity_autocorrelation_summary_path = velocity_autocorrelation_outputs.summary_path,
+        velocity_autocorrelation_realizations_path = velocity_autocorrelation_outputs.realizations_path,
         simulation_summary_path = simulation_summary_path,
         simulation_state_path = simulation_state_path,
         visit_counts_path = visit_counts_path,
@@ -565,6 +610,7 @@ function run_case(config::SimulationRunConfig)
         mpc_streaming = mpc_streaming,
         mpc_collision = mpc_collision,
         mpc_concentration = mpc_concentration,
+        mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
         simulation = simulation_result,
         preliminary_results = preliminary_results,
     )
@@ -602,6 +648,9 @@ function cli_main(args::Vector{String} = ARGS)
         println("mpc_concentration_final_map_path=$(result.mpc_concentration_final_map_path)")
         println("mpc_high_concentration_initial_map_path=$(result.mpc_high_concentration_initial_map_path)")
         println("mpc_high_concentration_final_map_path=$(result.mpc_high_concentration_final_map_path)")
+        println("velocity_autocorrelation_path=$(result.velocity_autocorrelation_path)")
+        println("velocity_autocorrelation_summary_path=$(result.velocity_autocorrelation_summary_path)")
+        println("velocity_autocorrelation_realizations_path=$(result.velocity_autocorrelation_realizations_path)")
         println("simulation_summary_path=$(result.simulation_summary_path)")
         println("simulation_state_path=$(result.simulation_state_path)")
         println("visit_counts_path=$(result.visit_counts_path)")
@@ -688,6 +737,14 @@ function parse_mpc_config(options::Dict{String,String})
             get(options, "--labeled-particles", string(DEFAULT_MPC_LABELED_PARTICLES)),
             "--labeled-particles",
         ),
+        correlation_initial_times = parse_integer_option(
+            get(
+                options,
+                "--correlation-initial-times",
+                string(DEFAULT_MPC_CORRELATION_INITIAL_TIMES),
+            ),
+            "--correlation-initial-times",
+        ),
         output_times = parse_output_times_option(
             get(options, "--output-times", join(DEFAULT_MPC_OUTPUT_TIMES, ",")),
         ),
@@ -741,6 +798,10 @@ function validate_mpc_config(config::MpcModelConfig)
 
     if config.labeled_particles < 0
         throw(ArgumentError("El numero de particulas etiquetadas no puede ser negativo."))
+    end
+
+    if config.correlation_initial_times < 1
+        throw(ArgumentError("Debe existir al menos un tiempo inicial para la autocorrelacion."))
     end
 
     if any(<(0), config.output_times)
@@ -1493,6 +1554,298 @@ function high_concentration_threshold(config::MpcModelConfig)
     return 2.0 * config.n0
 end
 
+function calculate_mpc_velocity_autocorrelation(
+    space::SimulationSpace,
+    config::MpcModelConfig;
+    steps::Int = 1,
+    seed::Int = 1234,
+)
+    if steps < 0
+        throw(ArgumentError("El numero de pasos para autocorrelacion no puede ser negativo."))
+    end
+
+    validate_mpc_config(config)
+
+    histories = Vector{Vector{Matrix{Float64}}}()
+    realization_seeds = Int[]
+    selected_labeled_ids = Int[]
+
+    for realization_index in 1:config.realizations
+        realization_seed = seed + (realization_index - 1) * 10007
+        initialization = initialize_mpc_particles(space, config; seed = realization_seed)
+
+        if isempty(selected_labeled_ids)
+            selected_labeled_ids = select_labeled_particle_ids(initialization, config)
+        end
+
+        push!(
+            histories,
+            simulate_mpc_velocity_history(
+                initialization,
+                space,
+                config;
+                steps = steps,
+                seed = realization_seed,
+            ),
+        )
+        push!(realization_seeds, realization_seed)
+    end
+
+    initial_times = select_correlation_initial_times(steps, config.correlation_initial_times)
+
+    return calculate_velocity_autocorrelation(
+        histories,
+        selected_labeled_ids,
+        initial_times;
+        tau = config.tau,
+        dimension = 2,
+        realization_seeds = realization_seeds,
+        requested_labeled_particles = config.labeled_particles,
+        requested_initial_time_count = config.correlation_initial_times,
+    )
+end
+
+function calculate_velocity_autocorrelation(
+    velocity_histories::Vector{Vector{Matrix{Float64}}},
+    labeled_particle_ids::Vector{Int},
+    initial_times::Vector{Int};
+    tau::Float64 = 1.0,
+    dimension::Int = 2,
+    realization_seeds::Vector{Int} = collect(1:length(velocity_histories)),
+    requested_labeled_particles::Int = length(labeled_particle_ids),
+    requested_initial_time_count::Int = length(initial_times),
+)
+    if isempty(velocity_histories)
+        throw(ArgumentError("Debe existir al menos una realizacion para calcular Cv."))
+    end
+
+    if isempty(labeled_particle_ids)
+        throw(ArgumentError("Debe existir al menos una particula etiquetada para calcular Cv."))
+    end
+
+    if isempty(initial_times)
+        throw(ArgumentError("Debe existir al menos un tiempo inicial para calcular Cv."))
+    end
+
+    if tau <= 0
+        throw(ArgumentError("El paso temporal tau debe ser mayor que cero."))
+    end
+
+    if dimension <= 0
+        throw(ArgumentError("La dimension efectiva para MDC debe ser mayor que cero."))
+    end
+
+    max_lag = minimum(length(history) - 1 for history in velocity_histories)
+    cv_sums = zeros(Float64, max_lag + 1)
+    sample_counts = zeros(Int, max_lag + 1)
+
+    for history in velocity_histories
+        particle_count = size(first(history), 1)
+
+        for particle_id in labeled_particle_ids
+            if !(1 <= particle_id <= particle_count)
+                throw(ArgumentError("Una particula etiquetada no existe en el historial de velocidades."))
+            end
+        end
+
+        for initial_time in initial_times
+            if initial_time < 0
+                throw(ArgumentError("Los tiempos iniciales de autocorrelacion no pueden ser negativos."))
+            end
+
+            if initial_time > length(history) - 1
+                continue
+            end
+
+            for lag in 0:max_lag
+                target_time = initial_time + lag
+
+                if target_time > length(history) - 1
+                    continue
+                end
+
+                for particle_id in labeled_particle_ids
+                    initial_velocity = history[initial_time + 1][particle_id, :]
+                    target_velocity = history[target_time + 1][particle_id, :]
+                    cv_sums[lag + 1] += (
+                        initial_velocity[1] * target_velocity[1] +
+                        initial_velocity[2] * target_velocity[2]
+                    )
+                    sample_counts[lag + 1] += 1
+                end
+            end
+        end
+    end
+
+    cv_values = [
+        sample_count == 0 ? 0.0 : cv_sum / sample_count
+        for (cv_sum, sample_count) in zip(cv_sums, sample_counts)
+    ]
+    mdc = integrate_velocity_autocorrelation(cv_values, tau, dimension)
+    characteristic_time = estimate_characteristic_decay_time(cv_values, tau)
+
+    return MpcVelocityAutocorrelationResult(
+        max_lag,
+        tau,
+        dimension,
+        length(velocity_histories),
+        requested_labeled_particles,
+        length(labeled_particle_ids),
+        requested_initial_time_count,
+        sort(unique(initial_times)),
+        realization_seeds,
+        cv_values,
+        sample_counts,
+        mdc,
+        characteristic_time,
+    )
+end
+
+function simulate_mpc_velocity_history(
+    initialization::MpcParticleInitialization,
+    space::SimulationSpace,
+    config::MpcModelConfig;
+    steps::Int = 1,
+    seed::Int = 1234,
+)
+    particles = copy_mpc_particles(initialization.particles)
+    history = Matrix{Float64}[mpc_velocity_matrix(particles)]
+
+    for step in 1:steps
+        step_initialization = MpcParticleInitialization(
+            initialization.seed,
+            length(particles),
+            initialization.domain_volume,
+            initialization.velocity_sigma,
+            initialization.rejected_samples,
+            particles,
+        )
+        step_streaming = stream_mpc_particles(
+            step_initialization,
+            space,
+            config;
+            steps = 1,
+        )
+        step_collision = collide_mpc_particles(
+            step_streaming,
+            space,
+            config;
+            seed = seed + step,
+        )
+        particles = copy_mpc_particles(step_collision.particles)
+        push!(history, mpc_velocity_matrix(particles))
+    end
+
+    return history
+end
+
+function mpc_velocity_matrix(particles::Vector{MpcParticle})
+    velocities = zeros(Float64, length(particles), 2)
+
+    for particle in particles
+        velocities[particle.id, 1] = particle.vx
+        velocities[particle.id, 2] = particle.vy
+    end
+
+    return velocities
+end
+
+function select_labeled_particle_ids(
+    initialization::MpcParticleInitialization,
+    config::MpcModelConfig,
+)
+    labeled_ids = [
+        particle.id
+        for particle in initialization.particles
+        if particle.labeled
+    ]
+
+    if !isempty(labeled_ids)
+        return labeled_ids
+    end
+
+    fallback_count = min(config.labeled_particles, length(initialization.particles))
+
+    if fallback_count == 0
+        fallback_count = min(DEFAULT_MPC_LABELED_PARTICLES, length(initialization.particles))
+    end
+
+    return collect(1:fallback_count)
+end
+
+function select_correlation_initial_times(steps::Int, requested_count::Int)
+    if requested_count < 1
+        throw(ArgumentError("Debe existir al menos un tiempo inicial para la autocorrelacion."))
+    end
+
+    if steps <= 0
+        return [0]
+    end
+
+    available_times = collect(0:(steps - 1))
+
+    if requested_count >= length(available_times)
+        return available_times
+    end
+
+    positions = round.(Int, range(1, length(available_times), length = requested_count))
+
+    return sort(unique(available_times[positions]))
+end
+
+function integrate_velocity_autocorrelation(
+    cv_values::Vector{Float64},
+    tau::Float64,
+    dimension::Int,
+)
+    if length(cv_values) <= 1
+        return 0.0
+    end
+
+    integral = 0.0
+
+    for index in 1:(length(cv_values) - 1)
+        integral += 0.5 * (cv_values[index] + cv_values[index + 1]) * tau
+    end
+
+    return integral / dimension
+end
+
+function estimate_characteristic_decay_time(cv_values::Vector{Float64}, tau::Float64)
+    if isempty(cv_values) || cv_values[1] <= 0
+        return nothing
+    end
+
+    numerator = 0.0
+    denominator = 0.0
+    initial_cv = cv_values[1]
+
+    for lag in 1:(length(cv_values) - 1)
+        current_cv = cv_values[lag + 1]
+
+        if !(0 < current_cv < initial_cv)
+            continue
+        end
+
+        time = lag * tau
+        log_ratio = log(current_cv / initial_cv)
+        numerator += time * log_ratio
+        denominator += time^2
+    end
+
+    if denominator == 0
+        return nothing
+    end
+
+    slope = numerator / denominator
+
+    if slope >= 0
+        return nothing
+    end
+
+    return -1 / slope
+end
+
 function resolve_tissue_threshold(max_gray::Int, tissue_threshold::Union{Nothing,Int})
     if tissue_threshold !== nothing
         return tissue_threshold
@@ -1774,6 +2127,7 @@ function write_mpc_config_json(
     mpc_streaming::Union{Nothing,MpcStreamingResult} = nothing,
     mpc_collision::Union{Nothing,MpcCollisionResult} = nothing,
     mpc_concentration::Union{Nothing,MpcConcentrationResult} = nothing,
+    mpc_velocity_autocorrelation::Union{Nothing,MpcVelocityAutocorrelationResult} = nothing,
 )
     config = run_config.mpc_config
     fields = Any[
@@ -1797,6 +2151,7 @@ function write_mpc_config_json(
         ("rotation_policy", config.rotation_policy),
         ("realizations", config.realizations),
         ("labeled_particles", config.labeled_particles),
+        ("correlation_initial_times", config.correlation_initial_times),
         ("output_times", config.output_times),
         ("grid_shift_enabled", config.grid_shift_enabled),
         ("grid_shift_decision", config.grid_shift_decision),
@@ -1868,6 +2223,22 @@ function write_mpc_config_json(
                 ("mpc_concentration_high_threshold", mpc_concentration.high_concentration_threshold),
                 ("mpc_concentration_particle_count", mpc_concentration.particle_count),
                 ("mpc_concentration_snapshot_count", length(mpc_concentration.snapshots)),
+            ],
+        )
+    end
+
+    if mpc_velocity_autocorrelation !== nothing
+        append!(
+            fields,
+            [
+                ("velocity_autocorrelation_model", "green_kubo_xy"),
+                ("velocity_autocorrelation_dimension", mpc_velocity_autocorrelation.dimension),
+                ("velocity_autocorrelation_tau", mpc_velocity_autocorrelation.tau),
+                ("velocity_autocorrelation_realizations", mpc_velocity_autocorrelation.realization_count),
+                ("velocity_autocorrelation_labeled_particle_count", mpc_velocity_autocorrelation.labeled_particle_count),
+                ("velocity_autocorrelation_initial_times", mpc_velocity_autocorrelation.initial_times),
+                ("velocity_autocorrelation_mdc", mpc_velocity_autocorrelation.mdc),
+                ("velocity_autocorrelation_characteristic_time", mpc_velocity_autocorrelation.characteristic_time),
             ],
         )
     end
@@ -2266,6 +2637,89 @@ function build_concentration_map_values(density_grid::Matrix{Int})
     return concentration_values
 end
 
+function write_velocity_autocorrelation_outputs(
+    output_dir::AbstractString,
+    autocorrelation::MpcVelocityAutocorrelationResult,
+)
+    autocorrelation_path = joinpath(output_dir, "velocity_autocorrelation.tsv")
+    summary_path = joinpath(output_dir, "velocity_autocorrelation_summary.txt")
+    realizations_path = joinpath(output_dir, "velocity_autocorrelation_realizations.tsv")
+
+    write_velocity_autocorrelation_tsv(autocorrelation_path, autocorrelation)
+    write_velocity_autocorrelation_summary(summary_path, autocorrelation)
+    write_velocity_autocorrelation_realizations_tsv(realizations_path, autocorrelation)
+
+    return (
+        autocorrelation_path = autocorrelation_path,
+        summary_path = summary_path,
+        realizations_path = realizations_path,
+    )
+end
+
+function write_velocity_autocorrelation_tsv(
+    path::AbstractString,
+    autocorrelation::MpcVelocityAutocorrelationResult,
+)
+    open(path, "w") do io
+        println(io, "lag\ttime\tcv\tcv_average_xy\tsample_count\tmdc_cumulative")
+
+        for lag in 0:autocorrelation.steps
+            partial_cv = autocorrelation.cv_values[1:(lag + 1)]
+            cumulative_mdc = integrate_velocity_autocorrelation(
+                partial_cv,
+                autocorrelation.tau,
+                autocorrelation.dimension,
+            )
+
+            println(
+                io,
+                "$(lag)\t$(lag * autocorrelation.tau)\t$(autocorrelation.cv_values[lag + 1])\t$(autocorrelation.cv_values[lag + 1])\t$(autocorrelation.sample_counts[lag + 1])\t$(cumulative_mdc)",
+            )
+        end
+    end
+end
+
+function write_velocity_autocorrelation_summary(
+    path::AbstractString,
+    autocorrelation::MpcVelocityAutocorrelationResult,
+)
+    open(path, "w") do io
+        println(io, "velocity_autocorrelation_model=green_kubo_xy")
+        println(io, "formula_cv=Cv(t)=<v(t0) dot v(t0+t)>")
+        println(io, "formula_mdc=MDC=(1/d)*integral Cv(t) dt")
+        println(io, "integration=discrete_trapezoidal_sum")
+        println(io, "dimension=$(autocorrelation.dimension)")
+        println(io, "tau=$(autocorrelation.tau)")
+        println(io, "steps=$(autocorrelation.steps)")
+        println(io, "realizations=$(autocorrelation.realization_count)")
+        println(io, "realization_seeds=$(join(autocorrelation.realization_seeds, ","))")
+        println(io, "requested_labeled_particles=$(autocorrelation.requested_labeled_particles)")
+        println(io, "labeled_particle_count=$(autocorrelation.labeled_particle_count)")
+        println(io, "requested_initial_time_count=$(autocorrelation.requested_initial_time_count)")
+        println(io, "initial_times=$(join(autocorrelation.initial_times, ","))")
+        println(io, "mdc=$(autocorrelation.mdc)")
+        println(io, "characteristic_time=$(optional_value(autocorrelation.characteristic_time))")
+        println(io, "cv0=$(first(autocorrelation.cv_values))")
+        println(io, "cv_final=$(last(autocorrelation.cv_values))")
+    end
+end
+
+function write_velocity_autocorrelation_realizations_tsv(
+    path::AbstractString,
+    autocorrelation::MpcVelocityAutocorrelationResult,
+)
+    open(path, "w") do io
+        println(io, "realization\tseed\tlabeled_particle_count\tinitial_times")
+
+        for (index, seed) in enumerate(autocorrelation.realization_seeds)
+            println(
+                io,
+                "$(index)\t$(seed)\t$(autocorrelation.labeled_particle_count)\t$(join(autocorrelation.initial_times, ","))",
+            )
+        end
+    end
+end
+
 function write_simulation_summary(
     path::AbstractString,
     result::SimulationResult,
@@ -2274,6 +2728,7 @@ function write_simulation_summary(
     mpc_streaming::Union{Nothing,MpcStreamingResult} = nothing,
     mpc_collision::Union{Nothing,MpcCollisionResult} = nothing,
     mpc_concentration::Union{Nothing,MpcConcentrationResult} = nothing,
+    mpc_velocity_autocorrelation::Union{Nothing,MpcVelocityAutocorrelationResult} = nothing,
 )
     free_cell_count = count_free_cells(space)
 
@@ -2318,6 +2773,17 @@ function write_simulation_summary(
             println(io, "mpc_concentration_high_threshold=$(mpc_concentration.high_concentration_threshold)")
             println(io, "mpc_concentration_particle_count=$(mpc_concentration.particle_count)")
             println(io, "mpc_concentration_snapshot_count=$(length(mpc_concentration.snapshots))")
+        end
+        if mpc_velocity_autocorrelation !== nothing
+            println(io, "velocity_autocorrelation_model=green_kubo_xy")
+            println(io, "velocity_autocorrelation_dimension=$(mpc_velocity_autocorrelation.dimension)")
+            println(io, "velocity_autocorrelation_realizations=$(mpc_velocity_autocorrelation.realization_count)")
+            println(io, "velocity_autocorrelation_requested_labeled_particles=$(mpc_velocity_autocorrelation.requested_labeled_particles)")
+            println(io, "velocity_autocorrelation_labeled_particle_count=$(mpc_velocity_autocorrelation.labeled_particle_count)")
+            println(io, "velocity_autocorrelation_requested_initial_time_count=$(mpc_velocity_autocorrelation.requested_initial_time_count)")
+            println(io, "velocity_autocorrelation_initial_times=$(join(mpc_velocity_autocorrelation.initial_times, ","))")
+            println(io, "velocity_autocorrelation_mdc=$(mpc_velocity_autocorrelation.mdc)")
+            println(io, "velocity_autocorrelation_characteristic_time=$(optional_value(mpc_velocity_autocorrelation.characteristic_time))")
         end
         println(io, "free_cell_count=$(free_cell_count)")
         println(io, "attempted_moves=$(result.attempted_moves)")
@@ -2614,6 +3080,14 @@ function safe_ratio(numerator::Real, denominator::Real)
     return numerator / denominator
 end
 
+function optional_value(value::Nothing)
+    return ""
+end
+
+function optional_value(value)
+    return value
+end
+
 function json_value(value::String)
     escaped = replace(value, "\\" => "\\\\", "\"" => "\\\"", "\n" => "\\n")
     return "\"$(escaped)\""
@@ -2633,6 +3107,10 @@ end
 
 function json_value(value::Bool)
     return value ? "true" : "false"
+end
+
+function json_value(value::Nothing)
+    return "null"
 end
 
 function json_value(value::AbstractVector{<:Integer})

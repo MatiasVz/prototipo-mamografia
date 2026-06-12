@@ -234,6 +234,8 @@ end
             "2",
             "--labeled-particles",
             "15",
+            "--correlation-initial-times",
+            "3",
             "--output-times",
             "0,100,500",
             "--grid-shift",
@@ -254,6 +256,7 @@ end
         @test isapprox(config.mpc_config.rotation_angle, pi / 2)
         @test config.mpc_config.realizations == 2
         @test config.mpc_config.labeled_particles == 15
+        @test config.mpc_config.correlation_initial_times == 3
         @test config.mpc_config.output_times == [0, 100, 500]
         @test !config.mpc_config.grid_shift_enabled
         @test occursin("disabled_initially", config.mpc_config.grid_shift_decision)
@@ -264,6 +267,14 @@ end
             "--output",
             output_dir,
             "--n0",
+            "0",
+        ])
+        @test_throws ArgumentError parse_cli_args([
+            "--input",
+            input_path,
+            "--output",
+            output_dir,
+            "--correlation-initial-times",
             "0",
         ])
         @test_throws ArgumentError parse_cli_args([
@@ -583,6 +594,52 @@ end
     end
 end
 
+@testset "MPC velocity autocorrelation and MDC" begin
+    history = Matrix{Float64}[
+        [1.0 0.0; 0.0 2.0],
+        [0.5 0.0; 0.0 1.0],
+        [0.0 0.0; 0.0 0.0],
+    ]
+
+    autocorrelation = calculate_velocity_autocorrelation(
+        [history],
+        [1, 2],
+        [0];
+        tau = 1.0,
+        dimension = 2,
+        realization_seeds = [101],
+        requested_labeled_particles = 2,
+        requested_initial_time_count = 1,
+    )
+
+    @test autocorrelation.steps == 2
+    @test autocorrelation.dimension == 2
+    @test autocorrelation.realization_count == 1
+    @test autocorrelation.labeled_particle_count == 2
+    @test autocorrelation.initial_times == [0]
+    @test autocorrelation.realization_seeds == [101]
+    @test autocorrelation.sample_counts == [2, 2, 2]
+    @test isapprox(autocorrelation.cv_values[1], 2.5)
+    @test isapprox(autocorrelation.cv_values[2], 1.25)
+    @test isapprox(autocorrelation.cv_values[3], 0.0)
+    @test isapprox(autocorrelation.mdc, 1.25)
+    @test isapprox(autocorrelation.characteristic_time, 1 / log(2); atol = 1.0e-12)
+
+    mktempdir() do dir
+        outputs = MammographySimulation.write_velocity_autocorrelation_outputs(
+            dir,
+            autocorrelation,
+        )
+
+        @test isfile(outputs.autocorrelation_path)
+        @test isfile(outputs.summary_path)
+        @test isfile(outputs.realizations_path)
+        @test occursin("lag\ttime\tcv\tcv_average_xy", read(outputs.autocorrelation_path, String))
+        @test occursin("mdc=1.25", read(outputs.summary_path, String))
+        @test occursin("realization\tseed\tlabeled_particle_count", read(outputs.realizations_path, String))
+    end
+end
+
 @testset "Preliminary simulation results" begin
     space = build_simulation_space(synthetic_roi_image())
     simulation = run_minimal_simulation(
@@ -647,6 +704,8 @@ end
                 kbt = 1.0,
                 tau = 1.0,
                 rotation_angle = pi / 2,
+                labeled_particles = 15,
+                correlation_initial_times = 2,
                 output_times = [0, 3],
             ),
         )
@@ -676,6 +735,9 @@ end
         @test isfile(result.mpc_high_concentration_final_map_path)
         @test all(isfile, result.mpc_concentration_time_map_paths)
         @test all(isfile, result.mpc_high_concentration_time_map_paths)
+        @test isfile(result.velocity_autocorrelation_path)
+        @test isfile(result.velocity_autocorrelation_summary_path)
+        @test isfile(result.velocity_autocorrelation_realizations_path)
         @test isfile(result.simulation_summary_path)
         @test isfile(result.simulation_state_path)
         @test isfile(result.visit_counts_path)
@@ -702,6 +764,8 @@ end
         @test occursin("mpc_collision_particle_count=90", read(result.simulation_summary_path, String))
         @test occursin("mpc_concentration_model=particles_per_cell_snapshot", read(result.simulation_summary_path, String))
         @test occursin("mpc_concentration_captured_output_times=0,3", read(result.simulation_summary_path, String))
+        @test occursin("velocity_autocorrelation_model=green_kubo_xy", read(result.simulation_summary_path, String))
+        @test occursin("velocity_autocorrelation_labeled_particle_count=15", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
@@ -717,6 +781,8 @@ end
         @test occursin("\"mpc_collision_particle_count\": 90", read(result.mpc_config_path, String))
         @test occursin("\"mpc_concentration_model\": \"particles_per_cell_snapshot\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_concentration_snapshot_count\": 2", read(result.mpc_config_path, String))
+        @test occursin("\"velocity_autocorrelation_model\": \"green_kubo_xy\"", read(result.mpc_config_path, String))
+        @test occursin("\"velocity_autocorrelation_labeled_particle_count\": 15", read(result.mpc_config_path, String))
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
         @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
@@ -738,6 +804,9 @@ end
         @test occursin("time\tx\ty\tconcentration", read(result.mpc_concentration_times_path, String))
         @test startswith(read(result.mpc_concentration_initial_map_path, String), "P2")
         @test startswith(read(result.mpc_high_concentration_initial_map_path, String), "P2")
+        @test occursin("lag\ttime\tcv", read(result.velocity_autocorrelation_path, String))
+        @test occursin("mdc=", read(result.velocity_autocorrelation_summary_path, String))
+        @test occursin("realization\tseed\tlabeled_particle_count", read(result.velocity_autocorrelation_realizations_path, String))
         @test startswith(read(result.domain_mask_path, String), "P2")
         @test startswith(read(result.density_map_path, String), "P2")
     end

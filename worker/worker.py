@@ -137,6 +137,17 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None, density=None)
         f"mpc_high_concentration_final_map_path={result.mpc_high_concentration_final_map_path}",
         flush=True,
     )
+    print(f"velocity_autocorrelation_path={result.velocity_autocorrelation_path}", flush=True)
+    print(
+        "velocity_autocorrelation_summary_path="
+        f"{result.velocity_autocorrelation_summary_path}",
+        flush=True,
+    )
+    print(
+        "velocity_autocorrelation_realizations_path="
+        f"{result.velocity_autocorrelation_realizations_path}",
+        flush=True,
+    )
     print(f"simulation_log_path={result.simulation_log_path}", flush=True)
     print(f"worker_log_path={result.worker_log_path}", flush=True)
     return 0
