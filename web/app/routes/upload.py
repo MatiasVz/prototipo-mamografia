@@ -110,6 +110,18 @@ def upload_mammogram():
     return render_template("upload.html", accepted_formats=accepted_formats)
 
 
+@upload_bp.get("/casos")
+def case_list():
+    cases = Case.query.order_by(Case.id.desc()).all()
+    case_rows = tuple(_build_case_list_row(case) for case in cases)
+
+    return render_template(
+        "case_list.html",
+        case_rows=case_rows,
+        case_summary=_build_case_list_summary(cases),
+    )
+
+
 @upload_bp.get("/comparar")
 def compare_cases():
     case_options = _get_comparable_case_options()
@@ -579,6 +591,20 @@ def _format_file_type(file_type):
     return file_type or "No registrado"
 
 
+def _format_status_label(status):
+    status_labels = {
+        CaseStatus.REGISTERED: "Registrado",
+        CaseStatus.ROI_CONFIRMED: "ROI confirmada",
+        CaseStatus.PENDING: "En cola",
+        CaseStatus.PROCESSING: "Procesando",
+        CaseStatus.COMPLETED: "Completado",
+        CaseStatus.ERROR: "Error",
+        CaseStatus.NOTIFIED: "Notificado",
+    }
+
+    return status_labels.get(status, status or "No registrado")
+
+
 def _get_roi_state_label(case):
     if _is_roi_confirmed_state(case):
         return "Confirmada"
@@ -587,6 +613,105 @@ def _get_roi_state_label(case):
         return "Asociada (pendiente de confirmar)"
 
     return "Pendiente"
+
+
+def _build_case_list_row(case):
+    has_results = case.status == CaseStatus.COMPLETED and _has_simulation_results(case)
+
+    return {
+        "id": case.id,
+        "created_at": _format_datetime(case.created_at),
+        "original_filename": case.original_filename,
+        "input_mode": _format_input_mode(case.input_mode),
+        "file_type": _format_file_type(case.file_type),
+        "file_size": _format_file_size(case.file_size_bytes),
+        "status": case.status,
+        "status_label": _format_status_label(case.status),
+        "roi_state": _get_roi_state_label(case),
+        "pgm_state": _get_pgm_state_label(case),
+        "results_state": _get_simulation_result_state_label(case),
+        "has_results": has_results,
+        "primary_action": _get_case_list_primary_action(case, has_results),
+        "detail_url": url_for("upload.case_detail", case_id=case.id),
+        "results_url": url_for("upload.case_detail", case_id=case.id)
+        + "#simulation-results",
+        "crop_url": url_for("upload.crop_case_roi", case_id=case.id),
+        "error_message": case.error_message,
+    }
+
+
+def _build_case_list_summary(cases):
+    return {
+        "total": len(cases),
+        "completed": sum(1 for case in cases if case.status == CaseStatus.COMPLETED),
+        "processing": sum(
+            1
+            for case in cases
+            if case.status in {CaseStatus.PENDING, CaseStatus.PROCESSING}
+        ),
+        "errors": sum(1 for case in cases if case.status == CaseStatus.ERROR),
+    }
+
+
+def _get_case_list_primary_action(case, has_results):
+    if has_results:
+        return {
+            "label": "Ver resultados",
+            "url": url_for("upload.case_detail", case_id=case.id) + "#simulation-results",
+        }
+
+    if case.status == CaseStatus.COMPLETED:
+        return {
+            "label": "Revisar resultados",
+            "url": url_for("upload.case_detail", case_id=case.id) + "#simulation-results",
+        }
+
+    if case.status == CaseStatus.PROCESSING:
+        return {
+            "label": "Seguir proceso",
+            "url": url_for("upload.case_detail", case_id=case.id),
+        }
+
+    if case.status == CaseStatus.PENDING:
+        return {
+            "label": "Ver cola",
+            "url": url_for("upload.case_detail", case_id=case.id),
+        }
+
+    if case.status == CaseStatus.ERROR:
+        return {
+            "label": "Revisar error",
+            "url": url_for("upload.case_detail", case_id=case.id),
+        }
+
+    if case.input_mode == InputMode.MAMMOGRAM and not case.roi_file_path:
+        return {
+            "label": "Recortar ROI",
+            "url": url_for("upload.crop_case_roi", case_id=case.id),
+        }
+
+    if case.roi_file_path and not _is_roi_confirmed_state(case):
+        return {
+            "label": "Confirmar ROI",
+            "url": url_for("upload.case_detail", case_id=case.id),
+        }
+
+    if case.status == CaseStatus.ROI_CONFIRMED and not case.simulation_input_file_path:
+        return {
+            "label": "Preparar PGM",
+            "url": url_for("upload.case_detail", case_id=case.id),
+        }
+
+    if case.simulation_input_file_path:
+        return {
+            "label": "Encolar simulacion",
+            "url": url_for("upload.case_detail", case_id=case.id),
+        }
+
+    return {
+        "label": "Ver detalle",
+        "url": url_for("upload.case_detail", case_id=case.id),
+    }
 
 
 def _get_pgm_state_label(case):

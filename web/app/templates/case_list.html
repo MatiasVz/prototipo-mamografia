@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}Casos registrados | {{ config.APP_NAME }}{% endblock %}
+
+{% block content %}
+  <section class="page-heading cases-heading" aria-labelledby="cases-title">
+    <p class="eyebrow">Gestion de casos</p>
+    <h1 id="cases-title">Casos registrados</h1>
+    <p>
+      Consulta los casos creados, revisa su estado dentro del flujo y accede al
+      detalle o resultados disponibles.
+    </p>
+  </section>
+
+  <section class="cases-overview" aria-label="Resumen de casos">
+    <article class="cases-summary-card">
+      <span>Total</span>
+      <strong>{{ case_summary.total }}</strong>
+    </article>
+    <article class="cases-summary-card">
+      <span>Completados</span>
+      <strong>{{ case_summary.completed }}</strong>
+    </article>
+    <article class="cases-summary-card">
+      <span>En proceso</span>
+      <strong>{{ case_summary.processing }}</strong>
+    </article>
+    <article class="cases-summary-card">
+      <span>Con error</span>
+      <strong>{{ case_summary.errors }}</strong>
+    </article>
+  </section>
+
+  <section class="cases-panel" aria-labelledby="cases-panel-title">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Seguimiento</p>
+        <h2 id="cases-panel-title">Listado de casos</h2>
+      </div>
+      <div class="cases-actions">
+        <a class="button button--secondary" href="{{ url_for('upload.compare_cases') }}">
+          Comparar casos
+        </a>
+        <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
+          Cargar imagen
+        </a>
+      </div>
+    </div>
+
+    {% if case_rows %}
+      <div class="cases-table-wrap">
+        <table class="cases-table">
+          <thead>
+            <tr>
+              <th>Caso</th>
+              <th>Archivo</th>
+              <th>Modalidad</th>
+              <th>Estado</th>
+              <th>ROI</th>
+              <th>PGM</th>
+              <th>Resultados</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in case_rows %}
+              <tr>
+                <th scope="row">
+                  <a href="{{ row.detail_url }}">#{{ row.id }}</a>
+                  <span>{{ row.created_at }}</span>
+                </th>
+                <td>
+                  <strong>{{ row.original_filename }}</strong>
+                  <span>{{ row.file_type }} - {{ row.file_size }}</span>
+                </td>
+                <td>{{ row.input_mode }}</td>
+                <td>
+                  <span class="status-badge status-badge--{{ row.status }}">
+                    {{ row.status_label }}
+                  </span>
+                  {% if row.error_message %}
+                    <span class="cases-error-note">{{ row.error_message }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ row.roi_state }}</td>
+                <td>{{ row.pgm_state }}</td>
+                <td>{{ row.results_state }}</td>
+                <td>
+                  <div class="cases-row-actions">
+                    <a class="button button--primary" href="{{ row.primary_action.url }}">
+                      {{ row.primary_action.label }}
+                    </a>
+                    <a class="button button--secondary" href="{{ row.detail_url }}">
+                      Detalle
+                    </a>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="cases-empty">
+        <h3>No hay casos registrados</h3>
+        <p>
+          Cuando cargues una mamografia o una ROI, aparecera aqui con su estado,
+          trazabilidad y siguiente accion disponible.
+        </p>
+        <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
+          Cargar primera imagen
+        </a>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

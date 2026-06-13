@@ -46,8 +46,12 @@
           >Inicio</a>
           <a
             href="{{ url_for('upload.upload_mammogram') }}"
-            {% if request.endpoint in ('upload.upload_mammogram', 'upload.case_detail', 'upload.crop_case_roi') %}aria-current="page"{% endif %}
+            {% if request.endpoint == 'upload.upload_mammogram' %}aria-current="page"{% endif %}
           >Cargar mamografia</a>
+          <a
+            href="{{ url_for('upload.case_list') }}"
+            {% if request.endpoint in ('upload.case_list', 'upload.case_detail', 'upload.crop_case_roi') %}aria-current="page"{% endif %}
+          >Casos</a>
           <a
             href="{{ url_for('upload.compare_cases') }}"
             {% if request.endpoint == 'upload.compare_cases' %}aria-current="page"{% endif %}
