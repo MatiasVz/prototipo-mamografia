@@ -7,47 +7,47 @@ from pathlib import Path
 STATIC_RESULT_IMAGES = {
     "domain_mask": {
         "filename": "domain_mask.pgm",
-        "title": "Region mamaria valida",
+        "title": "Region usada por la simulacion",
         "description": (
-            "Muestra la caja plana usada por el simulador y separa la region "
-            "mamaria del fondo externo."
+            "Muestra que parte de la ROI fue considerada tejido valido y separa "
+            "esa zona del fondo externo."
         ),
     },
     "obstacle_radius_map": {
         "filename": "obstacle_radius_map.pgm",
-        "title": "Radios de obstaculos",
+        "title": "Obstaculos derivados del tejido",
         "description": (
-            "Resume como las intensidades PGM se transformaron en obstaculos "
-            "cilindricos del dominio mesoscopico."
+            "Muestra como las intensidades claras y oscuras de la ROI se "
+            "tradujeron en obstaculos para el modelo MPC."
         ),
     },
     "density_map": {
         "filename": "density_map.pgm",
-        "title": "Mapa de densidad preliminar",
+        "title": "Mapa de visitas de particulas",
         "description": (
-            "Representa la acumulacion de visitas o particulas sobre la ROI "
-            "durante la corrida."
+            "Indica por donde pasaron o se acumularon mas particulas durante "
+            "la simulacion."
         ),
     },
     "mpc_concentration_initial": {
         "filename": "mpc_concentration_initial.pgm",
-        "title": "Concentracion inicial",
-        "description": "Particulas por celda al inicio de la simulacion MPC.",
+        "title": "Concentracion al inicio",
+        "description": "Distribucion de particulas al comenzar la simulacion.",
     },
     "mpc_concentration_final": {
         "filename": "mpc_concentration_final.pgm",
-        "title": "Concentracion final",
-        "description": "Particulas por celda al final de la simulacion MPC.",
+        "title": "Concentracion al final",
+        "description": "Distribucion de particulas despues de ejecutar la simulacion.",
     },
     "mpc_high_concentration_initial": {
         "filename": "mpc_high_concentration_initial.pgm",
-        "title": "Zonas altas iniciales",
-        "description": "Celdas que superan el umbral de concentracion al inicio.",
+        "title": "Zonas mas concentradas al inicio",
+        "description": "Marca las celdas con mayor acumulacion inicial de particulas.",
     },
     "mpc_high_concentration_final": {
         "filename": "mpc_high_concentration_final.pgm",
-        "title": "Zonas altas finales",
-        "description": "Celdas que superan el umbral de concentracion al final.",
+        "title": "Zonas mas concentradas al final",
+        "description": "Marca las celdas con mayor acumulacion final de particulas.",
     },
 }
 
@@ -97,9 +97,9 @@ def build_mpc_results_view(results_dir: Path | None):
         "technical_files": technical_files,
         "velocity_summary": velocity_summary_items,
         "explanation": (
-            "Los obstaculos cilindricos representan heterogeneidad del tejido: "
-            "cada intensidad de la ROI en PGM se convierte en un radio dentro "
-            "de una caja plana de simulacion."
+            "La ROI funciona como el terreno de la simulacion. Sus intensidades "
+            "se convierten en obstaculos y las particulas MPC se mueven dentro "
+            "de ese espacio para estimar como cambia la difusion."
         ),
     }
 
@@ -153,8 +153,8 @@ def _build_concentration_maps(results_dir, concentration_summary):
                     "key": key,
                     "title": f"Concentracion t={time_value}",
                     "description": (
-                        "Particulas por celda capturadas en este tiempo de "
-                        "simulacion."
+                        "Distribucion de particulas capturada en este momento "
+                        "de la simulacion."
                     ),
                 }
             )
@@ -194,29 +194,37 @@ def _build_primary_metrics(metrics, config, diffusion):
     return tuple(
         item
         for item in (
-            _metric("MDC", diffusion.get("mdc"), "Coeficiente calculado por Green-Kubo."),
-            _metric("MDC0", diffusion.get("mdc0"), "Referencia teorica sin obstaculos."),
             _metric(
-                "MDC*",
-                diffusion.get("mdc_star"),
-                "MDC normalizado para comparar corridas.",
+                "Difusion calculada (MDC)",
+                diffusion.get("mdc"),
+                "Resume que tan facil se movieron las particulas dentro de la ROI.",
             ),
             _metric(
-                "Particulas MPC",
+                "Referencia libre (MDC0)",
+                diffusion.get("mdc0"),
+                "Valor teorico si no existieran obstaculos que frenen el movimiento.",
+            ),
+            _metric(
+                "Difusion normalizada (MDC*)",
+                diffusion.get("mdc_star"),
+                "Compara la difusion del caso frente a la referencia libre.",
+            ),
+            _metric(
+                "Particulas simuladas",
                 config.get("mpc_particle_count"),
-                "Particulas continuas usadas en la simulacion.",
+                "Elementos matematicos usados para representar movimiento en la ROI.",
                 value_type="integer",
             ),
             _metric(
-                "Pasos",
+                "Pasos ejecutados",
                 config.get("steps") or metrics.get("steps"),
-                "Iteraciones ejecutadas por el simulador.",
+                "Cantidad de iteraciones que avanzo el simulador.",
                 value_type="integer",
             ),
             _metric(
                 "Choques con obstaculos",
                 config.get("mpc_streaming_obstacle_collision_count"),
-                "Rebotes registrados contra obstaculos cilindricos.",
+                "Rebotes registrados contra obstaculos derivados de la imagen.",
                 value_type="integer",
             ),
         )
@@ -228,33 +236,49 @@ def _build_parameter_items(metrics, config, diffusion):
     return tuple(
         item
         for item in (
-            _metric("n0", config.get("n0") or diffusion.get("n0"), "Densidad media."),
-            _metric("tau", config.get("tau") or diffusion.get("tau"), "Paso temporal."),
-            _metric("kBT", config.get("kbt") or diffusion.get("kbt"), "Energia termica."),
-            _metric("Masa", config.get("mass") or diffusion.get("mass"), "Masa por particula."),
             _metric(
-                "Semilla",
+                "Densidad media de particulas (n0)",
+                config.get("n0") or diffusion.get("n0"),
+                "Cantidad promedio de particulas simuladas por cada celda.",
+            ),
+            _metric(
+                "Paso temporal (tau)",
+                config.get("tau") or diffusion.get("tau"),
+                "Avance de tiempo aplicado en cada iteracion del simulador.",
+            ),
+            _metric(
+                "Energia termica (kBT)",
+                config.get("kbt") or diffusion.get("kbt"),
+                "Controla la intensidad del movimiento aleatorio de las particulas.",
+            ),
+            _metric(
+                "Masa por particula",
+                config.get("mass") or diffusion.get("mass"),
+                "Valor matematico asignado al peso de cada particula simulada.",
+            ),
+            _metric(
+                "Semilla de simulacion",
                 config.get("seed") or metrics.get("seed"),
-                "Valor usado para reproducibilidad.",
+                "Numero usado para repetir una corrida con condiciones comparables.",
                 value_type="integer",
             ),
             _metric(
-                "Realizaciones",
+                "Numero de corridas",
                 config.get("realizations") or diffusion.get("realizations"),
-                "Corridas usadas para promediar metricas.",
+                "Cantidad de ejecuciones usadas para calcular o promediar resultados.",
                 value_type="integer",
             ),
             _metric(
-                "Particulas etiquetadas",
+                "Particulas seguidas para Cv",
                 config.get("velocity_autocorrelation_labeled_particle_count")
                 or diffusion.get("labeled_particle_count"),
-                "Particulas seguidas para calcular Cv.",
+                "Particulas observadas con detalle para medir cambios de velocidad.",
                 value_type="integer",
             ),
             _metric(
-                "Angulo de rotacion",
+                "Angulo de rotacion MPC",
                 config.get("rotation_angle"),
-                "Parametro de colision MPC.",
+                "Define como se modifican las velocidades durante la colision MPC.",
             ),
         )
         if item is not None
@@ -265,16 +289,20 @@ def _build_velocity_summary(summary):
     return tuple(
         item
         for item in (
-            _metric("MDC", summary.get("mdc"), "Integral de la autocorrelacion."),
+            _metric(
+                "Difusion calculada (MDC)",
+                summary.get("mdc"),
+                "Resultado obtenido al integrar la autocorrelacion de velocidades.",
+            ),
             _metric(
                 "Tiempo caracteristico",
                 summary.get("characteristic_time"),
-                "Referencia temporal estimada desde Cv.",
+                "Tiempo de referencia estimado desde la curva Cv.",
             ),
             _metric(
-                "Particulas etiquetadas",
+                "Particulas seguidas para Cv",
                 summary.get("labeled_particle_count"),
-                "Particulas usadas en la muestra.",
+                "Muestra usada para observar la memoria del movimiento.",
                 value_type="integer",
             ),
         )

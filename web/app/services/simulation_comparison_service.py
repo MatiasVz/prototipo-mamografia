@@ -3,37 +3,49 @@ from pathlib import Path
 
 
 COMPARABLE_METRICS = (
-    ("MDC", "mdc", "Coeficiente calculado desde la autocorrelacion de velocidades."),
-    ("MDC0", "mdc0", "Referencia teorica sin obstaculos."),
-    ("MDC*", "mdc_star", "Metrica normalizada para contraste academico."),
+    (
+        "Difusion calculada (MDC)",
+        "mdc",
+        "Que tan facil se movieron las particulas dentro de la ROI simulada.",
+    ),
+    (
+        "Referencia libre (MDC0)",
+        "mdc0",
+        "Valor esperado si no existieran obstaculos en el dominio.",
+    ),
+    (
+        "Difusion normalizada (MDC*)",
+        "mdc_star",
+        "Relacion entre la difusion calculada y la referencia libre.",
+    ),
 )
 
 COMPARABLE_PARAMETERS = (
-    ("Pasos", "steps"),
-    ("n0", "n0"),
-    ("tau", "tau"),
-    ("kBT", "kbt"),
-    ("Masa", "mass"),
-    ("Realizaciones", "realizations"),
-    ("Particulas etiquetadas", "velocity_autocorrelation_labeled_particle_count"),
-    ("Angulo de rotacion", "rotation_angle"),
+    ("Pasos ejecutados", "steps"),
+    ("Densidad media de particulas (n0)", "n0"),
+    ("Paso temporal (tau)", "tau"),
+    ("Energia termica (kBT)", "kbt"),
+    ("Masa por particula", "mass"),
+    ("Numero de corridas", "realizations"),
+    ("Particulas seguidas para Cv", "velocity_autocorrelation_labeled_particle_count"),
+    ("Angulo de rotacion MPC", "rotation_angle"),
 )
 
 COMMON_MAPS = (
     (
         "domain_mask",
-        "Region mamaria valida",
-        "Compara la mascara de dominio usada por cada simulacion.",
+        "Region usada por la simulacion",
+        "Compara que zona de cada ROI se tomo como tejido valido.",
     ),
     (
         "obstacle_radius_map",
-        "Radios de obstaculos",
-        "Compara la representacion de heterogeneidad derivada de la ROI.",
+        "Obstaculos derivados del tejido",
+        "Compara como se transformo la ROI en obstaculos del modelo.",
     ),
     (
         "density_map",
-        "Mapa de densidad preliminar",
-        "Compara acumulacion o visitas registradas durante la corrida.",
+        "Mapa de visitas de particulas",
+        "Compara por donde pasaron o se acumularon mas particulas.",
     ),
 )
 
@@ -205,9 +217,16 @@ def _select_common_concentration_key(results_dir_a, results_dir_b):
 
 def _build_compatibility_warnings(result_a, result_b):
     warnings = []
+    sensitive_parameter_labels = {
+        "Densidad media de particulas (n0)",
+        "Paso temporal (tau)",
+        "Energia termica (kBT)",
+        "Masa por particula",
+        "Angulo de rotacion MPC",
+    }
 
     for row in _build_parameter_rows(result_a, result_b):
-        if row["label"] in {"n0", "tau", "kBT", "Masa", "Angulo de rotacion"}:
+        if row["label"] in sensitive_parameter_labels:
             if not row["matches"]:
                 warnings.append(
                     f"Parametro distinto: {row['label']} "

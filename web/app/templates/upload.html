@@ -65,6 +65,10 @@
           <p class="eyebrow">Paso 2</p>
           <h2 id="type-modal-title">Que tipo de imagen es?</h2>
           <p class="modal__file" data-type-modal-file></p>
+          <p class="modal__help">
+            Si la imagen muestra toda la mama, elige mamografia completa. Si ya
+            recortaste solo la zona que quieres analizar, elige ROI recortada.
+          </p>
           <div class="type-options">
             <button
               type="submit"
@@ -115,6 +119,24 @@
         <p class="field-help">
           Se valida extension, tamano y lectura del archivo antes de crear el caso.
         </p>
+      </div>
+
+      <div class="format-panel__section">
+        <h3>Conceptos rapidos</h3>
+        <dl class="help-definition-list">
+          <div>
+            <dt>ROI</dt>
+            <dd>Region de interes que sera usada como zona principal del analisis.</dd>
+          </div>
+          <div>
+            <dt>PGM</dt>
+            <dd>Imagen en escala de grises preparada para que el simulador la pueda leer.</dd>
+          </div>
+          <div>
+            <dt>Simulacion</dt>
+            <dd>Modelo academico que observa movimiento de particulas sobre la ROI.</dd>
+          </div>
+        </dl>
       </div>
     </aside>
   </section>
