@@ -5,3 +5,4 @@ psycopg[binary]==3.2.3
 pydicom==2.4.4
 python-dotenv==1.0.1
 redis==5.0.8
+reportlab==4.2.2
