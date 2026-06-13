@@ -59,6 +59,90 @@ SIMULATION_METRIC_FIELDS = (
     ("Maximo de visitas", "max_visits", "integer"),
 )
 
+PROCESSING_ERROR_MESSAGES = {
+    "invalid_parameters": {
+        "category": "Configuracion del simulador",
+        "message": (
+            "La simulacion no pudo iniciar porque la configuracion del simulador "
+            "necesita un ajuste."
+        ),
+        "action": (
+            "Revisa los parametros de simulacion y vuelve a encolar el caso. "
+            "No necesitas cargar la imagen otra vez."
+        ),
+    },
+    "invalid_pgm": {
+        "category": "Entrada PGM invalida",
+        "message": (
+            "La imagen preparada para simulacion no tiene un formato PGM valido."
+        ),
+        "action": (
+            "Vuelve a preparar la entrada PGM desde la ROI confirmada o carga otra imagen."
+        ),
+    },
+    "missing_pgm": {
+        "category": "Entrada PGM pendiente",
+        "message": "El caso todavia no tiene una imagen PGM lista para simular.",
+        "action": "Prepara la entrada PGM y luego envia nuevamente el caso a procesamiento.",
+    },
+    "missing_roi": {
+        "category": "ROI pendiente",
+        "message": "El caso no tiene una ROI disponible para procesar.",
+        "action": "Asocia o recorta una ROI, confirmala y vuelve a intentar la simulacion.",
+    },
+    "missing_input_file": {
+        "category": "Archivo no disponible",
+        "message": "No se encontro el archivo preparado para iniciar la simulacion.",
+        "action": "Vuelve a preparar la entrada de simulacion y reintenta el procesamiento.",
+    },
+    "invalid_state": {
+        "category": "Estado del caso",
+        "message": "El caso no esta en un estado valido para ejecutar la simulacion.",
+        "action": "Revisa que la ROI este confirmada y que la entrada PGM este generada.",
+    },
+    "runtime_config": {
+        "category": "Entorno de simulacion",
+        "message": "El entorno de ejecucion del simulador no esta listo.",
+        "action": "Verifica la configuracion del contenedor y reintenta el procesamiento.",
+    },
+    "julia_executable": {
+        "category": "Julia no disponible",
+        "message": "No se pudo iniciar el motor Julia del simulador.",
+        "action": "Verifica que Julia este instalado en el entorno de procesamiento.",
+    },
+    "julia_failure": {
+        "category": "Simulacion interrumpida",
+        "message": "El simulador no pudo completar la corrida de este caso.",
+        "action": "Reintenta la simulacion. Si vuelve a fallar, revisa la trazabilidad tecnica.",
+    },
+    "timeout": {
+        "category": "Tiempo de procesamiento",
+        "message": "La simulacion tardo mas de lo permitido por la configuracion actual.",
+        "action": "Reintenta con mas tiempo disponible o ejecuta el caso en el servidor.",
+    },
+    "missing_results": {
+        "category": "Resultados incompletos",
+        "message": "La simulacion termino sin generar todos los archivos esperados.",
+        "action": "Vuelve a encolar la simulacion y revisa la trazabilidad si se repite.",
+    },
+    "worker_error": {
+        "category": "Procesamiento",
+        "message": "Ocurrio un problema durante el procesamiento del caso.",
+        "action": "Reintenta la simulacion desde el detalle del caso.",
+    },
+    "queue_error": {
+        "category": "Servicio de procesamiento",
+        "message": "No se pudo enviar el caso a la cola de procesamiento.",
+        "action": "Verifica que Redis y el worker esten activos y vuelve a intentarlo.",
+    },
+}
+
+DEFAULT_PROCESSING_ERROR_MESSAGE = {
+    "category": "Procesamiento",
+    "message": "Ocurrio un problema durante el procesamiento del caso.",
+    "action": "Reintenta la simulacion. Si se repite, revisa la trazabilidad tecnica.",
+}
+
 
 @upload_bp.route("/cargar", methods=["GET", "POST"])
 def upload_mammogram():
@@ -298,14 +382,14 @@ def prepare_case_simulation_input(case_id):
             case.id,
             exc,
         )
-        flash(str(exc), "error")
+        flash(_format_pgm_preparation_error_message(exc), "error")
     except SimulationQueueError as exc:
         current_app.logger.warning(
             "No se pudo encolar la simulacion del caso %s: %s",
             case.id,
             exc,
         )
-        flash(str(exc), "error")
+        flash(_format_queue_error_message(exc), "error")
     else:
         flash(_format_queue_success_message(queued_job), "success")
 
@@ -328,7 +412,7 @@ def enqueue_case_for_simulation(case_id):
             case.id,
             exc,
         )
-        flash(str(exc), "error")
+        flash(_format_queue_error_message(exc), "error")
     else:
         flash(_format_queue_success_message(queued_job), "success")
 
@@ -417,7 +501,7 @@ def _auto_prepare_simulation_input(case):
         )
         flash(
             f"ROI confirmada para el caso #{case.id}. No se pudo generar el archivo "
-            f"PGM automaticamente ({exc}). Puedes reintentar la preparacion desde el detalle.",
+            f"PGM automaticamente. {_format_pgm_preparation_error_message(exc)}",
             "warning",
         )
     else:
@@ -436,7 +520,7 @@ def _auto_enqueue_simulation(case):
         )
         flash(
             f"ROI confirmada y archivo PGM generado para el caso #{case.id}, "
-            f"pero no se pudo encolar la simulacion automaticamente ({exc}).",
+            f"pero no se pudo enviar a procesamiento. {_format_queue_error_message(exc)}",
             "warning",
         )
     else:
@@ -600,6 +684,89 @@ def _format_queue_success_message(queued_job):
     )
 
 
+def _format_pgm_preparation_error_message(exc):
+    if isinstance(exc, ValueError):
+        return str(exc)
+
+    return (
+        "No se pudo preparar la entrada PGM para la simulacion. "
+        "Revisa que la ROI este disponible y vuelve a intentarlo."
+    )
+
+
+def _format_queue_error_message(exc):
+    message = str(exc)
+
+    if "Redis" in message or "cola" in message.lower():
+        return (
+            "No se pudo enviar el caso a procesamiento en este momento. "
+            "Verifica que el servicio del worker este activo y vuelve a intentarlo."
+        )
+
+    return message or "No se pudo enviar el caso a procesamiento. Intenta nuevamente."
+
+
+def _get_processing_error_copy(error_category):
+    return PROCESSING_ERROR_MESSAGES.get(
+        error_category or "",
+        DEFAULT_PROCESSING_ERROR_MESSAGE,
+    )
+
+
+def _get_case_error_context(case):
+    worker_log_path = _get_worker_log_path(case)
+    worker_log = _read_worker_log_summary(worker_log_path)
+    error_category = worker_log.get("error_category") or _infer_error_category(
+        case.error_message,
+    )
+    error_copy = _get_processing_error_copy(error_category)
+    technical_message = worker_log.get("error_message") or case.error_message or ""
+
+    return {
+        "message": error_copy["message"],
+        "action": error_copy["action"],
+        "category": error_copy["category"],
+        "technical_category": error_category,
+        "technical_message": technical_message or "No registrado",
+        "timeout": _format_timeout_for_user(worker_log.get("timeout_seconds")),
+        "log_path": worker_log.get("run_log_path")
+        or (str(worker_log_path) if worker_log_path is not None else "No registrado"),
+    }
+
+
+def _infer_error_category(error_message):
+    normalized_message = (error_message or "").lower()
+
+    if "redis" in normalized_message or "cola" in normalized_message:
+        return "queue_error"
+
+    if "pgm" in normalized_message:
+        return "invalid_pgm"
+
+    if "roi" in normalized_message:
+        return "missing_roi"
+
+    return "worker_error"
+
+
+def _format_timeout_for_user(timeout_seconds):
+    if not timeout_seconds:
+        return "Sin limite configurado"
+
+    if str(timeout_seconds).lower() in {"none", "null", "0", "unlimited"}:
+        return "Sin limite configurado"
+
+    return f"{timeout_seconds} segundos"
+
+
+def _format_error_message_for_list(case):
+    if case.status != CaseStatus.ERROR:
+        return None
+
+    error_context = _get_case_error_context(case)
+    return error_context["message"]
+
+
 def _format_datetime(value):
     if value is None:
         return "No registrado"
@@ -697,7 +864,7 @@ def _build_case_list_row(case):
         + "#simulation-results",
         "report_url": url_for("upload.export_case_report", case_id=case.id),
         "crop_url": url_for("upload.crop_case_roi", case_id=case.id),
-        "error_message": case.error_message,
+        "error_message": _format_error_message_for_list(case),
     }
 
 
@@ -973,10 +1140,8 @@ def _get_simulation_status_message(case):
         return "La simulacion termino y los resultados estan disponibles."
 
     if case.status == CaseStatus.ERROR:
-        return (
-            (case.error_message or "Se registro un error durante el procesamiento.")
-            + " Puedes revisar la trazabilidad tecnica y reintentar la simulacion."
-        )
+        error_context = _get_case_error_context(case)
+        return f"{error_context['message']} {error_context['action']}"
 
     if case.simulation_input_file_path:
         return "La ROI confirmada ya cuenta con su archivo PGM para la simulacion."
@@ -1051,7 +1216,8 @@ def _get_simulation_results_status_message(case):
         )
 
     if case.status == CaseStatus.ERROR:
-        return case.error_message or "Se registro un error durante el procesamiento."
+        error_context = _get_case_error_context(case)
+        return f"{error_context['message']} {error_context['action']}"
 
     if case.status == CaseStatus.COMPLETED:
         return "El caso figura como completado, pero no se encontraron los archivos de resultados."
@@ -1066,16 +1232,7 @@ def _get_processing_error_detail(case):
     if case.status != CaseStatus.ERROR:
         return None
 
-    worker_log_path = _get_worker_log_path(case)
-    worker_log = _read_worker_log_summary(worker_log_path)
-
-    return {
-        "message": case.error_message or "Se registro un error durante el procesamiento.",
-        "category": worker_log.get("error_category") or "No clasificado",
-        "timeout": worker_log.get("timeout_seconds") or "No registrado",
-        "log_path": worker_log.get("run_log_path")
-        or (str(worker_log_path) if worker_log_path is not None else "No registrado"),
-    }
+    return _get_case_error_context(case)
 
 
 def _get_worker_log_path(case):
@@ -1287,6 +1444,10 @@ def _resolve_storage_path(stored_path):
     cwd_candidate = Path.cwd() / path
     if cwd_candidate.exists():
         return cwd_candidate
+
+    repo_candidate = Path.cwd().parent / path
+    if repo_candidate.exists():
+        return repo_candidate
 
     upload_folder = Path(current_app.config["UPLOAD_FOLDER"])
     parts = path.parts
