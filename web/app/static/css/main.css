@@ -878,7 +878,8 @@ select:focus-visible {
 
 .case-detail-panel,
 .case-preview-panel,
-.case-next-step {
+.case-next-step,
+.case-export-panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -896,9 +897,25 @@ select:focus-visible {
 
 .panel-header h2,
 .case-preview-panel h2,
-.case-next-step h2 {
+.case-next-step h2,
+.case-export-panel h2 {
   font-size: 22px;
   margin: 0;
+}
+
+.case-export-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.case-export-panel p {
+  color: var(--color-muted);
+  margin: 0;
+}
+
+.case-export-actions {
+  display: grid;
+  gap: 10px;
 }
 
 .case-preparation-step {
