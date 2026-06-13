@@ -522,21 +522,27 @@
         <p class="eyebrow">Exportacion</p>
         <h2 id="case-export-title">Reporte y evidencia</h2>
         <p>
-          Descarga una version legible del caso o un paquete completo con archivos,
-          mapas, metricas y trazabilidad. El contenido es academico y no diagnostico.
+          Descarga un PDF visual para usuario final o un paquete tecnico completo
+          con archivos, mapas, metricas y trazabilidad.
         </p>
         <div class="case-export-actions">
           <a
             class="button button--primary"
             href="{{ url_for('upload.export_case_report', case_id=case.id) }}"
           >
-            Descargar reporte
+            Descargar PDF visual
+          </a>
+          <a
+            class="button button--secondary"
+            href="{{ url_for('upload.export_case_markdown_report', case_id=case.id) }}"
+          >
+            Descargar Markdown tecnico
           </a>
           <a
             class="button button--secondary"
             href="{{ url_for('upload.export_case_package', case_id=case.id) }}"
           >
-            Descargar paquete ZIP
+            Descargar paquete tecnico ZIP
           </a>
         </div>
       </section>

@@ -22,6 +22,7 @@ from ..services.case_export_service import (
     build_case_export_bundle,
     build_case_results_package,
 )
+from ..services.case_pdf_report_service import build_case_pdf_report
 from ..services.case_registration_service import register_case_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
 from ..services.preview_service import ensure_preview_for_case, ensure_preview_for_path
@@ -228,6 +229,23 @@ def case_detail(case_id):
 
 @upload_bp.get("/casos/<int:case_id>/exportar/reporte")
 def export_case_report(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    pdf_report = build_case_pdf_report(case, current_app.config["UPLOAD_FOLDER"])
+
+    return send_file(
+        pdf_report.buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=pdf_report.filename,
+    )
+
+
+@upload_bp.get("/casos/<int:case_id>/exportar/reporte-md")
+def export_case_markdown_report(case_id):
     case = db.session.get(Case, case_id)
 
     if case is None:
