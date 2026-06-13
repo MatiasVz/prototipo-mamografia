@@ -43,6 +43,25 @@ def build_repo_path(value, default_relative_path):
     return str(BASE_DIR / configured_path)
 
 
+def build_optional_positive_int(value, default="0"):
+    raw_value = os.getenv(value, default)
+
+    if raw_value is None:
+        return None
+
+    normalized_value = str(raw_value).strip().lower()
+
+    if normalized_value in {"", "0", "none", "null", "false", "unlimited"}:
+        return None
+
+    parsed_value = int(normalized_value)
+
+    if parsed_value <= 0:
+        return None
+
+    return parsed_value
+
+
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
     APP_NAME = os.getenv("APP_NAME", "Prototipo de Analisis Mamografico")
@@ -83,7 +102,9 @@ class Config:
         "SIMULATION_GRID_SHIFT_ENABLED",
         "false",
     )
-    SIMULATION_TIMEOUT_SECONDS = int(os.getenv("SIMULATION_TIMEOUT_SECONDS", "600"))
+    SIMULATION_TIMEOUT_SECONDS = build_optional_positive_int(
+        "SIMULATION_TIMEOUT_SECONDS",
+    )
     REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
     REDIS_URL = os.getenv("REDIS_URL", build_redis_url())

@@ -266,6 +266,30 @@
       <details class="detail-tech">
         <summary>Datos tecnicos y trazabilidad</summary>
         <div class="detail-tech__body">
+          {% if processing_error_detail %}
+            <div class="detail-group processing-error-detail">
+              <h3 class="detail-group__title">Error de procesamiento</h3>
+              <dl class="detail-list">
+                <div>
+                  <dt>Mensaje</dt>
+                  <dd>{{ processing_error_detail.message }}</dd>
+                </div>
+                <div>
+                  <dt>Categoria</dt>
+                  <dd>{{ processing_error_detail.category }}</dd>
+                </div>
+                <div>
+                  <dt>Tiempo maximo</dt>
+                  <dd>{{ processing_error_detail.timeout }}</dd>
+                </div>
+                <div>
+                  <dt>Log del worker</dt>
+                  <dd class="detail-path">{{ processing_error_detail.log_path }}</dd>
+                </div>
+              </dl>
+            </div>
+          {% endif %}
+
           <div class="detail-group">
             <h3 class="detail-group__title">Archivo original</h3>
             <dl class="detail-list">

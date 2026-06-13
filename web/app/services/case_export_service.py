@@ -659,6 +659,9 @@ def _result_file_label(filename):
         ).removesuffix(".pgm")
         return f"Zonas altas en t={time_value}"
 
+    if filename.startswith("worker_execution_") and filename.endswith(".log"):
+        return "Log historico del worker"
+
     return filename.replace("_", " ").replace(".", " ").title()
 
 
@@ -671,6 +674,9 @@ def _result_file_description(filename):
 
     if filename.startswith("mpc_high_concentration_t_") and filename.endswith(".pgm"):
         return "Mapa de zonas de alta concentracion en un tiempo de simulacion."
+
+    if filename.startswith("worker_execution_") and filename.endswith(".log"):
+        return "Log historico de una corrida del worker Python."
 
     return "Archivo tecnico generado por el flujo de simulacion."
 
