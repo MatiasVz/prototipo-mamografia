@@ -415,10 +415,18 @@ def _build_parameter_items(metrics, config, diffusion):
                 value_type="integer",
             ),
             _metric(
-                "Particulas seguidas para Cv",
+                "Particulas solicitadas para Cv",
+                config.get("velocity_autocorrelation_requested_labeled_particles")
+                or config.get("labeled_particles")
+                or diffusion.get("requested_labeled_particles"),
+                "Cantidad objetivo indicada para calcular la autocorrelacion de velocidades.",
+                value_type="integer",
+            ),
+            _metric(
+                "Particulas usadas para Cv",
                 config.get("velocity_autocorrelation_labeled_particle_count")
                 or diffusion.get("labeled_particle_count"),
-                "Particulas observadas con detalle para medir cambios de velocidad.",
+                "Cantidad realmente seguida; si la ROI tiene menos particulas, se usa el total disponible.",
                 value_type="integer",
             ),
             _metric(
@@ -446,9 +454,15 @@ def _build_velocity_summary(summary):
                 "Tiempo de referencia estimado desde la curva Cv.",
             ),
             _metric(
-                "Particulas seguidas para Cv",
+                "Particulas solicitadas para Cv",
+                summary.get("requested_labeled_particles"),
+                "Cantidad objetivo configurada para observar la memoria del movimiento.",
+                value_type="integer",
+            ),
+            _metric(
+                "Particulas usadas para Cv",
                 summary.get("labeled_particle_count"),
-                "Muestra usada para observar la memoria del movimiento.",
+                "Muestra real usada para calcular Cv y MDC.",
                 value_type="integer",
             ),
         )

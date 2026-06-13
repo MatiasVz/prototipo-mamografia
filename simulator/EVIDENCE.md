@@ -177,7 +177,7 @@ diffusion_metrics_summary.txt
 | `tau` | Paso temporal de movimiento. | `mpc_config.json` |
 | `rotation_angle` | Angulo usado en colision multiparticula. | `mpc_config.json` |
 | `realizations` | Numero de corridas usadas para promediar. | `mpc_config.json` |
-| `labeled_particles` | Particulas seguidas para calcular `Cv`. | `mpc_config.json` |
+| `labeled_particles` | Particulas solicitadas para calcular `Cv`; por defecto son 500 y el simulador registra tambien cuantas se usaron efectivamente. | `mpc_config.json`, `velocity_autocorrelation_summary.txt` |
 | `output_times` | Tiempos donde se capturan mapas. | `mpc_config.json`, `mpc_concentration_summary.txt` |
 | `grid_shift` | Desplazamiento de grilla; inicialmente desactivado. | `mpc_config.json` |
 
