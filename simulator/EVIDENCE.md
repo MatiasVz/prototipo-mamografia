@@ -176,7 +176,7 @@ diffusion_metrics_summary.txt
 | `kBT` | Energia termica reducida usada en velocidades. | `mpc_config.json` |
 | `tau` | Paso temporal de movimiento. | `mpc_config.json` |
 | `rotation_angle` | Angulo usado en colision multiparticula. | `mpc_config.json` |
-| `realizations` | Numero de corridas usadas para promediar. | `mpc_config.json` |
+| `realizations` | Numero de corridas independientes usadas para promediar `Cv`, `MDC`, `MDC*` y mapas de concentracion. | `mpc_config.json`, `velocity_autocorrelation_realizations.tsv` |
 | `labeled_particles` | Particulas solicitadas para calcular `Cv`; por defecto son 500 y el simulador registra tambien cuantas se usaron efectivamente. | `mpc_config.json`, `velocity_autocorrelation_summary.txt` |
 | `output_times` | Tiempos donde se capturan mapas. | `mpc_config.json`, `mpc_concentration_summary.txt` |
 | `grid_shift` | Desplazamiento de grilla; inicialmente desactivado. | `mpc_config.json` |

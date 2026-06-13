@@ -645,10 +645,30 @@ end
     @test !initial_snapshot.high_concentration_mask[2, 3]
     @test all(snapshot -> sum(snapshot.density_grid) == 3, concentration.snapshots)
 
+    multi_config = MpcModelConfig(
+        n0 = 0.5,
+        tau = 1.0,
+        rotation_angle = pi / 2,
+        realizations = 3,
+        output_times = [0, 2],
+    )
+    multi_concentration = generate_mpc_concentration_maps(
+        initialization,
+        space,
+        multi_config;
+        steps = 2,
+        seed = 99,
+    )
+
+    @test multi_concentration.realization_count == 3
+    @test multi_concentration.realization_seeds == [99, 10106, 20113]
+    @test all(snapshot -> isapprox(sum(snapshot.density_grid), 3.0), multi_concentration.snapshots)
+    @test all(snapshot -> snapshot.max_concentration <= 3.0, multi_concentration.snapshots)
+
     mktempdir() do dir
         outputs = MammographySimulation.write_mpc_concentration_outputs(
             dir,
-            concentration,
+            multi_concentration,
             space,
         )
 
@@ -658,11 +678,14 @@ end
         @test isfile(outputs.final_map_path)
         @test isfile(outputs.initial_high_map_path)
         @test isfile(outputs.final_high_map_path)
-        @test length(outputs.time_map_paths) == 3
+        @test length(outputs.time_map_paths) == 2
         @test all(isfile, outputs.time_map_paths)
         @test all(isfile, outputs.time_high_map_paths)
-        @test occursin("captured_output_times=0,1,2", read(outputs.summary_path, String))
-        @test occursin("skipped_output_times=5", read(outputs.summary_path, String))
+        @test occursin("aggregation=mean_across_realizations", read(outputs.summary_path, String))
+        @test occursin("realizations=3", read(outputs.summary_path, String))
+        @test occursin("realization_seeds=99,10106,20113", read(outputs.summary_path, String))
+        @test occursin("captured_output_times=0,2", read(outputs.summary_path, String))
+        @test occursin("skipped_output_times=", read(outputs.summary_path, String))
         @test occursin("snapshot_t_0_particle_sum=3", read(outputs.summary_path, String))
         @test occursin("domain_mask_applied=true", read(outputs.summary_path, String))
         @test occursin("time\tx\ty\tconcentration", read(outputs.times_path, String))
@@ -762,20 +785,46 @@ end
     @test capped_autocorrelation.labeled_particle_count == 9
     @test length(capped_autocorrelation.cv_values) == 3
 
+    multi_config = MpcModelConfig(
+        n0 = 1.0,
+        labeled_particles = 9,
+        realizations = 3,
+        correlation_initial_times = 1,
+    )
+    multi_autocorrelation = calculate_mpc_velocity_autocorrelation(
+        small_space,
+        multi_config;
+        steps = 2,
+        seed = 44,
+    )
+
+    @test multi_autocorrelation.realization_count == 3
+    @test multi_autocorrelation.realization_seeds == [44, 10051, 20058]
+    @test length(multi_autocorrelation.realization_mdc_values) == 3
+    @test length(multi_autocorrelation.realization_cv0_values) == 3
+    @test length(multi_autocorrelation.realization_cv_final_values) == 3
+    @test length(multi_autocorrelation.realization_sample_counts) == 3
+    @test all(isfinite, multi_autocorrelation.realization_mdc_values)
+
     mktempdir() do dir
         outputs = MammographySimulation.write_velocity_autocorrelation_outputs(
             dir,
-            autocorrelation,
+            multi_autocorrelation,
         )
 
         @test isfile(outputs.autocorrelation_path)
         @test isfile(outputs.summary_path)
         @test isfile(outputs.realizations_path)
         @test occursin("lag\ttime\tcv\tcv_average_xy", read(outputs.autocorrelation_path, String))
-        @test occursin("requested_labeled_particles=2", read(outputs.summary_path, String))
-        @test occursin("labeled_particle_count=2", read(outputs.summary_path, String))
-        @test occursin("mdc=1.25", read(outputs.summary_path, String))
-        @test occursin("realization\tseed\tlabeled_particle_count", read(outputs.realizations_path, String))
+        @test occursin("aggregation=mean_across_realizations", read(outputs.summary_path, String))
+        @test occursin("realizations=3", read(outputs.summary_path, String))
+        @test occursin("realization_seeds=44,10051,20058", read(outputs.summary_path, String))
+        @test occursin("requested_labeled_particles=9", read(outputs.summary_path, String))
+        @test occursin("labeled_particle_count=9", read(outputs.summary_path, String))
+        @test occursin("realization_mdc_values=", read(outputs.summary_path, String))
+        @test occursin("mdc_standard_deviation=", read(outputs.summary_path, String))
+        @test occursin("realization\tseed\tlabeled_particle_count\tinitial_times\tsample_count\tcv0\tcv_final\tmdc", read(outputs.realizations_path, String))
+        @test occursin("3\t20058", read(outputs.realizations_path, String))
     end
 end
 
@@ -807,6 +856,10 @@ end
         [2, 2, 2],
         1.25,
         1 / log(2),
+        [1.25],
+        [2.5],
+        [0.0],
+        [6],
     )
     metrics = MammographySimulation.build_comparable_diffusion_metrics(
         autocorrelation,
@@ -819,6 +872,8 @@ end
     @test metrics.mdc == 1.25
     @test isapprox(metrics.mdc0, mdc0)
     @test isapprox(metrics.mdc_star, 1.25 / mdc0)
+    @test metrics.mdc_standard_deviation == 0.0
+    @test metrics.realization_mdc_values == [1.25]
     @test occursin("academico", metrics.purpose_note)
 
     mktempdir() do dir
@@ -984,6 +1039,7 @@ end
                 kbt = 1.0,
                 tau = 1.0,
                 rotation_angle = pi / 2,
+                realizations = 2,
                 labeled_particles = 15,
                 correlation_initial_times = 2,
                 output_times = [0, 3],
@@ -1046,13 +1102,20 @@ end
         @test occursin("mpc_collision_model=multiparticle_collision_by_cell", read(result.simulation_summary_path, String))
         @test occursin("mpc_collision_particle_count=90", read(result.simulation_summary_path, String))
         @test occursin("mpc_concentration_model=particles_per_cell_snapshot", read(result.simulation_summary_path, String))
+        @test occursin("mpc_concentration_aggregation=mean_across_realizations", read(result.simulation_summary_path, String))
+        @test occursin("mpc_concentration_realizations=2", read(result.simulation_summary_path, String))
+        @test occursin("mpc_concentration_realization_seeds=42,10049", read(result.simulation_summary_path, String))
         @test occursin("mpc_concentration_captured_output_times=0,3", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_model=green_kubo_xy", read(result.simulation_summary_path, String))
+        @test occursin("velocity_autocorrelation_aggregation=mean_across_realizations", read(result.simulation_summary_path, String))
+        @test occursin("velocity_autocorrelation_realizations=2", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_requested_labeled_particles=15", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_labeled_particle_count=15", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_requested_initial_time_count=2", read(result.simulation_summary_path, String))
+        @test occursin("velocity_autocorrelation_realization_mdc_values=", read(result.simulation_summary_path, String))
         @test occursin("diffusion_metric_model=mdc_normalized_against_theoretical_reference", read(result.simulation_summary_path, String))
         @test occursin("diffusion_metric_mdc_star=", read(result.simulation_summary_path, String))
+        @test occursin("diffusion_metric_mdc_standard_deviation=", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
@@ -1067,13 +1130,20 @@ end
         @test occursin("\"mpc_collision_model\": \"multiparticle_collision_by_cell\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_collision_particle_count\": 90", read(result.mpc_config_path, String))
         @test occursin("\"mpc_concentration_model\": \"particles_per_cell_snapshot\"", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_concentration_aggregation\": \"mean_across_realizations\"", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_concentration_realizations\": 2", read(result.mpc_config_path, String))
+        @test occursin("\"mpc_concentration_realization_seeds\": [42, 10049]", read(result.mpc_config_path, String))
         @test occursin("\"mpc_concentration_snapshot_count\": 2", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_model\": \"green_kubo_xy\"", read(result.mpc_config_path, String))
+        @test occursin("\"velocity_autocorrelation_aggregation\": \"mean_across_realizations\"", read(result.mpc_config_path, String))
+        @test occursin("\"velocity_autocorrelation_realizations\": 2", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_requested_labeled_particles\": 15", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_labeled_particle_count\": 15", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_requested_initial_time_count\": 2", read(result.mpc_config_path, String))
+        @test occursin("\"velocity_autocorrelation_realization_mdc_values\"", read(result.mpc_config_path, String))
         @test occursin("\"diffusion_metric_model\": \"mdc_normalized_against_theoretical_reference\"", read(result.mpc_config_path, String))
         @test occursin("\"diffusion_metric_mdc0\"", read(result.mpc_config_path, String))
+        @test occursin("\"diffusion_metric_mdc_standard_deviation\"", read(result.mpc_config_path, String))
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
         @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
