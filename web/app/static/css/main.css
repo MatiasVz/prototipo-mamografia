@@ -1192,6 +1192,77 @@ select:focus-visible {
   padding: 12px 14px;
 }
 
+.result-reading-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.result-reading-card {
+  background: #f8fbfd;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+}
+
+.result-reading-card h5 {
+  color: var(--color-primary-dark);
+  font-size: 14px;
+  margin: 0;
+}
+
+.result-reading-card p {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.concept-glossary {
+  border: 1px solid #c7e2dc;
+  border-radius: 8px;
+  background: #f6fbfa;
+}
+
+.concept-glossary > summary {
+  color: var(--color-primary-dark);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 13px 14px;
+  text-transform: uppercase;
+}
+
+.concept-glossary[open] > summary {
+  border-bottom: 1px solid #c7e2dc;
+}
+
+.concept-glossary dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+}
+
+.concept-glossary div {
+  display: grid;
+  gap: 4px;
+}
+
+.concept-glossary dt {
+  color: var(--color-primary-dark);
+  font-weight: 800;
+}
+
+.concept-glossary dd {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
 .result-section {
   display: grid;
   gap: 12px;
@@ -1220,6 +1291,13 @@ select:focus-visible {
 .result-map-card h5 {
   font-size: 15px;
   margin: 0;
+}
+
+.result-map-card__reading {
+  background: #f8fbfd;
+  border-left: 3px solid var(--color-primary);
+  border-radius: 6px;
+  padding: 10px;
 }
 
 .result-map-card__frame {
@@ -1334,7 +1412,17 @@ select:focus-visible {
   border-bottom: 1px solid var(--color-border);
   padding: 10px 12px;
   text-align: left;
-  white-space: nowrap;
+  vertical-align: top;
+}
+
+.autocorrelation-table td {
+  min-width: 120px;
+}
+
+.autocorrelation-table td:last-child {
+  color: var(--color-muted);
+  min-width: 220px;
+  white-space: normal;
 }
 
 .autocorrelation-table th {
@@ -1904,6 +1992,10 @@ body.modal-open {
   }
 
   .result-map-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .result-reading-grid {
     grid-template-columns: 1fr;
   }
 

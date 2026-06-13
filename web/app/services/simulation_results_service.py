@@ -12,6 +12,10 @@ STATIC_RESULT_IMAGES = {
             "Muestra que parte de la ROI fue considerada tejido valido y separa "
             "esa zona del fondo externo."
         ),
+        "reading": (
+            "Las zonas claras forman el dominio donde se permite simular; las "
+            "zonas oscuras corresponden al fondo o a regiones excluidas."
+        ),
     },
     "obstacle_radius_map": {
         "filename": "obstacle_radius_map.pgm",
@@ -19,6 +23,10 @@ STATIC_RESULT_IMAGES = {
         "description": (
             "Muestra como las intensidades claras y oscuras de la ROI se "
             "tradujeron en obstaculos para el modelo MPC."
+        ),
+        "reading": (
+            "Las variaciones de gris representan diferencias del tejido que el "
+            "modelo convierte en obstaculos para las particulas."
         ),
     },
     "density_map": {
@@ -28,28 +36,68 @@ STATIC_RESULT_IMAGES = {
             "Indica por donde pasaron o se acumularon mas particulas durante "
             "la simulacion."
         ),
+        "reading": (
+            "Las zonas mas claras tuvieron mas visitas de particulas; las zonas "
+            "oscuras recibieron menos visitas o quedaron fuera del dominio."
+        ),
     },
     "mpc_concentration_initial": {
         "filename": "mpc_concentration_initial.pgm",
         "title": "Concentracion al inicio",
         "description": "Distribucion de particulas al comenzar la simulacion.",
+        "reading": "Sirve como punto de partida para comparar como cambia la distribucion.",
     },
     "mpc_concentration_final": {
         "filename": "mpc_concentration_final.pgm",
         "title": "Concentracion al final",
         "description": "Distribucion de particulas despues de ejecutar la simulacion.",
+        "reading": "Permite observar hacia donde se desplazaron o acumularon las particulas.",
     },
     "mpc_high_concentration_initial": {
         "filename": "mpc_high_concentration_initial.pgm",
         "title": "Zonas mas concentradas al inicio",
         "description": "Marca las celdas con mayor acumulacion inicial de particulas.",
+        "reading": "Los puntos claros senalan las zonas con concentracion superior al umbral.",
     },
     "mpc_high_concentration_final": {
         "filename": "mpc_high_concentration_final.pgm",
         "title": "Zonas mas concentradas al final",
         "description": "Marca las celdas con mayor acumulacion final de particulas.",
+        "reading": "Ayuda a comparar si las zonas de mayor acumulacion cambiaron con el tiempo.",
     },
 }
+
+RESULT_CONCEPTS = (
+    {
+        "term": "MDC",
+        "meaning": (
+            "Coeficiente de difusion calculado desde el movimiento de las particulas. "
+            "En simple, resume que tan facil se movieron dentro de la ROI."
+        ),
+    },
+    {
+        "term": "MDC0",
+        "meaning": (
+            "Referencia teorica sin obstaculos. Funciona como una comparacion contra "
+            "un espacio libre ideal."
+        ),
+    },
+    {
+        "term": "MDC*",
+        "meaning": (
+            "Relacion entre MDC y MDC0. Si vale 0.30, la movilidad simulada equivale "
+            "aproximadamente al 30% de la referencia libre."
+        ),
+    },
+    {
+        "term": "Cv",
+        "meaning": (
+            "Mide la memoria del movimiento. Valores positivos indican que las "
+            "particulas conservan direccion; valores cercanos a cero indican perdida "
+            "de memoria por choques y cambios de direccion."
+        ),
+    },
+)
 
 CONCENTRATION_KEY_PATTERN = re.compile(r"^mpc_concentration_t_(\d+)$")
 
@@ -77,6 +125,7 @@ def build_mpc_results_view(results_dir: Path | None):
     )
     technical_files = _build_technical_files(results_dir)
     velocity_summary_items = _build_velocity_summary(velocity_summary)
+    interpretation_items = _build_interpretation_items(metrics, config, diffusion)
     has_advanced_outputs = bool(
         config
         or diffusion
@@ -96,6 +145,8 @@ def build_mpc_results_view(results_dir: Path | None):
         "autocorrelation_rows": autocorrelation_rows,
         "technical_files": technical_files,
         "velocity_summary": velocity_summary_items,
+        "interpretation_items": interpretation_items,
+        "concept_items": RESULT_CONCEPTS,
         "explanation": (
             "La ROI funciona como el terreno de la simulacion. Sus intensidades "
             "se convierten en obstaculos y las particulas MPC se mueven dentro "
@@ -127,6 +178,8 @@ def _empty_results_view():
         "autocorrelation_rows": (),
         "technical_files": (),
         "velocity_summary": (),
+        "interpretation_items": (),
+        "concept_items": RESULT_CONCEPTS,
         "explanation": "",
     }
 
@@ -155,6 +208,10 @@ def _build_concentration_maps(results_dir, concentration_summary):
                     "description": (
                         "Distribucion de particulas capturada en este momento "
                         "de la simulacion."
+                    ),
+                    "reading": (
+                        "Permite ver si la concentracion se mantiene, se dispersa "
+                        "o se acumula en una zona de la ROI."
                     ),
                 }
             )
@@ -187,7 +244,74 @@ def _build_image_card(results_dir, key):
         "key": key,
         "title": definition["title"],
         "description": definition["description"],
+        "reading": definition["reading"],
     }
+
+
+def _build_interpretation_items(metrics, config, diffusion):
+    items = []
+    mdc = _float_or_none(diffusion.get("mdc"))
+    mdc0 = _float_or_none(diffusion.get("mdc0"))
+    mdc_star = _float_or_none(diffusion.get("mdc_star"))
+    particle_count = _float_or_none(config.get("mpc_particle_count"))
+    obstacle_collisions = _float_or_none(
+        config.get("mpc_streaming_obstacle_collision_count"),
+    )
+    steps = _float_or_none(config.get("steps") or metrics.get("steps"))
+
+    if mdc_star is not None:
+        items.append(
+            {
+                "label": "Lectura de MDC*",
+                "detail": (
+                    "La movilidad simulada fue aproximadamente "
+                    f"{_format_percent_value(mdc_star)} de la referencia libre. "
+                    "Mientras menor sea este valor, mas restringido fue el movimiento "
+                    "de las particulas frente al caso sin obstaculos."
+                ),
+            }
+        )
+
+    if mdc is not None and mdc0 is not None:
+        items.append(
+            {
+                "label": "Comparacion con espacio libre",
+                "detail": (
+                    f"El MDC calculado fue {_format_value(mdc, 'decimal')} y la "
+                    f"referencia libre fue {_format_value(mdc0, 'decimal')}. "
+                    "Esta diferencia resume el efecto de los obstaculos creados "
+                    "desde la ROI."
+                ),
+            }
+        )
+
+    if obstacle_collisions is not None and particle_count is not None:
+        items.append(
+            {
+                "label": "Choques durante la corrida",
+                "detail": (
+                    "Se registraron "
+                    f"{_format_value(obstacle_collisions, 'integer')} rebotes contra "
+                    f"obstaculos con {_format_value(particle_count, 'integer')} "
+                    "particulas simuladas. Estos choques son parte del mecanismo que "
+                    "reduce o desvia la difusion."
+                ),
+            }
+        )
+
+    if steps is not None:
+        items.append(
+            {
+                "label": "Alcance temporal",
+                "detail": (
+                    f"La simulacion avanzo {_format_value(steps, 'integer')} pasos. "
+                    "Mas pasos permiten observar una evolucion mas larga, aunque "
+                    "tambien aumentan el tiempo de procesamiento."
+                ),
+            }
+        )
+
+    return tuple(items)
 
 
 def _build_primary_metrics(metrics, config, diffusion):
@@ -368,6 +492,7 @@ def _read_autocorrelation_rows(path, limit=8):
                         "lag": _format_value(row.get("lag"), "integer"),
                         "time": _format_value(row.get("time"), "decimal"),
                         "cv": _format_value(row.get("cv"), "decimal"),
+                        "meaning": _interpret_cv(row.get("cv")),
                     }
                 )
 
@@ -402,6 +527,35 @@ def _metric(label, value, hint, value_type="decimal"):
         "value": _format_value(value, value_type),
         "hint": hint,
     }
+
+
+def _float_or_none(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_percent_value(value):
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return "No disponible"
+
+
+def _interpret_cv(value):
+    numeric_value = _float_or_none(value)
+
+    if numeric_value is None:
+        return "No disponible"
+
+    if numeric_value > 0.1:
+        return "Conserva parte de la direccion inicial"
+
+    if numeric_value < -0.1:
+        return "Cambio fuerte de direccion"
+
+    return "Memoria del movimiento casi perdida"
 
 
 def _format_value(value, value_type):
