@@ -26,6 +26,10 @@ from ..services.simulation_queue_service import (
     SimulationQueueError,
     enqueue_case_simulation,
 )
+from ..services.simulation_comparison_service import (
+    build_case_comparison,
+    is_case_mpc_comparable,
+)
 from ..services.simulation_results_service import (
     build_mpc_results_view,
     get_result_image_path,
@@ -104,6 +108,56 @@ def upload_mammogram():
         return redirect(url_for("upload.upload_mammogram"))
 
     return render_template("upload.html", accepted_formats=accepted_formats)
+
+
+@upload_bp.get("/comparar")
+def compare_cases():
+    case_options = _get_comparable_case_options()
+    selected_case_a_id = _get_optional_case_id("case_a_id")
+    selected_case_b_id = _get_optional_case_id("case_b_id")
+    comparison = None
+    comparison_errors = []
+
+    if selected_case_a_id is not None and selected_case_b_id is not None:
+        case_a = db.session.get(Case, selected_case_a_id)
+        case_b = db.session.get(Case, selected_case_b_id)
+
+        if case_a is None:
+            comparison_errors.append(f"No existe el caso #{selected_case_a_id}.")
+
+        if case_b is None:
+            comparison_errors.append(f"No existe el caso #{selected_case_b_id}.")
+
+        if not comparison_errors:
+            results_dir_a = _get_case_simulation_results_path(case_a)
+            results_dir_b = _get_case_simulation_results_path(case_b)
+            comparison = build_case_comparison(
+                case_a,
+                case_b,
+                results_dir_a,
+                results_dir_b,
+            )
+
+            for map_pair in comparison["map_pairs"]:
+                map_pair["case_a_url"] = url_for(
+                    "upload.case_simulation_result_image",
+                    case_id=case_a.id,
+                    result_key=map_pair["key"],
+                )
+                map_pair["case_b_url"] = url_for(
+                    "upload.case_simulation_result_image",
+                    case_id=case_b.id,
+                    result_key=map_pair["key"],
+                )
+
+    return render_template(
+        "case_compare.html",
+        case_options=case_options,
+        selected_case_a_id=selected_case_a_id,
+        selected_case_b_id=selected_case_b_id,
+        comparison=comparison,
+        comparison_errors=tuple(comparison_errors),
+    )
 
 
 @upload_bp.get("/casos/<int:case_id>")
@@ -422,6 +476,18 @@ def _get_requested_input_mode():
         return None
 
     return input_mode
+
+
+def _get_optional_case_id(field_name):
+    raw_value = request.args.get(field_name)
+
+    if not raw_value:
+        return None
+
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _get_requested_roi_crop():
@@ -872,6 +938,31 @@ def _get_mpc_results(case):
         )
 
     return results_view
+
+
+def _get_comparable_case_options():
+    completed_cases = (
+        Case.query.filter(Case.status == CaseStatus.COMPLETED)
+        .order_by(Case.id.desc())
+        .all()
+    )
+    options = []
+
+    for case in completed_cases:
+        results_dir = _get_case_simulation_results_path(case)
+
+        if not is_case_mpc_comparable(results_dir):
+            continue
+
+        options.append(
+            {
+                "id": case.id,
+                "label": f"Caso #{case.id} - {_format_datetime(case.created_at)}",
+                "input_mode": _format_input_mode(case.input_mode),
+            }
+        )
+
+    return tuple(options)
 
 
 def _get_case_simulation_results_path(case):
