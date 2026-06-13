@@ -339,12 +339,24 @@
               <h3 class="detail-group__title">Error de procesamiento</h3>
               <dl class="detail-list">
                 <div>
-                  <dt>Mensaje</dt>
+                  <dt>Mensaje para usuario</dt>
                   <dd>{{ processing_error_detail.message }}</dd>
+                </div>
+                <div>
+                  <dt>Accion sugerida</dt>
+                  <dd>{{ processing_error_detail.action }}</dd>
                 </div>
                 <div>
                   <dt>Categoria</dt>
                   <dd>{{ processing_error_detail.category }}</dd>
+                </div>
+                <div>
+                  <dt>Codigo tecnico</dt>
+                  <dd>{{ processing_error_detail.technical_category }}</dd>
+                </div>
+                <div>
+                  <dt>Detalle tecnico</dt>
+                  <dd>{{ processing_error_detail.technical_message }}</dd>
                 </div>
                 <div>
                   <dt>Tiempo maximo</dt>
