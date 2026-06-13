@@ -425,6 +425,29 @@
           Cargar otra imagen
         </a>
       </aside>
+
+      <section class="case-export-panel" aria-labelledby="case-export-title">
+        <p class="eyebrow">Exportacion</p>
+        <h2 id="case-export-title">Reporte y evidencia</h2>
+        <p>
+          Descarga una version legible del caso o un paquete completo con archivos,
+          mapas, metricas y trazabilidad. El contenido es academico y no diagnostico.
+        </p>
+        <div class="case-export-actions">
+          <a
+            class="button button--primary"
+            href="{{ url_for('upload.export_case_report', case_id=case.id) }}"
+          >
+            Descargar reporte
+          </a>
+          <a
+            class="button button--secondary"
+            href="{{ url_for('upload.export_case_package', case_id=case.id) }}"
+          >
+            Descargar paquete ZIP
+          </a>
+        </div>
+      </section>
     </div>
   </section>
 {% endblock %}

@@ -1,4 +1,5 @@
 import json
+from io import BytesIO
 from pathlib import Path
 
 from flask import (
@@ -17,6 +18,10 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from ..extensions import db
 from ..models import Case, CaseStatus, InputMode
+from ..services.case_export_service import (
+    build_case_export_bundle,
+    build_case_results_package,
+)
 from ..services.case_registration_service import register_case_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
 from ..services.preview_service import ensure_preview_for_case, ensure_preview_for_path
@@ -217,6 +222,42 @@ def case_detail(case_id):
         preview_url=url_for("upload.case_preview", case_id=case.id) if preview else None,
         auto_refresh_seconds=_get_auto_refresh_seconds(case),
         can_enqueue_simulation=_can_enqueue_simulation(case),
+    )
+
+
+@upload_bp.get("/casos/<int:case_id>/exportar/reporte")
+def export_case_report(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    bundle = build_case_export_bundle(case, current_app.config["UPLOAD_FOLDER"])
+    report_buffer = BytesIO(bundle.report_markdown.encode("utf-8"))
+
+    return send_file(
+        report_buffer,
+        mimetype="text/markdown",
+        as_attachment=True,
+        download_name=bundle.report_filename,
+    )
+
+
+@upload_bp.get("/casos/<int:case_id>/exportar/paquete")
+def export_case_package(case_id):
+    case = db.session.get(Case, case_id)
+
+    if case is None:
+        abort(404)
+
+    bundle = build_case_export_bundle(case, current_app.config["UPLOAD_FOLDER"])
+    package_buffer = build_case_results_package(bundle)
+
+    return send_file(
+        package_buffer,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=bundle.package_filename,
     )
 
 
@@ -635,6 +676,7 @@ def _build_case_list_row(case):
         "detail_url": url_for("upload.case_detail", case_id=case.id),
         "results_url": url_for("upload.case_detail", case_id=case.id)
         + "#simulation-results",
+        "report_url": url_for("upload.export_case_report", case_id=case.id),
         "crop_url": url_for("upload.crop_case_roi", case_id=case.id),
         "error_message": case.error_message,
     }
