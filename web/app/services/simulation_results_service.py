@@ -350,6 +350,11 @@ def _build_primary_metrics(metrics, config, diffusion):
                 "Compara la difusion del caso frente a la referencia libre.",
             ),
             _metric(
+                "Variacion entre corridas",
+                diffusion.get("mdc_standard_deviation"),
+                "Indica cuanto cambiaron los valores MDC entre realizaciones.",
+            ),
+            _metric(
                 "Particulas simuladas",
                 config.get("mpc_particle_count"),
                 "Elementos matematicos usados para representar movimiento en la ROI.",

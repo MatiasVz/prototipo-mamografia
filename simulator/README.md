@@ -116,7 +116,7 @@ Cuando el caso termina en estado `completado`, la app web puede presentar:
 | `kbt` | Energia termica reducida. |
 | `tau` | Paso temporal reducido. |
 | `rotation-angle` | Angulo de rotacion usado en colision multiparticula. |
-| `realizations` | Numero de realizaciones estadisticas. |
+| `realizations` | Numero de realizaciones estadisticas independientes usadas para promediar `Cv`, `MDC`, `MDC*` y mapas de concentracion cuando aplique. |
 | `labeled-particles` | Particulas solicitadas para autocorrelacion; por defecto se piden 500 y, si la ROI tiene menos particulas disponibles, se usan las disponibles sin detener la corrida. |
 | `correlation-initial-times` | Cantidad de tiempos iniciales usados para `Cv`. |
 | `output-times` | Tiempos donde se capturan mapas de concentracion. |
@@ -141,3 +141,13 @@ julia --project=simulator simulator/scripts/validate_synthetic_cases.jl `
 ```
 
 La validacion revisa dominio, obstaculos, conservacion de particulas y generacion de metricas comparables.
+
+## Realizaciones y promedios
+
+Cuando `realizations` es mayor que `1`, el simulador ejecuta corridas independientes con semillas derivadas de la semilla base. El resultado consolidado guarda:
+
+- `Cv` promedio en `velocity_autocorrelation.tsv`;
+- MDC promedio y dispersion entre realizaciones en `diffusion_metrics.json`;
+- detalle por realizacion en `velocity_autocorrelation_realizations.tsv`;
+- mapas de concentracion promedio en los archivos `mpc_concentration_*.pgm`;
+- semillas usadas en `mpc_config.json` y resumenes tecnicos.

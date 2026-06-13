@@ -132,19 +132,21 @@ end
 
 struct MpcConcentrationSnapshot
     time::Int
-    density_grid::Matrix{Int}
+    density_grid::Matrix{Float64}
     high_concentration_mask::BitMatrix
-    particle_count::Int
-    max_concentration::Int
+    particle_count::Float64
+    max_concentration::Float64
     high_concentration_cell_count::Int
 end
 
 struct MpcConcentrationResult
     requested_output_times::Vector{Int}
     captured_output_times::Vector{Int}
+    realization_count::Int
+    realization_seeds::Vector{Int}
     expected_density::Float64
     high_concentration_threshold::Float64
-    particle_count::Int
+    particle_count::Float64
     snapshots::Vector{MpcConcentrationSnapshot}
 end
 
@@ -162,6 +164,10 @@ struct MpcVelocityAutocorrelationResult
     sample_counts::Vector{Int}
     mdc::Float64
     characteristic_time::Union{Nothing,Float64}
+    realization_mdc_values::Vector{Float64}
+    realization_cv0_values::Vector{Float64}
+    realization_cv_final_values::Vector{Float64}
+    realization_sample_counts::Vector{Int}
 end
 
 struct MpcComparableDiffusionMetrics
@@ -172,6 +178,8 @@ struct MpcComparableDiffusionMetrics
     mdc::Float64
     mdc0::Float64
     mdc_star::Float64
+    mdc_standard_deviation::Float64
+    realization_mdc_values::Vector{Float64}
     n0::Float64
     mass::Float64
     kbt::Float64
@@ -533,6 +541,9 @@ function run_case(config::SimulationRunConfig)
         println(io, "mpc_collision_cell_count=$(mpc_collision.collision_cell_count)")
         println(io, "mpc_collision_particle_count=$(mpc_collision.particle_count)")
         println(io, "mpc_concentration_model=particles_per_cell_snapshot")
+        println(io, "mpc_concentration_aggregation=mean_across_realizations")
+        println(io, "mpc_concentration_realizations=$(mpc_concentration.realization_count)")
+        println(io, "mpc_concentration_realization_seeds=$(join(mpc_concentration.realization_seeds, ","))")
         println(io, "mpc_concentration_requested_output_times=$(join(mpc_concentration.requested_output_times, ","))")
         println(io, "mpc_concentration_captured_output_times=$(join(mpc_concentration.captured_output_times, ","))")
         println(io, "mpc_concentration_expected_density_n0=$(mpc_concentration.expected_density)")
@@ -549,6 +560,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "diffusion_metric_mdc=$(mpc_diffusion_metrics.mdc)")
         println(io, "diffusion_metric_mdc0=$(mpc_diffusion_metrics.mdc0)")
         println(io, "diffusion_metric_mdc_star=$(mpc_diffusion_metrics.mdc_star)")
+        println(io, "diffusion_metric_mdc_standard_deviation=$(mpc_diffusion_metrics.mdc_standard_deviation)")
         println(io, "diffusion_metric_units=$(mpc_diffusion_metrics.units)")
         println(io, "diffusion_metric_reference_origin=$(mpc_diffusion_metrics.reference_origin)")
         println(io, "attempted_moves=$(simulation_result.attempted_moves)")
@@ -1600,47 +1612,76 @@ function generate_mpc_concentration_maps(
         steps,
     )
     captured_output_set = Set(captured_output_times)
-    particles = copy_mpc_particles(initialization.particles)
-    snapshots = MpcConcentrationSnapshot[]
+    density_sums = Dict(
+        time => zeros(Float64, space.height, space.width)
+        for time in captured_output_times
+    )
+    realization_seeds = Int[]
+    particle_count_sum = 0.0
 
-    if 0 in captured_output_set
-        push!(snapshots, build_mpc_concentration_snapshot(0, particles, space, config))
-    end
-
-    for step in 1:steps
-        step_initialization = MpcParticleInitialization(
-            initialization.seed,
-            length(particles),
-            initialization.domain_volume,
-            initialization.velocity_sigma,
-            initialization.rejected_samples,
-            particles,
-        )
-        step_streaming = stream_mpc_particles(
-            step_initialization,
+    for realization_index in 1:config.realizations
+        realization_seed = seed + (realization_index - 1) * 10007
+        realization_initialization = realization_index == 1 ? initialization : initialize_mpc_particles(
             space,
             config;
-            steps = 1,
+            seed = realization_seed,
         )
-        step_collision = collide_mpc_particles(
-            step_streaming,
-            space,
-            config;
-            seed = seed + step,
-        )
-        particles = copy_mpc_particles(step_collision.particles)
+        particles = copy_mpc_particles(realization_initialization.particles)
 
-        if step in captured_output_set
-            push!(snapshots, build_mpc_concentration_snapshot(step, particles, space, config))
+        push!(realization_seeds, realization_seed)
+        particle_count_sum += length(realization_initialization.particles)
+
+        if 0 in captured_output_set
+            density_sums[0] .+= build_mpc_concentration_grid(particles, space)
+        end
+
+        for step in 1:steps
+            step_initialization = MpcParticleInitialization(
+                realization_initialization.seed,
+                length(particles),
+                realization_initialization.domain_volume,
+                realization_initialization.velocity_sigma,
+                realization_initialization.rejected_samples,
+                particles,
+            )
+            step_streaming = stream_mpc_particles(
+                step_initialization,
+                space,
+                config;
+                steps = 1,
+            )
+            step_collision = collide_mpc_particles(
+                step_streaming,
+                space,
+                config;
+                seed = realization_seed + step,
+            )
+            particles = copy_mpc_particles(step_collision.particles)
+
+            if step in captured_output_set
+                density_sums[step] .+= build_mpc_concentration_grid(particles, space)
+            end
         end
     end
+
+    snapshots = [
+        build_mpc_concentration_snapshot_from_grid(
+            time,
+            density_sums[time] ./ config.realizations,
+            space,
+            config,
+        )
+        for time in captured_output_times
+    ]
 
     return MpcConcentrationResult(
         requested_output_times,
         captured_output_times,
+        config.realizations,
+        realization_seeds,
         config.n0,
         high_concentration_threshold(config),
-        length(initialization.particles),
+        particle_count_sum / config.realizations,
         snapshots,
     )
 end
@@ -1669,6 +1710,21 @@ function build_mpc_concentration_snapshot(
     config::MpcModelConfig,
 )
     density_grid = build_mpc_concentration_grid(particles, space)
+
+    return build_mpc_concentration_snapshot_from_grid(
+        time,
+        density_grid,
+        space,
+        config,
+    )
+end
+
+function build_mpc_concentration_snapshot_from_grid(
+    time::Int,
+    density_grid::Matrix{Float64},
+    space::SimulationSpace,
+    config::MpcModelConfig,
+)
     high_mask = BitMatrix((density_grid .> high_concentration_threshold(config)) .& space.domain_mask)
 
     return MpcConcentrationSnapshot(
@@ -1682,7 +1738,7 @@ function build_mpc_concentration_snapshot(
 end
 
 function build_mpc_concentration_grid(particles::Vector{MpcParticle}, space::SimulationSpace)
-    density_grid = zeros(Int, space.height, space.width)
+    density_grid = zeros(Float64, space.height, space.width)
 
     for particle in particles
         cell_x, cell_y = particle_cell_indices(particle, space)
@@ -1690,7 +1746,7 @@ function build_mpc_concentration_grid(particles::Vector{MpcParticle}, space::Sim
             continue
         end
 
-        density_grid[cell_y + 1, cell_x + 1] += 1
+        density_grid[cell_y + 1, cell_x + 1] += 1.0
     end
 
     return density_grid
@@ -1784,9 +1840,15 @@ function calculate_velocity_autocorrelation(
     max_lag = minimum(length(history) - 1 for history in velocity_histories)
     cv_sums = zeros(Float64, max_lag + 1)
     sample_counts = zeros(Int, max_lag + 1)
+    realization_mdc_values = Float64[]
+    realization_cv0_values = Float64[]
+    realization_cv_final_values = Float64[]
+    realization_sample_counts = Int[]
 
     for history in velocity_histories
         particle_count = size(first(history), 1)
+        realization_cv_sums = zeros(Float64, max_lag + 1)
+        realization_counts = zeros(Int, max_lag + 1)
 
         for particle_id in labeled_particle_ids
             if !(1 <= particle_id <= particle_count)
@@ -1818,9 +1880,26 @@ function calculate_velocity_autocorrelation(
                         initial_velocity[2] * target_velocity[2]
                     )
                     sample_counts[lag + 1] += 1
+                    realization_cv_sums[lag + 1] += (
+                        initial_velocity[1] * target_velocity[1] +
+                        initial_velocity[2] * target_velocity[2]
+                    )
+                    realization_counts[lag + 1] += 1
                 end
             end
         end
+
+        realization_cv_values = [
+            sample_count == 0 ? 0.0 : cv_sum / sample_count
+            for (cv_sum, sample_count) in zip(realization_cv_sums, realization_counts)
+        ]
+        push!(
+            realization_mdc_values,
+            integrate_velocity_autocorrelation(realization_cv_values, tau, dimension),
+        )
+        push!(realization_cv0_values, first(realization_cv_values))
+        push!(realization_cv_final_values, last(realization_cv_values))
+        push!(realization_sample_counts, sum(realization_counts))
     end
 
     cv_values = [
@@ -1844,6 +1923,10 @@ function calculate_velocity_autocorrelation(
         sample_counts,
         mdc,
         characteristic_time,
+        realization_mdc_values,
+        realization_cv0_values,
+        realization_cv_final_values,
+        realization_sample_counts,
     )
 end
 
@@ -2028,6 +2111,7 @@ function build_comparable_diffusion_metrics(
 )
     mdc0 = calculate_theoretical_mdc0(config)
     mdc_star = calculate_mdc_star(autocorrelation.mdc, mdc0)
+    mdc_standard_deviation = standard_deviation(autocorrelation.realization_mdc_values)
 
     return MpcComparableDiffusionMetrics(
         "mdc_normalized_against_theoretical_reference",
@@ -2037,6 +2121,8 @@ function build_comparable_diffusion_metrics(
         autocorrelation.mdc,
         mdc0,
         mdc_star,
+        mdc_standard_deviation,
+        autocorrelation.realization_mdc_values,
         config.n0,
         config.mass,
         config.kbt,
@@ -2046,6 +2132,17 @@ function build_comparable_diffusion_metrics(
         length(autocorrelation.initial_times),
         autocorrelation.characteristic_time,
     )
+end
+
+function standard_deviation(values::Vector{Float64})
+    if length(values) <= 1
+        return 0.0
+    end
+
+    average = sum(values) / length(values)
+    variance = sum((value - average)^2 for value in values) / (length(values) - 1)
+
+    return sqrt(variance)
 end
 
 function synthetic_validation_case_names()
@@ -2609,6 +2706,9 @@ function write_mpc_config_json(
             fields,
             [
                 ("mpc_concentration_model", "particles_per_cell_snapshot"),
+                ("mpc_concentration_aggregation", "mean_across_realizations"),
+                ("mpc_concentration_realizations", mpc_concentration.realization_count),
+                ("mpc_concentration_realization_seeds", mpc_concentration.realization_seeds),
                 ("mpc_concentration_requested_output_times", mpc_concentration.requested_output_times),
                 ("mpc_concentration_captured_output_times", mpc_concentration.captured_output_times),
                 ("mpc_concentration_expected_density_n0", mpc_concentration.expected_density),
@@ -2624,6 +2724,7 @@ function write_mpc_config_json(
             fields,
             [
                 ("velocity_autocorrelation_model", "green_kubo_xy"),
+                ("velocity_autocorrelation_aggregation", "mean_across_realizations"),
                 ("velocity_autocorrelation_dimension", mpc_velocity_autocorrelation.dimension),
                 ("velocity_autocorrelation_tau", mpc_velocity_autocorrelation.tau),
                 ("velocity_autocorrelation_realizations", mpc_velocity_autocorrelation.realization_count),
@@ -2637,6 +2738,7 @@ function write_mpc_config_json(
                     mpc_velocity_autocorrelation.requested_initial_time_count,
                 ),
                 ("velocity_autocorrelation_initial_times", mpc_velocity_autocorrelation.initial_times),
+                ("velocity_autocorrelation_realization_mdc_values", mpc_velocity_autocorrelation.realization_mdc_values),
                 ("velocity_autocorrelation_mdc", mpc_velocity_autocorrelation.mdc),
                 ("velocity_autocorrelation_characteristic_time", mpc_velocity_autocorrelation.characteristic_time),
             ],
@@ -2653,6 +2755,7 @@ function write_mpc_config_json(
                 ("diffusion_metric_mdc", mpc_diffusion_metrics.mdc),
                 ("diffusion_metric_mdc0", mpc_diffusion_metrics.mdc0),
                 ("diffusion_metric_mdc_star", mpc_diffusion_metrics.mdc_star),
+                ("diffusion_metric_mdc_standard_deviation", mpc_diffusion_metrics.mdc_standard_deviation),
                 ("diffusion_metric_purpose_note", mpc_diffusion_metrics.purpose_note),
             ],
         )
@@ -2956,18 +3059,21 @@ function write_mpc_concentration_summary(
 
     open(path, "w") do io
         println(io, "mpc_concentration_model=particles_per_cell_snapshot")
+        println(io, "aggregation=mean_across_realizations")
+        println(io, "realizations=$(concentration.realization_count)")
+        println(io, "realization_seeds=$(join(concentration.realization_seeds, ","))")
         println(io, "requested_output_times=$(join(concentration.requested_output_times, ","))")
         println(io, "captured_output_times=$(join(concentration.captured_output_times, ","))")
         println(io, "skipped_output_times=$(join(skipped_output_times, ","))")
         println(io, "expected_density_n0=$(concentration.expected_density)")
         println(io, "high_concentration_threshold=$(concentration.high_concentration_threshold)")
-        println(io, "particle_count=$(concentration.particle_count)")
+        println(io, "particle_count=$(compact_numeric_value(concentration.particle_count))")
         println(io, "snapshot_count=$(length(concentration.snapshots))")
         println(io, "domain_mask_applied=true")
 
         for snapshot in concentration.snapshots
-            println(io, "snapshot_t_$(snapshot.time)_particle_sum=$(snapshot.particle_count)")
-            println(io, "snapshot_t_$(snapshot.time)_max_concentration=$(snapshot.max_concentration)")
+            println(io, "snapshot_t_$(snapshot.time)_particle_sum=$(compact_numeric_value(snapshot.particle_count))")
+            println(io, "snapshot_t_$(snapshot.time)_max_concentration=$(compact_numeric_value(snapshot.max_concentration))")
             println(io, "snapshot_t_$(snapshot.time)_high_concentration_cell_count=$(snapshot.high_concentration_cell_count)")
         end
     end
@@ -3048,7 +3154,7 @@ function write_mpc_high_concentration_map_pgm(
     end
 end
 
-function build_concentration_map_values(density_grid::Matrix{Int}, domain_mask::BitMatrix)
+function build_concentration_map_values(density_grid::AbstractMatrix{<:Real}, domain_mask::BitMatrix)
     max_concentration = maximum(density_grid)
     concentration_values = zeros(Int, size(density_grid))
 
@@ -3118,6 +3224,7 @@ function write_velocity_autocorrelation_summary(
         println(io, "formula_cv=Cv(t)=<v(t0) dot v(t0+t)>")
         println(io, "formula_mdc=MDC=(1/d)*integral Cv(t) dt")
         println(io, "integration=discrete_trapezoidal_sum")
+        println(io, "aggregation=mean_across_realizations")
         println(io, "dimension=$(autocorrelation.dimension)")
         println(io, "tau=$(autocorrelation.tau)")
         println(io, "steps=$(autocorrelation.steps)")
@@ -3128,6 +3235,8 @@ function write_velocity_autocorrelation_summary(
         println(io, "requested_initial_time_count=$(autocorrelation.requested_initial_time_count)")
         println(io, "initial_times=$(join(autocorrelation.initial_times, ","))")
         println(io, "mdc=$(autocorrelation.mdc)")
+        println(io, "realization_mdc_values=$(join(autocorrelation.realization_mdc_values, ","))")
+        println(io, "mdc_standard_deviation=$(standard_deviation(autocorrelation.realization_mdc_values))")
         println(io, "characteristic_time=$(optional_value(autocorrelation.characteristic_time))")
         println(io, "cv0=$(first(autocorrelation.cv_values))")
         println(io, "cv_final=$(last(autocorrelation.cv_values))")
@@ -3139,12 +3248,12 @@ function write_velocity_autocorrelation_realizations_tsv(
     autocorrelation::MpcVelocityAutocorrelationResult,
 )
     open(path, "w") do io
-        println(io, "realization\tseed\tlabeled_particle_count\tinitial_times")
+        println(io, "realization\tseed\tlabeled_particle_count\tinitial_times\tsample_count\tcv0\tcv_final\tmdc")
 
         for (index, seed) in enumerate(autocorrelation.realization_seeds)
             println(
                 io,
-                "$(index)\t$(seed)\t$(autocorrelation.labeled_particle_count)\t$(join(autocorrelation.initial_times, ","))",
+                "$(index)\t$(seed)\t$(autocorrelation.labeled_particle_count)\t$(join(autocorrelation.initial_times, ","))\t$(autocorrelation.realization_sample_counts[index])\t$(autocorrelation.realization_cv0_values[index])\t$(autocorrelation.realization_cv_final_values[index])\t$(autocorrelation.realization_mdc_values[index])",
             )
         end
     end
@@ -3200,11 +3309,14 @@ function write_comparable_diffusion_metrics_summary(
         println(io, "reference_origin=$(metrics.reference_origin)")
         println(io, "purpose_note=$(metrics.purpose_note)")
         println(io, "units=$(metrics.units)")
+        println(io, "aggregation=mean_across_realizations")
         println(io, "formula_mdc_star=MDC* = MDC / MDC0")
         println(io, "formula_mdc0=(kBT*tau/(2*m))*((2*n0 + 1 - exp(-n0))/(n0 - 1 + exp(-n0)))")
         println(io, "mdc=$(metrics.mdc)")
         println(io, "mdc0=$(metrics.mdc0)")
         println(io, "mdc_star=$(metrics.mdc_star)")
+        println(io, "mdc_standard_deviation=$(metrics.mdc_standard_deviation)")
+        println(io, "realization_mdc_values=$(join(metrics.realization_mdc_values, ","))")
         println(io, "n0=$(metrics.n0)")
         println(io, "mass=$(metrics.mass)")
         println(io, "kbt=$(metrics.kbt)")
@@ -3355,9 +3467,12 @@ function comparable_diffusion_metric_fields(metrics::MpcComparableDiffusionMetri
         ("reference_origin", metrics.reference_origin),
         ("purpose_note", metrics.purpose_note),
         ("units", metrics.units),
+        ("aggregation", "mean_across_realizations"),
         ("mdc", metrics.mdc),
         ("mdc0", metrics.mdc0),
         ("mdc_star", metrics.mdc_star),
+        ("mdc_standard_deviation", metrics.mdc_standard_deviation),
+        ("realization_mdc_values", metrics.realization_mdc_values),
         ("n0", metrics.n0),
         ("mass", metrics.mass),
         ("kbt", metrics.kbt),
@@ -3418,6 +3533,9 @@ function write_simulation_summary(
         end
         if mpc_concentration !== nothing
             println(io, "mpc_concentration_model=particles_per_cell_snapshot")
+            println(io, "mpc_concentration_aggregation=mean_across_realizations")
+            println(io, "mpc_concentration_realizations=$(mpc_concentration.realization_count)")
+            println(io, "mpc_concentration_realization_seeds=$(join(mpc_concentration.realization_seeds, ","))")
             println(io, "mpc_concentration_requested_output_times=$(join(mpc_concentration.requested_output_times, ","))")
             println(io, "mpc_concentration_captured_output_times=$(join(mpc_concentration.captured_output_times, ","))")
             println(io, "mpc_concentration_expected_density_n0=$(mpc_concentration.expected_density)")
@@ -3427,6 +3545,7 @@ function write_simulation_summary(
         end
         if mpc_velocity_autocorrelation !== nothing
             println(io, "velocity_autocorrelation_model=green_kubo_xy")
+            println(io, "velocity_autocorrelation_aggregation=mean_across_realizations")
             println(io, "velocity_autocorrelation_dimension=$(mpc_velocity_autocorrelation.dimension)")
             println(io, "velocity_autocorrelation_realizations=$(mpc_velocity_autocorrelation.realization_count)")
             println(io, "velocity_autocorrelation_requested_labeled_particles=$(mpc_velocity_autocorrelation.requested_labeled_particles)")
@@ -3434,6 +3553,8 @@ function write_simulation_summary(
             println(io, "velocity_autocorrelation_requested_initial_time_count=$(mpc_velocity_autocorrelation.requested_initial_time_count)")
             println(io, "velocity_autocorrelation_initial_times=$(join(mpc_velocity_autocorrelation.initial_times, ","))")
             println(io, "velocity_autocorrelation_mdc=$(mpc_velocity_autocorrelation.mdc)")
+            println(io, "velocity_autocorrelation_realization_mdc_values=$(join(mpc_velocity_autocorrelation.realization_mdc_values, ","))")
+            println(io, "velocity_autocorrelation_mdc_standard_deviation=$(standard_deviation(mpc_velocity_autocorrelation.realization_mdc_values))")
             println(io, "velocity_autocorrelation_characteristic_time=$(optional_value(mpc_velocity_autocorrelation.characteristic_time))")
         end
         if mpc_diffusion_metrics !== nothing
@@ -3443,6 +3564,7 @@ function write_simulation_summary(
             println(io, "diffusion_metric_mdc=$(mpc_diffusion_metrics.mdc)")
             println(io, "diffusion_metric_mdc0=$(mpc_diffusion_metrics.mdc0)")
             println(io, "diffusion_metric_mdc_star=$(mpc_diffusion_metrics.mdc_star)")
+            println(io, "diffusion_metric_mdc_standard_deviation=$(mpc_diffusion_metrics.mdc_standard_deviation)")
             println(io, "diffusion_metric_purpose_note=$(mpc_diffusion_metrics.purpose_note)")
         end
         println(io, "free_cell_count=$(free_cell_count)")
@@ -3748,6 +3870,16 @@ function optional_value(value)
     return value
 end
 
+function compact_numeric_value(value::Real)
+    numeric_value = Float64(value)
+
+    if isfinite(numeric_value) && isinteger(numeric_value)
+        return string(round(Int, numeric_value))
+    end
+
+    return string(value)
+end
+
 function tsv_value(value::Nothing)
     return ""
 end
@@ -3783,6 +3915,10 @@ end
 
 function json_value(value::AbstractVector{<:Integer})
     return "[" * join(string.(value), ", ") * "]"
+end
+
+function json_value(value::AbstractVector{<:AbstractFloat})
+    return "[" * join([json_value(item) for item in value], ", ") * "]"
 end
 
 function read_ascii_pgm_pixels(bytes::Vector{UInt8}, index::Int, pixel_count::Int, max_gray::Int)

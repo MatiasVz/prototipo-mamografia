@@ -496,6 +496,11 @@ def _build_metric_rows(metrics):
         ("MDC0", diffusion.get("mdc0"), "Referencia teorica sin obstaculos."),
         ("MDC*", diffusion.get("mdc_star"), "MDC normalizado para comparacion academica."),
         (
+            "Variacion MDC",
+            diffusion.get("mdc_standard_deviation"),
+            "Dispersion entre las realizaciones ejecutadas.",
+        ),
+        (
             "Particulas MPC",
             _first_value(config, preliminary, "mpc_particle_count", "particle_count"),
             "Cantidad de particulas usadas en la simulacion.",
