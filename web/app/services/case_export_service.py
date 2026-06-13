@@ -511,6 +511,11 @@ def _build_metric_rows(metrics):
             "Rebotes registrados contra obstaculos.",
         ),
         (
+            "Rebotes con borde de ROI",
+            config.get("mpc_streaming_domain_boundary_collision_count"),
+            "Intentos de salida del dominio mamario contenidos por la mascara.",
+        ),
+        (
             "Tasa de colision",
             preliminary.get("collision_rate"),
             "Proporcion preliminar de choques detectados.",
