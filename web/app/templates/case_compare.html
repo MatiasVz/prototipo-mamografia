@@ -21,6 +21,13 @@
       </div>
     </div>
 
+    <div class="inline-help" role="note">
+      <strong>Lectura rapida:</strong>
+      compara casos procesados bajo una mirada academica. La diferencia muestra
+      cuanto cambia el caso B respecto al caso A, pero no representa una conclusion
+      clinica.
+    </div>
+
     <form class="comparison-form" method="get" action="{{ url_for('upload.compare_cases') }}">
       <div class="form-field">
         <label for="case_a_id">Caso A</label>
@@ -93,8 +100,9 @@
         </div>
 
         <p class="comparison-notice">
-          La diferencia se calcula como caso B menos caso A. Los valores se usan
-          solo para analisis academico e investigativo.
+          La diferencia se calcula como caso B menos caso A. Usa esta vista para
+          revisar tendencias entre corridas, manteniendo la comparacion como
+          evidencia academica y no diagnostica.
         </p>
 
         {% if comparison.compatibility_warnings %}

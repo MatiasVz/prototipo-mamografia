@@ -30,6 +30,25 @@
     {% endfor %}
   </section>
 
+  <section class="context-help-grid" aria-label="Ayuda contextual del caso">
+    <article class="context-help-card">
+      <strong>ROI</strong>
+      <span>Zona de la imagen que se usa como region principal del analisis.</span>
+    </article>
+    <article class="context-help-card">
+      <strong>PGM</strong>
+      <span>Version en escala de grises que el simulador puede procesar.</span>
+    </article>
+    <article class="context-help-card">
+      <strong>MDC*</strong>
+      <span>Difusion normalizada para comparar el caso con una referencia libre.</span>
+    </article>
+    <article class="context-help-card">
+      <strong>Mapas</strong>
+      <span>Visualizaciones del comportamiento simulado, no nuevas mamografias.</span>
+    </article>
+  </section>
+
   <section class="case-detail-layout" aria-label="Detalle del caso cargado">
     <article class="case-detail-panel" aria-labelledby="case-data-title">
       <div class="panel-header">
@@ -100,11 +119,11 @@
           <div class="simulation-results__content">
             <div class="mpc-flow" aria-label="Flujo MPC del caso">
               <span>ROI</span>
-              <span>Caja plana</span>
-              <span>Obstaculos</span>
-              <span>Particulas MPC</span>
+              <span>Caja de simulacion</span>
+              <span>Obstaculos del tejido</span>
+              <span>Particulas</span>
               <span>Concentracion</span>
-              <span>Cv / MDC*</span>
+              <span>Difusion</span>
             </div>
 
             <p class="mpc-explanation">{{ mpc_results.explanation }}</p>
@@ -112,6 +131,10 @@
             {% if mpc_results.primary_metrics %}
               <section class="result-section" aria-labelledby="mpc-metrics-title">
                 <h4 id="mpc-metrics-title">Metricas principales</h4>
+                <p class="result-section__note">
+                  Estas metricas resumen el movimiento simulado. No indican un
+                  diagnostico; sirven para describir y comparar corridas academicas.
+                </p>
                 <dl class="metric-summary metric-summary--advanced" aria-label="Metricas MPC">
                   {% for metric in mpc_results.primary_metrics %}
                     <div class="metric-summary__item">
@@ -127,6 +150,10 @@
             {% if mpc_results.domain_maps %}
               <section class="result-section" aria-labelledby="domain-results-title">
                 <h4 id="domain-results-title">Dominio y obstaculos</h4>
+                <p class="result-section__note">
+                  Primero se separa la zona valida de la imagen y luego sus
+                  intensidades se transforman en obstaculos para el modelo.
+                </p>
                 <div class="result-map-grid">
                   {% for result_map in mpc_results.domain_maps %}
                     <article class="result-map-card">
@@ -147,6 +174,10 @@
             {% if mpc_results.concentration_maps %}
               <section class="result-section" aria-labelledby="concentration-results-title">
                 <h4 id="concentration-results-title">Mapas de concentracion MPC</h4>
+                <p class="result-section__note">
+                  Estos mapas muestran donde habia mas particulas al inicio,
+                  durante o al final de la simulacion.
+                </p>
                 <div class="result-map-grid">
                   {% for result_map in mpc_results.concentration_maps %}
                     <article class="result-map-card">
@@ -166,10 +197,11 @@
 
             {% if mpc_results.autocorrelation_rows %}
               <section class="result-section" aria-labelledby="autocorrelation-title">
-                <h4 id="autocorrelation-title">Autocorrelacion de velocidades Cv</h4>
+                <h4 id="autocorrelation-title">Memoria del movimiento (Cv)</h4>
                 <p class="result-section__note">
-                  Cv resume como cambia la direccion y velocidad de particulas
-                  etiquetadas durante la simulacion.
+                  Cv mide si las particulas conservan su direccion inicial. Valores
+                  cercanos a cero indican que el movimiento ya perdio memoria por
+                  colisiones y cambios de direccion.
                 </p>
                 <div class="autocorrelation-table-wrap">
                   <table class="autocorrelation-table">
@@ -195,8 +227,12 @@
             {% endif %}
 
             <details class="result-technical">
-              <summary>Parametros MPC y archivos generados</summary>
+              <summary>Parametros explicados y archivos generados</summary>
               <div class="result-technical__body">
+                <p class="result-section__note">
+                  Estos valores son condiciones del modelo de simulacion. No son
+                  datos clinicos del paciente.
+                </p>
                 {% if mpc_results.parameter_items %}
                   <dl class="metric-summary metric-summary--compact" aria-label="Parametros MPC">
                     {% for parameter in mpc_results.parameter_items %}
