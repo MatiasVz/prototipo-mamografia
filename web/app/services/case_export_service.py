@@ -550,14 +550,25 @@ def _build_parameter_rows(metrics):
             "Corridas usadas para promediar metricas.",
         ),
         (
-            "Particulas etiquetadas",
+            "Particulas solicitadas para Cv",
+            _first_value(
+                config,
+                diffusion,
+                "velocity_autocorrelation_requested_labeled_particles",
+                "requested_labeled_particles",
+                "labeled_particles",
+            ),
+            "Cantidad objetivo indicada para calcular la autocorrelacion de velocidades.",
+        ),
+        (
+            "Particulas usadas para Cv",
             _first_value(
                 config,
                 diffusion,
                 "velocity_autocorrelation_labeled_particle_count",
                 "labeled_particle_count",
             ),
-            "Particulas seguidas para calcular Cv.",
+            "Cantidad real seguida para calcular Cv y MDC; si no hay 500 disponibles, se usa el total posible.",
         ),
     )
 

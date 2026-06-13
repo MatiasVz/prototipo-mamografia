@@ -265,7 +265,7 @@ const DEFAULT_MPC_TAU = 1.0
 const DEFAULT_MPC_ROTATION_ANGLE = pi / 2
 const DEFAULT_MPC_ROTATION_POLICY = "random_sign_plus_minus_angle"
 const DEFAULT_MPC_REALIZATIONS = 1
-const DEFAULT_MPC_LABELED_PARTICLES = 25
+const DEFAULT_MPC_LABELED_PARTICLES = 500
 const DEFAULT_MPC_CORRELATION_INITIAL_TIMES = 1
 const DEFAULT_MPC_OUTPUT_TIMES = (0, 100, 500)
 const DEFAULT_MPC_GRID_SHIFT_ENABLED = false
@@ -321,7 +321,7 @@ Opciones:
   --tau                Paso temporal reducido. Por defecto: 1.
   --rotation-angle     Angulo de rotacion MPC en radianes. Por defecto: pi/2.
   --realizations       Numero de realizaciones estadisticas. Por defecto: 1.
-  --labeled-particles  Particulas etiquetadas para autocorrelacion. Por defecto: 25.
+  --labeled-particles  Particulas etiquetadas para autocorrelacion. Por defecto: 500.
   --correlation-initial-times  Numero de tiempos iniciales para Cv(t). Por defecto: 1.
   --output-times       Tiempos de salida separados por coma. Por defecto: 0,100,500.
   --grid-shift         true/false. Por defecto: false.
@@ -540,7 +540,9 @@ function run_case(config::SimulationRunConfig)
         println(io, "mpc_concentration_snapshot_count=$(length(mpc_concentration.snapshots))")
         println(io, "velocity_autocorrelation_model=green_kubo_xy")
         println(io, "velocity_autocorrelation_dimension=$(mpc_velocity_autocorrelation.dimension)")
+        println(io, "velocity_autocorrelation_requested_labeled_particles=$(mpc_velocity_autocorrelation.requested_labeled_particles)")
         println(io, "velocity_autocorrelation_labeled_particle_count=$(mpc_velocity_autocorrelation.labeled_particle_count)")
+        println(io, "velocity_autocorrelation_requested_initial_time_count=$(mpc_velocity_autocorrelation.requested_initial_time_count)")
         println(io, "velocity_autocorrelation_initial_times=$(join(mpc_velocity_autocorrelation.initial_times, ","))")
         println(io, "velocity_autocorrelation_mdc=$(mpc_velocity_autocorrelation.mdc)")
         println(io, "diffusion_metric_model=$(mpc_diffusion_metrics.metric_model)")
@@ -2625,7 +2627,15 @@ function write_mpc_config_json(
                 ("velocity_autocorrelation_dimension", mpc_velocity_autocorrelation.dimension),
                 ("velocity_autocorrelation_tau", mpc_velocity_autocorrelation.tau),
                 ("velocity_autocorrelation_realizations", mpc_velocity_autocorrelation.realization_count),
+                (
+                    "velocity_autocorrelation_requested_labeled_particles",
+                    mpc_velocity_autocorrelation.requested_labeled_particles,
+                ),
                 ("velocity_autocorrelation_labeled_particle_count", mpc_velocity_autocorrelation.labeled_particle_count),
+                (
+                    "velocity_autocorrelation_requested_initial_time_count",
+                    mpc_velocity_autocorrelation.requested_initial_time_count,
+                ),
                 ("velocity_autocorrelation_initial_times", mpc_velocity_autocorrelation.initial_times),
                 ("velocity_autocorrelation_mdc", mpc_velocity_autocorrelation.mdc),
                 ("velocity_autocorrelation_characteristic_time", mpc_velocity_autocorrelation.characteristic_time),

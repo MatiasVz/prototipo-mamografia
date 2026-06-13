@@ -281,6 +281,15 @@ end
         @test !config.mpc_config.grid_shift_enabled
         @test occursin("disabled_initially", config.mpc_config.grid_shift_decision)
 
+        default_config = parse_cli_args([
+            "--input",
+            input_path,
+            "--output",
+            output_dir,
+        ])
+
+        @test default_config.mpc_config.labeled_particles == 500
+
         @test_throws ArgumentError parse_cli_args([
             "--input",
             input_path,
@@ -356,6 +365,15 @@ end
     @test count(particle -> particle.labeled, initialization_a.particles) == 3
     @test all(particle -> particle.mass == 2.0, initialization_a.particles)
     @test all(particle -> particle.species == "fluid", initialization_a.particles)
+
+    capped_config = MpcModelConfig(
+        n0 = 1.0,
+        labeled_particles = 500,
+    )
+    capped_initialization = initialize_mpc_particles(space, capped_config; seed = 22)
+
+    @test length(capped_initialization.particles) == 9
+    @test count(particle -> particle.labeled, capped_initialization.particles) == 9
 
     for particle in initialization_a.particles
         @test 0.0 <= particle.x < space.lx
@@ -727,6 +745,23 @@ end
     @test isapprox(autocorrelation.mdc, 1.25)
     @test isapprox(autocorrelation.characteristic_time, 1 / log(2); atol = 1.0e-12)
 
+    small_space = build_simulation_space(synthetic_roi_image())
+    capped_config = MpcModelConfig(
+        n0 = 1.0,
+        labeled_particles = 500,
+        correlation_initial_times = 1,
+    )
+    capped_autocorrelation = calculate_mpc_velocity_autocorrelation(
+        small_space,
+        capped_config;
+        steps = 2,
+        seed = 33,
+    )
+
+    @test capped_autocorrelation.requested_labeled_particles == 500
+    @test capped_autocorrelation.labeled_particle_count == 9
+    @test length(capped_autocorrelation.cv_values) == 3
+
     mktempdir() do dir
         outputs = MammographySimulation.write_velocity_autocorrelation_outputs(
             dir,
@@ -737,6 +772,8 @@ end
         @test isfile(outputs.summary_path)
         @test isfile(outputs.realizations_path)
         @test occursin("lag\ttime\tcv\tcv_average_xy", read(outputs.autocorrelation_path, String))
+        @test occursin("requested_labeled_particles=2", read(outputs.summary_path, String))
+        @test occursin("labeled_particle_count=2", read(outputs.summary_path, String))
         @test occursin("mdc=1.25", read(outputs.summary_path, String))
         @test occursin("realization\tseed\tlabeled_particle_count", read(outputs.realizations_path, String))
     end
@@ -1011,7 +1048,9 @@ end
         @test occursin("mpc_concentration_model=particles_per_cell_snapshot", read(result.simulation_summary_path, String))
         @test occursin("mpc_concentration_captured_output_times=0,3", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_model=green_kubo_xy", read(result.simulation_summary_path, String))
+        @test occursin("velocity_autocorrelation_requested_labeled_particles=15", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_labeled_particle_count=15", read(result.simulation_summary_path, String))
+        @test occursin("velocity_autocorrelation_requested_initial_time_count=2", read(result.simulation_summary_path, String))
         @test occursin("diffusion_metric_model=mdc_normalized_against_theoretical_reference", read(result.simulation_summary_path, String))
         @test occursin("diffusion_metric_mdc_star=", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
@@ -1030,7 +1069,9 @@ end
         @test occursin("\"mpc_concentration_model\": \"particles_per_cell_snapshot\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_concentration_snapshot_count\": 2", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_model\": \"green_kubo_xy\"", read(result.mpc_config_path, String))
+        @test occursin("\"velocity_autocorrelation_requested_labeled_particles\": 15", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_labeled_particle_count\": 15", read(result.mpc_config_path, String))
+        @test occursin("\"velocity_autocorrelation_requested_initial_time_count\": 2", read(result.mpc_config_path, String))
         @test occursin("\"diffusion_metric_model\": \"mdc_normalized_against_theoretical_reference\"", read(result.mpc_config_path, String))
         @test occursin("\"diffusion_metric_mdc0\"", read(result.mpc_config_path, String))
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))

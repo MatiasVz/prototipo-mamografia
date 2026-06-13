@@ -28,7 +28,7 @@ julia --project=simulator simulator/scripts/run_case.jl `
   --tau 1 `
   --rotation-angle 1.5707963267948966 `
   --realizations 1 `
-  --labeled-particles 25 `
+  --labeled-particles 500 `
   --correlation-initial-times 1 `
   --output-times 0,100,500 `
   --grid-shift false
@@ -117,7 +117,7 @@ Cuando el caso termina en estado `completado`, la app web puede presentar:
 | `tau` | Paso temporal reducido. |
 | `rotation-angle` | Angulo de rotacion usado en colision multiparticula. |
 | `realizations` | Numero de realizaciones estadisticas. |
-| `labeled-particles` | Particulas seguidas para autocorrelacion. |
+| `labeled-particles` | Particulas solicitadas para autocorrelacion; por defecto se piden 500 y, si la ROI tiene menos particulas disponibles, se usan las disponibles sin detener la corrida. |
 | `correlation-initial-times` | Cantidad de tiempos iniciales usados para `Cv`. |
 | `output-times` | Tiempos donde se capturan mapas de concentracion. |
 | `grid-shift` | Desplazamiento de grilla MPC; inicialmente desactivado. |
