@@ -257,6 +257,9 @@ def _build_interpretation_items(metrics, config, diffusion):
     obstacle_collisions = _float_or_none(
         config.get("mpc_streaming_obstacle_collision_count"),
     )
+    domain_boundary_collisions = _float_or_none(
+        config.get("mpc_streaming_domain_boundary_collision_count"),
+    )
     steps = _float_or_none(config.get("steps") or metrics.get("steps"))
 
     if mdc_star is not None:
@@ -295,6 +298,19 @@ def _build_interpretation_items(metrics, config, diffusion):
                     f"obstaculos con {_format_value(particle_count, 'integer')} "
                     "particulas simuladas. Estos choques son parte del mecanismo que "
                     "reduce o desvia la difusion."
+                ),
+            }
+        )
+
+    if domain_boundary_collisions is not None:
+        items.append(
+            {
+                "label": "Respeto de la region mamaria",
+                "detail": (
+                    "El simulador registro "
+                    f"{_format_value(domain_boundary_collisions, 'integer')} rebotes contra "
+                    "el borde de la ROI. Esos rebotes evitan que las particulas se muestren "
+                    "como concentracion valida sobre el fondo externo de la mamografia."
                 ),
             }
         )
@@ -349,6 +365,12 @@ def _build_primary_metrics(metrics, config, diffusion):
                 "Choques con obstaculos",
                 config.get("mpc_streaming_obstacle_collision_count"),
                 "Rebotes registrados contra obstaculos derivados de la imagen.",
+                value_type="integer",
+            ),
+            _metric(
+                "Rebotes con borde de ROI",
+                config.get("mpc_streaming_domain_boundary_collision_count"),
+                "Intentos de salida del dominio mamario que fueron contenidos por la mascara.",
                 value_type="integer",
             ),
         )

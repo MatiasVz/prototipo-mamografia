@@ -61,6 +61,26 @@ function central_cylinder_space()
     )
 end
 
+function vertical_breast_domain_space()
+    domain_mask = falses(3, 4)
+    domain_mask[:, 1:2] .= true
+
+    return SimulationSpace(
+        4,
+        3,
+        1.0,
+        4.0,
+        3.0,
+        1,
+        255,
+        1,
+        255,
+        domain_mask,
+        zeros(Float64, 3, 4),
+        SimulationObstacle[],
+    )
+end
+
 @testset "PGM reader" begin
     mktempdir() do dir
         ascii_path = joinpath(dir, "ascii.pgm")
@@ -387,6 +407,7 @@ end
     particle = streamed.particles[1]
 
     @test streamed.obstacle_collision_count == 0
+    @test streamed.domain_boundary_collision_count == 0
     @test streamed.boundary_crossing_count_x == 0
     @test streamed.boundary_crossing_count_y == 0
     @test isapprox(particle.x, 2.0)
@@ -427,6 +448,7 @@ end
 
     @test periodic_streamed.boundary_crossing_count_x == 1
     @test periodic_streamed.boundary_crossing_count_y == 0
+    @test periodic_streamed.domain_boundary_collision_count == 0
     @test isapprox(periodic_particle.x, 0.3; atol = 1.0e-12)
     @test isapprox(periodic_particle.y, 5.0)
     @test isapprox(periodic_particle.vx, 1.0)
@@ -459,11 +481,46 @@ end
     bounced_particle = bounced.particles[1]
 
     @test bounced.obstacle_collision_count == 1
+    @test bounced.domain_boundary_collision_count == 0
     @test bounced.boundary_crossing_count_x == 0
     @test isapprox(bounced_particle.x, 1.0; atol = 1.0e-8)
     @test isapprox(bounced_particle.y, 5.0; atol = 1.0e-8)
     @test isapprox(bounced_particle.vx, -4.0)
     @test isapprox(bounced_particle.vy, -0.0)
+
+    masked_space = vertical_breast_domain_space()
+    masked_config = MpcModelConfig(tau = 1.0)
+    masked_initialization = MpcParticleInitialization(
+        1,
+        1,
+        6.0,
+        1.0,
+        0,
+        [
+            MpcParticle(
+                1,
+                1.8,
+                1.0,
+                0.5,
+                1.0,
+                0.0,
+                0.0,
+                1.0,
+                "fluid",
+                false,
+            ),
+        ],
+    )
+
+    masked_streamed = stream_mpc_particles(masked_initialization, masked_space, masked_config; steps = 1)
+    masked_particle = masked_streamed.particles[1]
+
+    @test masked_streamed.obstacle_collision_count == 0
+    @test masked_streamed.domain_boundary_collision_count == 1
+    @test isapprox(masked_particle.x, 1.8)
+    @test isapprox(masked_particle.y, 1.0)
+    @test isapprox(masked_particle.vx, -1.0)
+    @test masked_space.domain_mask[2, 2]
 end
 
 @testset "MPC multiparticle collision by cells" begin
@@ -473,6 +530,7 @@ end
         1,
         1.0,
         3,
+        0,
         0,
         0,
         0,
@@ -588,9 +646,53 @@ end
         @test occursin("captured_output_times=0,1,2", read(outputs.summary_path, String))
         @test occursin("skipped_output_times=5", read(outputs.summary_path, String))
         @test occursin("snapshot_t_0_particle_sum=3", read(outputs.summary_path, String))
+        @test occursin("domain_mask_applied=true", read(outputs.summary_path, String))
         @test occursin("time\tx\ty\tconcentration", read(outputs.times_path, String))
         @test startswith(read(outputs.initial_map_path, String), "P2")
         @test startswith(read(outputs.initial_high_map_path, String), "P2")
+    end
+
+    masked_space = vertical_breast_domain_space()
+    masked_config = MpcModelConfig(
+        n0 = 0.5,
+        tau = 1.0,
+        output_times = [0, 1],
+    )
+    masked_initialization = MpcParticleInitialization(
+        23,
+        1,
+        6.0,
+        1.0,
+        0,
+        [
+            MpcParticle(1, 1.8, 1.0, 0.5, 1.0, 0.0, 0.0, 1.0, "fluid", false),
+        ],
+    )
+    masked_concentration = generate_mpc_concentration_maps(
+        masked_initialization,
+        masked_space,
+        masked_config;
+        steps = 1,
+        seed = 23,
+    )
+    masked_final_snapshot = last(masked_concentration.snapshots)
+
+    @test sum(masked_final_snapshot.density_grid[.!masked_space.domain_mask]) == 0
+    @test masked_final_snapshot.particle_count == 1
+
+    mktempdir() do dir
+        outputs = MammographySimulation.write_mpc_concentration_outputs(
+            dir,
+            masked_concentration,
+            masked_space,
+        )
+        final_map = read_pgm(outputs.final_map_path)
+        final_high_map = read_pgm(outputs.final_high_map_path)
+
+        @test all(final_map.pixels[.!masked_space.domain_mask] .== 0)
+        @test all(final_high_map.pixels[.!masked_space.domain_mask] .== 0)
+        @test all(final_map.pixels[masked_space.domain_mask] .>= 16)
+        @test all(final_high_map.pixels[masked_space.domain_mask] .>= 16)
     end
 end
 
@@ -944,6 +1046,7 @@ end
         @test occursin("# target_particle_count=90", read(result.mpc_initial_particles_path, String))
         @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_streamed_particles_path, String))
         @test occursin("obstacle_collision_count=", read(result.mpc_streaming_summary_path, String))
+        @test occursin("domain_boundary_collision_count=", read(result.mpc_streaming_summary_path, String))
         @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_collided_particles_path, String))
         @test occursin("mpc_collision_model=multiparticle_collision_by_cell", read(result.mpc_collision_summary_path, String))
         @test occursin("cell_x\tcell_y\tparticle_count", read(result.mpc_cell_collisions_path, String))

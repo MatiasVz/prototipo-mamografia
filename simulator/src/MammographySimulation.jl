@@ -111,6 +111,7 @@ struct MpcStreamingResult
     tau::Float64
     particle_count::Int
     obstacle_collision_count::Int
+    domain_boundary_collision_count::Int
     boundary_crossing_count_x::Int
     boundary_crossing_count_y::Int
     completed_intervals::Int
@@ -525,6 +526,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "mpc_velocity_sigma=$(mpc_initialization.velocity_sigma)")
         println(io, "mpc_rejected_samples=$(mpc_initialization.rejected_samples)")
         println(io, "mpc_streaming_obstacle_collision_count=$(mpc_streaming.obstacle_collision_count)")
+        println(io, "mpc_streaming_domain_boundary_collision_count=$(mpc_streaming.domain_boundary_collision_count)")
         println(io, "mpc_streaming_boundary_crossing_count_x=$(mpc_streaming.boundary_crossing_count_x)")
         println(io, "mpc_streaming_boundary_crossing_count_y=$(mpc_streaming.boundary_crossing_count_y)")
         println(io, "mpc_collision_active_cell_count=$(mpc_collision.active_cell_count)")
@@ -1141,17 +1143,19 @@ function stream_mpc_particles(
 
     particles = copy_mpc_particles(initialization.particles)
     obstacle_collision_count = 0
+    domain_boundary_collision_count = 0
     boundary_crossing_count_x = 0
     boundary_crossing_count_y = 0
 
     for _step in 1:steps
         for particle in particles
-            collisions, crossings_x, crossings_y = stream_single_mpc_particle!(
+            collisions, domain_collisions, crossings_x, crossings_y = stream_single_mpc_particle!(
                 particle,
                 space,
                 config.tau,
             )
             obstacle_collision_count += collisions
+            domain_boundary_collision_count += domain_collisions
             boundary_crossing_count_x += crossings_x
             boundary_crossing_count_y += crossings_y
         end
@@ -1162,6 +1166,7 @@ function stream_mpc_particles(
         config.tau,
         length(particles),
         obstacle_collision_count,
+        domain_boundary_collision_count,
         boundary_crossing_count_x,
         boundary_crossing_count_y,
         steps,
@@ -1194,6 +1199,7 @@ function stream_single_mpc_particle!(
 )
     remaining_time = tau
     obstacle_collisions = 0
+    domain_boundary_collisions = 0
     boundary_crossings_x = 0
     boundary_crossings_y = 0
     event_limit = 1000
@@ -1218,15 +1224,21 @@ function stream_single_mpc_particle!(
             particle.vz = -particle.vz
             obstacle_collisions += 1
             remaining_time -= collision_time
-            advance_mpc_particle!(particle, min(epsilon, remaining_time))
-            apply_periodic_boundaries!(particle, space)
+            domain_boundary_collisions += advance_mpc_particle_guarded!(
+                particle,
+                space,
+                min(epsilon, remaining_time),
+            )
             remaining_time -= min(epsilon, max(remaining_time, 0.0))
             continue
         end
 
         if boundary_axis !== nothing && boundary_time <= remaining_time + epsilon
-            advance_mpc_particle!(particle, boundary_time)
-            apply_periodic_boundaries!(particle, space)
+            domain_boundary_collisions += advance_mpc_particle_guarded!(
+                particle,
+                space,
+                boundary_time,
+            )
 
             if boundary_axis == :x
                 boundary_crossings_x += 1
@@ -1238,18 +1250,63 @@ function stream_single_mpc_particle!(
             continue
         end
 
-        advance_mpc_particle!(particle, remaining_time)
-        apply_periodic_boundaries!(particle, space)
+        domain_boundary_collisions += advance_mpc_particle_guarded!(
+            particle,
+            space,
+            remaining_time,
+        )
         remaining_time = 0.0
     end
 
-    return obstacle_collisions, boundary_crossings_x, boundary_crossings_y
+    return obstacle_collisions, domain_boundary_collisions, boundary_crossings_x, boundary_crossings_y
 end
 
 function advance_mpc_particle!(particle::MpcParticle, delta_time::Float64)
     particle.x += particle.vx * delta_time
     particle.y += particle.vy * delta_time
     particle.z += particle.vz * delta_time
+end
+
+function advance_mpc_particle_guarded!(
+    particle::MpcParticle,
+    space::SimulationSpace,
+    delta_time::Float64,
+)
+    if delta_time <= 0
+        return 0
+    end
+
+    max_displacement = max(abs(particle.vx * delta_time), abs(particle.vy * delta_time))
+    substep_length = max(space.cell_length / 2, eps(Float64))
+    substeps = max(1, ceil(Int, max_displacement / substep_length))
+    sub_delta_time = delta_time / substeps
+    domain_boundary_collisions = 0
+
+    for _substep in 1:substeps
+        previous_x = particle.x
+        previous_y = particle.y
+        previous_z = particle.z
+
+        advance_mpc_particle!(particle, sub_delta_time)
+        apply_periodic_boundaries!(particle, space)
+
+        if particle_inside_excluded_background(particle, space)
+            particle.x = previous_x
+            particle.y = previous_y
+            particle.z = previous_z
+            particle.vx = -particle.vx
+            particle.vy = -particle.vy
+            domain_boundary_collisions += 1
+            break
+        end
+    end
+
+    return domain_boundary_collisions
+end
+
+function particle_inside_excluded_background(particle::MpcParticle, space::SimulationSpace)
+    cell_x, cell_y = particle_cell_indices(particle, space)
+    return !space.domain_mask[cell_y + 1, cell_x + 1]
 end
 
 function apply_periodic_boundaries!(particle::MpcParticle, space::SimulationSpace)
@@ -1610,7 +1667,7 @@ function build_mpc_concentration_snapshot(
     config::MpcModelConfig,
 )
     density_grid = build_mpc_concentration_grid(particles, space)
-    high_mask = BitMatrix(density_grid .> high_concentration_threshold(config))
+    high_mask = BitMatrix((density_grid .> high_concentration_threshold(config)) .& space.domain_mask)
 
     return MpcConcentrationSnapshot(
         time,
@@ -1627,6 +1684,10 @@ function build_mpc_concentration_grid(particles::Vector{MpcParticle}, space::Sim
 
     for particle in particles
         cell_x, cell_y = particle_cell_indices(particle, space)
+        if !space.domain_mask[cell_y + 1, cell_x + 1]
+            continue
+        end
+
         density_grid[cell_y + 1, cell_x + 1] += 1
     end
 
@@ -2518,6 +2579,7 @@ function write_mpc_config_json(
                 ("mpc_streaming_steps", mpc_streaming.steps),
                 ("mpc_streaming_tau", mpc_streaming.tau),
                 ("mpc_streaming_obstacle_collision_count", mpc_streaming.obstacle_collision_count),
+                ("mpc_streaming_domain_boundary_collision_count", mpc_streaming.domain_boundary_collision_count),
                 ("mpc_streaming_boundary_crossing_count_x", mpc_streaming.boundary_crossing_count_x),
                 ("mpc_streaming_boundary_crossing_count_y", mpc_streaming.boundary_crossing_count_y),
             ],
@@ -2748,6 +2810,7 @@ function write_mpc_streamed_particles_tsv(
         println(io, "# steps=$(streaming.steps)")
         println(io, "# tau=$(streaming.tau)")
         println(io, "# obstacle_collision_count=$(streaming.obstacle_collision_count)")
+        println(io, "# domain_boundary_collision_count=$(streaming.domain_boundary_collision_count)")
         println(io, "# boundary_crossing_count_x=$(streaming.boundary_crossing_count_x)")
         println(io, "# boundary_crossing_count_y=$(streaming.boundary_crossing_count_y)")
         println(io, "id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled")
@@ -2768,6 +2831,7 @@ function write_mpc_streaming_summary(path::AbstractString, streaming::MpcStreami
         println(io, "tau=$(streaming.tau)")
         println(io, "particle_count=$(streaming.particle_count)")
         println(io, "obstacle_collision_count=$(streaming.obstacle_collision_count)")
+        println(io, "domain_boundary_collision_count=$(streaming.domain_boundary_collision_count)")
         println(io, "boundary_crossing_count_x=$(streaming.boundary_crossing_count_x)")
         println(io, "boundary_crossing_count_y=$(streaming.boundary_crossing_count_y)")
         println(io, "completed_intervals=$(streaming.completed_intervals)")
@@ -2846,18 +2910,18 @@ function write_mpc_concentration_outputs(
         time_map_path = joinpath(output_dir, "mpc_concentration_t_$(snapshot.time).pgm")
         high_map_path = joinpath(output_dir, "mpc_high_concentration_t_$(snapshot.time).pgm")
 
-        write_mpc_concentration_map_pgm(time_map_path, snapshot)
-        write_mpc_high_concentration_map_pgm(high_map_path, snapshot)
+        write_mpc_concentration_map_pgm(time_map_path, snapshot, space)
+        write_mpc_high_concentration_map_pgm(high_map_path, snapshot, space)
         push!(time_map_paths, time_map_path)
         push!(time_high_map_paths, high_map_path)
     end
 
     initial_snapshot = first(concentration.snapshots)
     final_snapshot = last(concentration.snapshots)
-    write_mpc_concentration_map_pgm(initial_map_path, initial_snapshot)
-    write_mpc_concentration_map_pgm(final_map_path, final_snapshot)
-    write_mpc_high_concentration_map_pgm(initial_high_map_path, initial_snapshot)
-    write_mpc_high_concentration_map_pgm(final_high_map_path, final_snapshot)
+    write_mpc_concentration_map_pgm(initial_map_path, initial_snapshot, space)
+    write_mpc_concentration_map_pgm(final_map_path, final_snapshot, space)
+    write_mpc_high_concentration_map_pgm(initial_high_map_path, initial_snapshot, space)
+    write_mpc_high_concentration_map_pgm(final_high_map_path, final_snapshot, space)
 
     return (
         summary_path = summary_path,
@@ -2889,6 +2953,7 @@ function write_mpc_concentration_summary(
         println(io, "high_concentration_threshold=$(concentration.high_concentration_threshold)")
         println(io, "particle_count=$(concentration.particle_count)")
         println(io, "snapshot_count=$(length(concentration.snapshots))")
+        println(io, "domain_mask_applied=true")
 
         for snapshot in concentration.snapshots
             println(io, "snapshot_t_$(snapshot.time)_particle_sum=$(snapshot.particle_count)")
@@ -2927,8 +2992,9 @@ end
 function write_mpc_concentration_map_pgm(
     path::AbstractString,
     snapshot::MpcConcentrationSnapshot,
+    space::SimulationSpace,
 )
-    concentration_values = build_concentration_map_values(snapshot.density_grid)
+    concentration_values = build_concentration_map_values(snapshot.density_grid, space.domain_mask)
     height, width = size(concentration_values)
 
     open(path, "w") do io
@@ -2946,6 +3012,7 @@ end
 function write_mpc_high_concentration_map_pgm(
     path::AbstractString,
     snapshot::MpcConcentrationSnapshot,
+    space::SimulationSpace,
 )
     height, width = size(snapshot.high_concentration_mask)
 
@@ -2957,7 +3024,13 @@ function write_mpc_high_concentration_map_pgm(
 
         for y_index in 1:height
             row = [
-                snapshot.high_concentration_mask[y_index, x_index] ? 255 : 0
+                if !space.domain_mask[y_index, x_index]
+                    0
+                elseif snapshot.high_concentration_mask[y_index, x_index]
+                    255
+                else
+                    16
+                end
                 for x_index in 1:width
             ]
             println(io, join(row, " "))
@@ -2965,16 +3038,20 @@ function write_mpc_high_concentration_map_pgm(
     end
 end
 
-function build_concentration_map_values(density_grid::Matrix{Int})
+function build_concentration_map_values(density_grid::Matrix{Int}, domain_mask::BitMatrix)
     max_concentration = maximum(density_grid)
     concentration_values = zeros(Int, size(density_grid))
 
     if max_concentration == 0
+        concentration_values[domain_mask] .= 16
         return concentration_values
     end
 
     for index in eachindex(density_grid)
-        concentration_values[index] = round(Int, density_grid[index] / max_concentration * 255)
+        if domain_mask[index]
+            scaled_value = round(Int, density_grid[index] / max_concentration * 255)
+            concentration_values[index] = max(16, scaled_value)
+        end
     end
 
     return concentration_values
@@ -3315,6 +3392,7 @@ function write_simulation_summary(
             println(io, "mpc_streaming_steps=$(mpc_streaming.steps)")
             println(io, "mpc_streaming_tau=$(mpc_streaming.tau)")
             println(io, "mpc_streaming_obstacle_collision_count=$(mpc_streaming.obstacle_collision_count)")
+            println(io, "mpc_streaming_domain_boundary_collision_count=$(mpc_streaming.domain_boundary_collision_count)")
             println(io, "mpc_streaming_boundary_crossing_count_x=$(mpc_streaming.boundary_crossing_count_x)")
             println(io, "mpc_streaming_boundary_crossing_count_y=$(mpc_streaming.boundary_crossing_count_y)")
         end
