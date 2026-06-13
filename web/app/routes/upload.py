@@ -208,6 +208,7 @@ def case_detail(case_id):
         mpc_results=mpc_results,
         simulation_results_status_title=_get_simulation_results_status_title(case),
         simulation_results_status_message=_get_simulation_results_status_message(case),
+        processing_error_detail=_get_processing_error_detail(case),
         case_flow_steps=_get_case_flow_steps(case),
         can_confirm_roi=_can_confirm_roi(case),
         can_crop_roi=_can_crop_roi(case, preview),
@@ -934,6 +935,9 @@ def _get_simulation_status_title(case):
     if case.status == CaseStatus.COMPLETED:
         return "Simulacion completada"
 
+    if case.status == CaseStatus.ERROR:
+        return "Simulacion con error"
+
     if case.simulation_input_file_path:
         return "PGM generado"
 
@@ -949,6 +953,12 @@ def _get_simulation_status_message(case):
 
     if case.status == CaseStatus.COMPLETED:
         return "La simulacion termino y los resultados estan disponibles."
+
+    if case.status == CaseStatus.ERROR:
+        return (
+            (case.error_message or "Se registro un error durante el procesamiento.")
+            + " Puedes revisar la trazabilidad tecnica y reintentar la simulacion."
+        )
 
     if case.simulation_input_file_path:
         return "La ROI confirmada ya cuenta con su archivo PGM para la simulacion."
@@ -1032,6 +1042,64 @@ def _get_simulation_results_status_message(case):
         return "La entrada PGM esta preparada para que el worker ejecute la simulacion."
 
     return "Los resultados apareceran cuando exista una entrada PGM procesada."
+
+
+def _get_processing_error_detail(case):
+    if case.status != CaseStatus.ERROR:
+        return None
+
+    worker_log_path = _get_worker_log_path(case)
+    worker_log = _read_worker_log_summary(worker_log_path)
+
+    return {
+        "message": case.error_message or "Se registro un error durante el procesamiento.",
+        "category": worker_log.get("error_category") or "No clasificado",
+        "timeout": worker_log.get("timeout_seconds") or "No registrado",
+        "log_path": worker_log.get("run_log_path")
+        or (str(worker_log_path) if worker_log_path is not None else "No registrado"),
+    }
+
+
+def _get_worker_log_path(case):
+    results_dir = _get_case_simulation_results_path(case)
+
+    if results_dir is None:
+        return None
+
+    worker_log_path = results_dir / "worker_execution.log"
+
+    if worker_log_path.exists():
+        return worker_log_path
+
+    return None
+
+
+def _read_worker_log_summary(worker_log_path):
+    summary = {}
+
+    if worker_log_path is None:
+        return summary
+
+    try:
+        lines = worker_log_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return summary
+
+    for line in lines:
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        if key in {
+            "error_category",
+            "error_message",
+            "run_log_path",
+            "timeout_seconds",
+            "status",
+        }:
+            summary[key] = value.strip()
+
+    return summary
 
 
 def _get_auto_refresh_seconds(case):

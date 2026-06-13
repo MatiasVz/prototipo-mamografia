@@ -19,19 +19,15 @@ class QueuedSimulationJob:
 
 
 def enqueue_case_simulation(case, app_config):
-    _ensure_case_can_be_queued(case)
-
     queue_name = app_config["SIMULATION_QUEUE_NAME"]
 
     if case.status == CaseStatus.PENDING:
         return QueuedSimulationJob(case.id, queue_name, already_queued=True)
 
+    _ensure_case_can_be_queued(case)
+
     case.status = CaseStatus.PENDING
     case.error_message = None
-    case.simulation_results_path = None
-    case.simulation_metrics_file_path = None
-    case.simulation_density_map_file_path = None
-    case.simulation_log_file_path = None
     db.session.commit()
 
     try:
@@ -70,6 +66,11 @@ def pop_queued_case_id(app_config, timeout_seconds=5):
 
 
 def _ensure_case_can_be_queued(case):
+    if not case.roi_file_path:
+        raise SimulationQueueError(
+            "El caso debe tener una ROI asociada y confirmada antes de simular."
+        )
+
     if not case.simulation_input_file_path:
         raise SimulationQueueError(
             "El caso no tiene archivo PGM preparado para la simulacion."
@@ -80,6 +81,11 @@ def _ensure_case_can_be_queued(case):
 
     if case.status == CaseStatus.COMPLETED:
         raise SimulationQueueError("El caso ya cuenta con resultados de simulacion.")
+
+    if case.status not in {CaseStatus.ROI_CONFIRMED, CaseStatus.ERROR}:
+        raise SimulationQueueError(
+            "El caso debe tener la ROI confirmada antes de enviarse a procesamiento."
+        )
 
 
 def _get_redis_client(app_config):

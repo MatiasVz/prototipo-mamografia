@@ -979,6 +979,17 @@ select:focus-visible {
   text-transform: uppercase;
 }
 
+.processing-error-detail {
+  background: #fff7f5;
+  border: 1px solid #f5b5ad;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.processing-error-detail .detail-group__title {
+  color: var(--color-danger);
+}
+
 .detail-list {
   display: grid;
   gap: 0;
