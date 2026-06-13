@@ -4,6 +4,8 @@ Este documento describe la estrategia de validacion del simulador Julia frente a
 
 El objetivo no es afirmar equivalencia clinica ni diagnostica. El objetivo es demostrar que el prototipo produce resultados trazables, reproducibles y coherentes con la formulacion mesoscopica usada como referencia.
 
+Para una explicacion mas amplia del flujo cientifico, parametros, archivos de evidencia y uso en tesis, revisar [EVIDENCE.md](EVIDENCE.md).
+
 ## Programa C del tutor
 
 El programa C revisado se encuentra fuera del repositorio, en el entorno local de trabajo del estudiante. No se copia al repositorio porque es material externo del tutor.
@@ -119,3 +121,12 @@ Esta validacion puede presentarse como evidencia de:
 - comportamiento esperado en geometria simple;
 - generacion de metricas relativas de difusion;
 - limitaciones conocidas y trazables del prototipo.
+
+Evidencias recomendadas para anexos o sustentacion:
+
+- salida de `validation_summary.md`;
+- capturas de la pantalla de detalle del caso completado;
+- mapas `domain_mask.pgm`, `obstacle_radius_map.pgm` y `mpc_concentration_t_<tiempo>.pgm`;
+- tabla `velocity_autocorrelation.tsv`;
+- archivo `diffusion_metrics.json`;
+- log `worker_execution.log` cuando la corrida se ejecute desde la app web.

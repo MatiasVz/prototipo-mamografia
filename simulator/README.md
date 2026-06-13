@@ -1,12 +1,17 @@
 # Simulador Julia
 
-Modulo base del simulador mesoscopico del prototipo de analisis mamografico.
+Modulo de simulacion mesoscopica MPC del prototipo de analisis mamografico.
 
-Esta version prepara el proyecto Julia, permite leer una entrada `PGM`, detecta una mascara aproximada de region mamaria/ROI, convierte la matriz de intensidades en una grilla interna con fondo exterior excluido y obstaculos derivados de intensidades internas, ejecuta una simulacion mesoscopica minima secuencial y genera resultados preliminares.
+El simulador recibe una ROI confirmada convertida a PGM, construye un dominio de simulacion a partir de la region mamaria valida, genera obstaculos cilindricos derivados de intensidades, inicializa particulas MPC y produce mapas, metricas y archivos de trazabilidad.
 
-La simulacion actual es una primera aproximacion tecnica: inicializa particulas sobre celdas libres dentro del dominio mamario detectado, aplica movimiento secuencial con frontera periodica controlada por la mascara de dominio, registra choques contra obstaculos o contra el fondo excluido y guarda resultados inspeccionables para las siguientes etapas del prototipo.
+Este modulo es parte de un prototipo academico/de investigacion. Sus resultados son relativos y no constituyen diagnostico clinico.
 
-## Ejecucion inicial
+## Documentacion relacionada
+
+- [EVIDENCE.md](EVIDENCE.md): guia de evidencia tecnica y cientifica para tesis, PR y sustentacion.
+- [VALIDATION.md](VALIDATION.md): validacion del simulador Julia frente al programa C del tutor y casos sinteticos.
+
+## Ejecucion desde terminal
 
 Desde la raiz del repositorio:
 
@@ -16,53 +21,123 @@ julia --project=simulator simulator/scripts/run_case.jl `
   --output storage/uploads/case_1/results `
   --seed 1234 `
   --steps 10 `
-  --density 0.25
+  --density 0.25 `
+  --n0 10 `
+  --mass 1 `
+  --kbt 1 `
+  --tau 1 `
+  --rotation-angle 1.5707963267948966 `
+  --realizations 1 `
+  --labeled-particles 25 `
+  --correlation-initial-times 1 `
+  --output-times 0,100,500 `
+  --grid-shift false
 ```
 
-La ejecucion crea la carpeta de salida y genera:
+## Flujo interno
+
+```text
+ROI confirmada en PGM
+-> lectura de matriz de intensidades
+-> deteccion de region mamaria valida
+-> caja plana de simulacion
+-> obstaculos cilindricos por intensidad
+-> particulas MPC con posicion continua y velocidad
+-> traslacion, frontera periodica y rebote
+-> colision multiparticula por celda
+-> mapas de concentracion
+-> autocorrelacion Cv
+-> MDC, MDC0 y MDC*
+```
+
+## Archivos principales de salida
+
+La ejecucion crea una carpeta `results/` con archivos inspeccionables:
 
 ```text
 simulation.log
+worker_execution.log
 simulation_config.txt
 input_summary.txt
 space_summary.txt
-obstacles.tsv
-simulation_summary.txt
-simulation_state.tsv
-visit_counts.tsv
 metrics.json
 domain_mask.pgm
 density_map.pgm
 density_matrix.tsv
+obstacles.tsv
+obstacle_radius_matrix.tsv
+obstacle_radius_map.pgm
+obstacle_radius_histogram.tsv
+mpc_config.json
+mpc_initial_particles.tsv
+mpc_streamed_particles.tsv
+mpc_streaming_summary.txt
+mpc_collided_particles.tsv
+mpc_collision_summary.txt
+mpc_cell_collisions.tsv
+mpc_concentration_summary.txt
+mpc_concentration_times.tsv
+mpc_concentration_initial.pgm
+mpc_concentration_final.pgm
+mpc_concentration_t_<tiempo>.pgm
+mpc_high_concentration_initial.pgm
+mpc_high_concentration_final.pgm
+velocity_autocorrelation.tsv
+velocity_autocorrelation_summary.txt
+velocity_autocorrelation_realizations.tsv
+diffusion_metrics.json
+diffusion_metrics.tsv
+diffusion_metrics_summary.txt
 ```
 
-## Resultados preliminares
+## Resultados que muestra la app web
 
-Los resultados generados en esta etapa son archivos tecnicos pensados para trazabilidad, reproducibilidad y futura visualizacion web:
+Cuando el caso termina en estado `completado`, la app web puede presentar:
 
-- `metrics.json`: metricas preliminares de la ejecucion, como cantidad de particulas, obstaculos, movimientos intentados, choques, tasa de colision y conteos de visita.
-- `domain_mask.pgm`: mascara tecnica en escala de grises donde blanco representa el dominio mamario/ROI detectado y negro representa el fondo exterior excluido.
-- `density_map.pgm`: mapa de densidad en escala de grises construido a partir de las visitas por celda durante la simulacion.
-- `density_matrix.tsv`: tabla inspeccionable con coordenadas, visitas, valor normalizado del mapa de densidad, marca de dominio y marca de obstaculo.
+- ROI usada como entrada;
+- region mamaria valida;
+- mapa de radios de obstaculos;
+- mapa de densidad;
+- mapas de concentracion MPC por tiempos disponibles;
+- tabla resumida de autocorrelacion `Cv`;
+- metricas `MDC`, `MDC0` y `MDC*`;
+- parametros principales de la corrida;
+- rutas tecnicas y logs para trazabilidad.
 
-## Alcance actual
+## Parametros relevantes
 
-- Exponer una CLI minima para integracion futura.
-- Leer archivos PGM `P2` y `P5`.
-- Obtener ancho, alto, valor maximo de gris y matriz de intensidades.
-- Registrar un resumen tecnico de la entrada en `input_summary.txt`.
-- Detectar una mascara aproximada de region mamaria/ROI a partir del componente principal.
-- Conservar zonas oscuras internas cuando estan encerradas dentro del contorno detectado.
-- Excluir el fondo exterior de la zona libre de simulacion.
-- Convertir la matriz de intensidades en una grilla de simulacion con dominio, fondo excluido y obstaculos.
-- Generar obstaculos internos a partir de intensidades altas dentro del dominio detectado.
-- Registrar un resumen del espacio en `space_summary.txt`.
-- Exportar una tabla inspeccionable de obstaculos en `obstacles.tsv`.
-- Ejecutar una simulacion minima secuencial con semilla reproducible.
-- Inicializar particulas sobre celdas libres del dominio mamario/ROI segun una densidad configurable.
-- Registrar estado final de particulas en `simulation_state.tsv`.
-- Registrar conteo de visitas por celda en `visit_counts.tsv`.
-- Generar metricas preliminares en `metrics.json`.
-- Generar una mascara visual del dominio detectado en `domain_mask.pgm`.
-- Generar un mapa de densidad preliminar en `density_map.pgm`.
-- Exportar la matriz de densidad en `density_matrix.tsv`.
+| Parametro | Descripcion |
+| --- | --- |
+| `seed` | Semilla reproducible de la corrida. |
+| `steps` | Numero de pasos de simulacion. |
+| `density` | Densidad preliminar usada por el motor secuencial de apoyo. |
+| `n0` | Densidad media MPC de particulas por celda. |
+| `mass` | Masa reducida de particula. |
+| `kbt` | Energia termica reducida. |
+| `tau` | Paso temporal reducido. |
+| `rotation-angle` | Angulo de rotacion usado en colision multiparticula. |
+| `realizations` | Numero de realizaciones estadisticas. |
+| `labeled-particles` | Particulas seguidas para autocorrelacion. |
+| `correlation-initial-times` | Cantidad de tiempos iniciales usados para `Cv`. |
+| `output-times` | Tiempos donde se capturan mapas de concentracion. |
+| `grid-shift` | Desplazamiento de grilla MPC; inicialmente desactivado. |
+
+## Validacion sintetica
+
+Generar casos sinteticos:
+
+```powershell
+julia --project=simulator simulator/scripts/generate_validation_cases.jl `
+  --output storage/validation/synthetic_cases
+```
+
+Ejecutar validacion:
+
+```powershell
+julia --project=simulator simulator/scripts/validate_synthetic_cases.jl `
+  --output storage/validation/synthetic_report `
+  --seed 1234 `
+  --steps 5
+```
+
+La validacion revisa dominio, obstaculos, conservacion de particulas y generacion de metricas comparables.
