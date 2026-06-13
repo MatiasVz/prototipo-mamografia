@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block title %}Comparacion academica | {{ config.APP_NAME }}{% endblock %}
+
+{% block content %}
+  <section class="page-heading comparison-heading" aria-labelledby="comparison-title">
+    <p class="eyebrow">Comparacion academica</p>
+    <h1 id="comparison-title">Comparar casos procesados</h1>
+    <p>
+      Contrasta dos casos completados por sus metricas relativas de difusion,
+      parametros principales y mapas MPC. Esta comparacion es investigativa y no
+      constituye una interpretacion diagnostica.
+    </p>
+  </section>
+
+  <section class="comparison-panel" aria-labelledby="comparison-form-title">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Seleccion</p>
+        <h2 id="comparison-form-title">Casos con resultados MPC</h2>
+      </div>
+    </div>
+
+    <form class="comparison-form" method="get" action="{{ url_for('upload.compare_cases') }}">
+      <div class="form-field">
+        <label for="case_a_id">Caso A</label>
+        <select id="case_a_id" name="case_a_id" required>
+          <option value="">Selecciona un caso</option>
+          {% for case_option in case_options %}
+            <option
+              value="{{ case_option.id }}"
+              {% if selected_case_a_id == case_option.id %}selected{% endif %}
+            >
+              {{ case_option.label }} - {{ case_option.input_mode }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-field">
+        <label for="case_b_id">Caso B</label>
+        <select id="case_b_id" name="case_b_id" required>
+          <option value="">Selecciona un caso</option>
+          {% for case_option in case_options %}
+            <option
+              value="{{ case_option.id }}"
+              {% if selected_case_b_id == case_option.id %}selected{% endif %}
+            >
+              {{ case_option.label }} - {{ case_option.input_mode }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button class="button button--primary" type="submit">
+        Comparar resultados
+      </button>
+    </form>
+
+    {% if not case_options %}
+      <p class="comparison-empty">
+        Aun no existen casos completados con metricas MPC comparables.
+      </p>
+    {% endif %}
+  </section>
+
+  {% if comparison_errors %}
+    <section class="comparison-alert" aria-label="Errores de comparacion">
+      {% for error in comparison_errors %}
+        <p>{{ error }}</p>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {% if comparison %}
+    {% if comparison.errors %}
+      <section class="comparison-alert" aria-label="Validacion de comparacion">
+        {% for error in comparison.errors %}
+          <p>{{ error }}</p>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    {% if comparison.available %}
+      <section class="comparison-results" aria-labelledby="comparison-results-title">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Resultado comparativo</p>
+            <h2 id="comparison-results-title">
+              Caso #{{ comparison.case_a.id }} frente a caso #{{ comparison.case_b.id }}
+            </h2>
+          </div>
+        </div>
+
+        <p class="comparison-notice">
+          La diferencia se calcula como caso B menos caso A. Los valores se usan
+          solo para analisis academico e investigativo.
+        </p>
+
+        {% if comparison.compatibility_warnings %}
+          <div class="comparison-warning" aria-label="Advertencias de parametros">
+            {% for warning in comparison.compatibility_warnings %}
+              <p>{{ warning }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <section class="comparison-section" aria-labelledby="metric-comparison-title">
+          <h3 id="metric-comparison-title">Metricas de difusion</h3>
+          <div class="comparison-table-wrap">
+            <table class="comparison-table">
+              <thead>
+                <tr>
+                  <th>Metrica</th>
+                  <th>Caso A</th>
+                  <th>Caso B</th>
+                  <th>Diferencia</th>
+                  <th>Diferencia relativa</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in comparison.metric_rows %}
+                  <tr>
+                    <th scope="row">
+                      {{ row.label }}
+                      <span>{{ row.description }}</span>
+                    </th>
+                    <td>{{ row.case_a }}</td>
+                    <td>{{ row.case_b }}</td>
+                    <td>{{ row.delta }}</td>
+                    <td>{{ row.relative_delta }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {% if comparison.map_pairs %}
+          <section class="comparison-section" aria-labelledby="map-comparison-title">
+            <h3 id="map-comparison-title">Mapas comparables</h3>
+            <div class="comparison-map-list">
+              {% for map_pair in comparison.map_pairs %}
+                <article class="comparison-map-pair">
+                  <div class="comparison-map-pair__header">
+                    <h4>{{ map_pair.title }}</h4>
+                    <p>{{ map_pair.description }}</p>
+                  </div>
+                  <div class="comparison-map-pair__grid">
+                    <figure>
+                      <figcaption>Caso #{{ comparison.case_a.id }}</figcaption>
+                      <div class="comparison-map-frame">
+                        <img
+                          src="{{ map_pair.case_a_url }}"
+                          alt="{{ map_pair.title }} del caso #{{ comparison.case_a.id }}"
+                        >
+                      </div>
+                    </figure>
+                    <figure>
+                      <figcaption>Caso #{{ comparison.case_b.id }}</figcaption>
+                      <div class="comparison-map-frame">
+                        <img
+                          src="{{ map_pair.case_b_url }}"
+                          alt="{{ map_pair.title }} del caso #{{ comparison.case_b.id }}"
+                        >
+                      </div>
+                    </figure>
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+
+        <section class="comparison-section" aria-labelledby="parameter-comparison-title">
+          <h3 id="parameter-comparison-title">Parametros principales</h3>
+          <div class="comparison-table-wrap">
+            <table class="comparison-table comparison-table--compact">
+              <thead>
+                <tr>
+                  <th>Parametro</th>
+                  <th>Caso A</th>
+                  <th>Caso B</th>
+                  <th>Coincide</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in comparison.parameter_rows %}
+                  <tr>
+                    <th scope="row">{{ row.label }}</th>
+                    <td>{{ row.case_a }}</td>
+                    <td>{{ row.case_b }}</td>
+                    <td>{{ "Si" if row.matches else "No" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <details class="result-technical">
+          <summary>Trazabilidad de la comparacion</summary>
+          <div class="result-technical__body">
+            <dl class="detail-list">
+              {% for row in comparison.trace_rows %}
+                <div>
+                  <dt>{{ row.label }}</dt>
+                  <dd>
+                    <span class="comparison-trace-label">Caso A:</span>
+                    <span class="detail-path">{{ row.case_a }}</span>
+                    <span class="comparison-trace-label">Caso B:</span>
+                    <span class="detail-path">{{ row.case_b }}</span>
+                  </dd>
+                </div>
+              {% endfor %}
+            </dl>
+          </div>
+        </details>
+      </section>
+    {% endif %}
+  {% endif %}
+{% endblock %}
