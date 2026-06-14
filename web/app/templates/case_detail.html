@@ -128,6 +128,20 @@
 
             <p class="mpc-explanation">{{ mpc_results.explanation }}</p>
 
+            {% if mpc_results.reading_steps %}
+              <section class="result-section" aria-labelledby="result-flow-title">
+                <h4 id="result-flow-title">De la ROI al resultado</h4>
+                <div class="result-reading-grid">
+                  {% for step in mpc_results.reading_steps %}
+                    <article class="result-reading-card">
+                      <h5>{{ step.label }}</h5>
+                      <p>{{ step.detail }}</p>
+                    </article>
+                  {% endfor %}
+                </div>
+              </section>
+            {% endif %}
+
             {% if mpc_results.interpretation_items %}
               <section class="result-section" aria-labelledby="result-reading-title">
                 <h4 id="result-reading-title">Como leer este resultado</h4>

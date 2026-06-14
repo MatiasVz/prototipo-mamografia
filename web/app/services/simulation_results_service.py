@@ -14,8 +14,9 @@ STATIC_RESULT_IMAGES = {
         ),
         "reading": (
             "Esta imagen no es una reconstruccion anatomica 3D real; muestra el "
-            "dominio artificial que usa el simulador para explicar la transformacion "
-            "de la imagen en celdas, obstaculos y particulas."
+            "dominio artificial que usa el simulador: la ROI se vuelve una caja "
+            "de celdas, los tonos de gris se vuelven cilindros y las particulas "
+            "se mueven dentro de ese espacio."
         ),
     },
     "domain_mask": {
@@ -26,8 +27,9 @@ STATIC_RESULT_IMAGES = {
             "esa zona del fondo externo."
         ),
         "reading": (
-            "Las zonas claras forman el dominio donde se permite simular; las "
-            "zonas oscuras corresponden al fondo o a regiones excluidas."
+            "Las zonas claras son el tejido que entra al modelo. Las zonas "
+            "oscuras representan fondo externo o regiones que se excluyen para "
+            "que la simulacion no se ejecute fuera de la mama."
         ),
     },
     "obstacle_radius_map": {
@@ -38,8 +40,10 @@ STATIC_RESULT_IMAGES = {
             "tradujeron en obstaculos para el modelo MPC."
         ),
         "reading": (
-            "Las variaciones de gris representan diferencias del tejido que el "
-            "modelo convierte en obstaculos para las particulas."
+            "En el modelo, los tonos mas oscuros de la ROI tienden a generar "
+            "cilindros mas grandes y los tonos mas claros cilindros mas pequenos. "
+            "Esos cilindros no son tumores: son obstaculos matematicos que "
+            "representan la heterogeneidad del tejido."
         ),
     },
     "density_map": {
@@ -50,8 +54,8 @@ STATIC_RESULT_IMAGES = {
             "la simulacion."
         ),
         "reading": (
-            "Las zonas mas claras tuvieron mas visitas de particulas; las zonas "
-            "oscuras recibieron menos visitas o quedaron fuera del dominio."
+            "Las zonas claras recibieron mas visitas de particulas. Las zonas "
+            "oscuras tuvieron pocas visitas o quedaron fuera del dominio valido."
         ),
     },
     "mpc_concentration_initial": {
@@ -85,7 +89,8 @@ RESULT_CONCEPTS = (
         "term": "MDC",
         "meaning": (
             "Coeficiente de difusion calculado desde el movimiento de las particulas. "
-            "En simple, resume que tan facil se movieron dentro de la ROI."
+            "En simple, resume que tan facil pudieron moverse dentro de la ROI "
+            "simulada."
         ),
     },
     {
@@ -99,15 +104,73 @@ RESULT_CONCEPTS = (
         "term": "MDC*",
         "meaning": (
             "Relacion entre MDC y MDC0. Si vale 0.30, la movilidad simulada equivale "
-            "aproximadamente al 30% de la referencia libre."
+            "aproximadamente al 30% de la referencia libre. Sirve para comparar "
+            "casos o corridas en una misma escala."
         ),
     },
     {
         "term": "Cv",
         "meaning": (
-            "Mide la memoria del movimiento. Valores positivos indican que las "
-            "particulas conservan direccion; valores cercanos a cero indican perdida "
-            "de memoria por choques y cambios de direccion."
+            "Autocorrelacion de velocidades. En palabras sencillas, observa si "
+            "las particulas siguen moviendose parecido a como empezaron o si "
+            "los choques hicieron que perdieran esa direccion inicial."
+        ),
+    },
+    {
+        "term": "Mapas de concentracion",
+        "meaning": (
+            "Imagenes que muestran donde habia mas particulas en distintos "
+            "momentos. Ayudan a ver si el movimiento se distribuye o se concentra "
+            "en ciertas zonas de la ROI."
+        ),
+    },
+    {
+        "term": "Zonas altas",
+        "meaning": (
+            "Celdas que superan un umbral de concentracion. No significan lesion "
+            "ni diagnostico; solo indican puntos donde el modelo acumulo mas "
+            "particulas."
+        ),
+    },
+)
+
+RESULT_READING_STEPS = (
+    {
+        "label": "1. ROI",
+        "detail": (
+            "Es el recorte de mamografia que se usa como zona de trabajo. El "
+            "prototipo analiza esta region, no toda la imagen clinica."
+        ),
+    },
+    {
+        "label": "2. Caja y cilindros",
+        "detail": (
+            "La ROI se convierte en una caja de simulacion. Cada zona de gris "
+            "ayuda a definir obstaculos cilindricos: oscuros mas grandes, claros "
+            "mas pequenos, segun el modelo del articulo base."
+        ),
+    },
+    {
+        "label": "3. Particulas MPC",
+        "detail": (
+            "El simulador coloca particulas matematicas dentro de la caja. Al "
+            "moverse, chocar y cambiar de direccion, dejan evidencia de como se "
+            "comporta la difusion en esa ROI."
+        ),
+    },
+    {
+        "label": "4. Mapas",
+        "detail": (
+            "Los mapas no son una nueva mamografia. Son dibujos del comportamiento "
+            "de la simulacion: dominio valido, obstaculos, concentracion y visitas "
+            "de particulas."
+        ),
+    },
+    {
+        "label": "5. Metricas",
+        "detail": (
+            "MDC, MDC* y Cv resumen el movimiento en numeros para compararlo de "
+            "forma academica. No clasifican lesiones ni entregan diagnostico."
         ),
     },
 )
@@ -160,10 +223,13 @@ def build_mpc_results_view(results_dir: Path | None):
         "velocity_summary": velocity_summary_items,
         "interpretation_items": interpretation_items,
         "concept_items": RESULT_CONCEPTS,
+        "reading_steps": RESULT_READING_STEPS,
         "explanation": (
             "La ROI funciona como el terreno de la simulacion. Sus intensidades "
-            "se convierten en obstaculos y las particulas MPC se mueven dentro "
-            "de ese espacio para estimar como cambia la difusion."
+            "se convierten en obstaculos cilindricos y las particulas MPC se "
+            "mueven dentro de ese espacio para estimar como cambia la difusion. "
+            "Todo se interpreta como evidencia academica del modelo, no como "
+            "diagnostico clinico."
         ),
     }
 
@@ -193,6 +259,7 @@ def _empty_results_view():
         "velocity_summary": (),
         "interpretation_items": (),
         "concept_items": RESULT_CONCEPTS,
+        "reading_steps": RESULT_READING_STEPS,
         "explanation": "",
     }
 
@@ -223,8 +290,9 @@ def _build_concentration_maps(results_dir, concentration_summary):
                         "de la simulacion."
                     ),
                     "reading": (
-                        "Permite ver si la concentracion se mantiene, se dispersa "
-                        "o se acumula en una zona de la ROI."
+                        "Permite comparar si las particulas se repartieron por "
+                        "la ROI o si quedaron mas presentes en zonas especificas. "
+                        "No identifica lesiones; solo muestra el estado del modelo."
                     ),
                 }
             )
@@ -262,7 +330,24 @@ def _build_image_card(results_dir, key):
 
 
 def _build_interpretation_items(metrics, config, diffusion):
-    items = []
+    items = [
+        {
+            "label": "De la ROI al resultado",
+            "detail": (
+                "El flujo parte de una ROI en escala de grises. Esa ROI se transforma "
+                "en una caja de simulacion con cilindros; luego las particulas se "
+                "mueven, chocan y generan mapas y metricas como MDC, MDC* y Cv."
+            ),
+        },
+        {
+            "label": "Alcance academico",
+            "detail": (
+                "Los resultados describen el comportamiento del modelo computacional. "
+                "No detectan cancer, no clasifican lesiones y no reemplazan una "
+                "revision medica."
+            ),
+        },
+    ]
     mdc = _float_or_none(diffusion.get("mdc"))
     mdc0 = _float_or_none(diffusion.get("mdc0"))
     mdc_star = _float_or_none(diffusion.get("mdc_star"))
@@ -350,27 +435,27 @@ def _build_primary_metrics(metrics, config, diffusion):
             _metric(
                 "Difusion calculada (MDC)",
                 diffusion.get("mdc"),
-                "Resume que tan facil se movieron las particulas dentro de la ROI.",
+                "Numero que resume la facilidad de movimiento dentro de la ROI simulada.",
             ),
             _metric(
                 "Referencia libre (MDC0)",
                 diffusion.get("mdc0"),
-                "Valor teorico si no existieran obstaculos que frenen el movimiento.",
+                "Valor de comparacion para un espacio ideal sin obstaculos.",
             ),
             _metric(
                 "Difusion normalizada (MDC*)",
                 diffusion.get("mdc_star"),
-                "Compara la difusion del caso frente a la referencia libre.",
+                "MDC dividido para MDC0; permite comparar corridas en una escala comun.",
             ),
             _metric(
                 "Variacion entre corridas",
                 diffusion.get("mdc_standard_deviation"),
-                "Indica cuanto cambiaron los valores MDC entre realizaciones.",
+                "Muestra cuanto cambiaron los MDC al repetir la simulacion.",
             ),
             _metric(
                 "Particulas simuladas",
                 config.get("mpc_particle_count"),
-                "Elementos matematicos usados para representar movimiento en la ROI.",
+                "Puntos matematicos que se mueven dentro de la caja de simulacion.",
                 value_type="integer",
             ),
             _metric(
@@ -403,27 +488,27 @@ def _build_parameter_items(metrics, config, diffusion):
             _metric(
                 "Densidad media de particulas (n0)",
                 config.get("n0") or diffusion.get("n0"),
-                "Cantidad promedio de particulas simuladas por cada celda.",
+                "Cantidad promedio de particulas que el modelo intenta ubicar por celda.",
             ),
             _metric(
                 "Paso temporal (tau)",
                 config.get("tau") or diffusion.get("tau"),
-                "Avance de tiempo aplicado en cada iteracion del simulador.",
+                "Tamano del salto de tiempo que avanza en cada paso de simulacion.",
             ),
             _metric(
                 "Energia termica (kBT)",
                 config.get("kbt") or diffusion.get("kbt"),
-                "Controla la intensidad del movimiento aleatorio de las particulas.",
+                "Controla que tan intenso es el movimiento aleatorio de las particulas.",
             ),
             _metric(
                 "Masa por particula",
                 config.get("mass") or diffusion.get("mass"),
-                "Valor matematico asignado al peso de cada particula simulada.",
+                "Peso matematico usado para calcular como cambia la velocidad.",
             ),
             _metric(
                 "Semilla de simulacion",
                 config.get("seed") or metrics.get("seed"),
-                "Numero usado para repetir una corrida con condiciones comparables.",
+                "Numero inicial que permite repetir una corrida con condiciones comparables.",
                 value_type="integer",
             ),
             _metric(
@@ -437,20 +522,20 @@ def _build_parameter_items(metrics, config, diffusion):
                 config.get("velocity_autocorrelation_requested_labeled_particles")
                 or config.get("labeled_particles")
                 or diffusion.get("requested_labeled_particles"),
-                "Cantidad objetivo indicada para calcular la autocorrelacion de velocidades.",
+                "Cantidad objetivo de particulas seguidas para observar la memoria del movimiento.",
                 value_type="integer",
             ),
             _metric(
                 "Particulas usadas para Cv",
                 config.get("velocity_autocorrelation_labeled_particle_count")
                 or diffusion.get("labeled_particle_count"),
-                "Cantidad realmente seguida; si la ROI tiene menos particulas, se usa el total disponible.",
+                "Cantidad realmente seguida para Cv; si hay menos disponibles, se usa el total posible.",
                 value_type="integer",
             ),
             _metric(
                 "Angulo de rotacion MPC",
                 config.get("rotation_angle"),
-                "Define como se modifican las velocidades durante la colision MPC.",
+                "Regla del modelo que gira velocidades durante la colision multiparticula.",
             ),
         )
         if item is not None
@@ -464,12 +549,12 @@ def _build_velocity_summary(summary):
             _metric(
                 "Difusion calculada (MDC)",
                 summary.get("mdc"),
-                "Resultado obtenido al integrar la autocorrelacion de velocidades.",
+                "Resultado obtenido al resumir la memoria del movimiento de las particulas.",
             ),
             _metric(
                 "Tiempo caracteristico",
                 summary.get("characteristic_time"),
-                "Tiempo de referencia estimado desde la curva Cv.",
+                "Tiempo aproximado en que la curva Cv pierde parte de su memoria inicial.",
             ),
             _metric(
                 "Particulas solicitadas para Cv",
