@@ -5,6 +5,19 @@ from pathlib import Path
 
 
 STATIC_RESULT_IMAGES = {
+    "simulation_box_3d": {
+        "filename": "simulation_box_3d.png",
+        "title": "Caja de simulacion mesoscopica",
+        "description": (
+            "Representacion pseudo-3D de la caja plana construida desde la ROI, "
+            "con cilindros derivados de intensidades y una muestra de particulas."
+        ),
+        "reading": (
+            "Esta imagen no es una reconstruccion anatomica 3D real; muestra el "
+            "dominio artificial que usa el simulador para explicar la transformacion "
+            "de la imagen en celdas, obstaculos y particulas."
+        ),
+    },
     "domain_mask": {
         "filename": "domain_mask.pgm",
         "title": "Region usada por la simulacion",
@@ -187,7 +200,7 @@ def _empty_results_view():
 def _build_domain_maps(results_dir):
     return tuple(
         _build_image_card(results_dir, key)
-        for key in ("domain_mask", "obstacle_radius_map", "density_map")
+        for key in ("simulation_box_3d", "domain_mask", "obstacle_radius_map", "density_map")
         if get_result_image_path(results_dir, key).exists()
     )
 

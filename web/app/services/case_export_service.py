@@ -16,6 +16,7 @@ RESULT_FILE_DESCRIPTIONS = {
     "obstacle_radius_matrix.tsv": "Matriz de radios de obstaculos por celda.",
     "obstacle_radius_map.pgm": "Visualizacion de radios de obstaculos.",
     "obstacle_radius_histogram.tsv": "Distribucion de radios de obstaculos.",
+    "simulation_box_3d.png": "Visualizacion pseudo-3D de la caja de simulacion con cilindros y particulas.",
     "mpc_initial_particles.tsv": "Estado inicial de particulas MPC.",
     "mpc_streamed_particles.tsv": "Particulas despues de traslacion libre y rebotes.",
     "mpc_streaming_summary.txt": "Resumen de traslacion y rebotes.",

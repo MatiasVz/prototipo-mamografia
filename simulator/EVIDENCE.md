@@ -218,6 +218,7 @@ La pantalla de detalle del caso muestra:
 
 - ROI asociada al caso;
 - estado del flujo: registro, ROI, PGM y resultados;
+- visualizacion pseudo-3D de la caja de simulacion;
 - mapas de dominio, obstaculos y concentracion;
 - metricas `MDC`, `MDC0`, `MDC*`;
 - parametros principales usados por el simulador;
