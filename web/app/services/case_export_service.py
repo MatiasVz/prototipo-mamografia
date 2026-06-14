@@ -10,11 +10,11 @@ from .preview_service import ensure_preview_for_path
 RESULT_FILE_DESCRIPTIONS = {
     "metrics.json": "Metricas preliminares de la ejecucion.",
     "domain_mask.pgm": "Mapa de la region mamaria valida usada por el simulador.",
-    "density_map.pgm": "Mapa de acumulacion o visitas de particulas.",
+    "density_map.pgm": "Mapa que muestra donde hubo mas visitas de particulas.",
     "mpc_config.json": "Parametros usados por el modelo MPC.",
     "space_summary.txt": "Resumen de la caja plana y obstaculos construidos desde la ROI.",
     "obstacle_radius_matrix.tsv": "Matriz de radios de obstaculos por celda.",
-    "obstacle_radius_map.pgm": "Visualizacion de radios de obstaculos.",
+    "obstacle_radius_map.pgm": "Visualizacion de cilindros derivados de tonos de gris de la ROI.",
     "obstacle_radius_histogram.tsv": "Distribucion de radios de obstaculos.",
     "simulation_box_3d.png": "Visualizacion pseudo-3D de la caja de simulacion con cilindros y particulas.",
     "mpc_initial_particles.tsv": "Estado inicial de particulas MPC.",
@@ -23,18 +23,18 @@ RESULT_FILE_DESCRIPTIONS = {
     "mpc_collided_particles.tsv": "Particulas despues de colision multiparticula.",
     "mpc_collision_summary.txt": "Resumen de colisiones MPC.",
     "mpc_cell_collisions.tsv": "Detalle de colisiones agrupadas por celda.",
-    "mpc_concentration_summary.txt": "Resumen de mapas de concentracion generados.",
-    "mpc_concentration_times.tsv": "Concentracion por tiempos capturados.",
-    "mpc_concentration_initial.pgm": "Mapa de concentracion inicial.",
-    "mpc_concentration_final.pgm": "Mapa de concentracion final.",
-    "mpc_high_concentration_initial.pgm": "Zonas de concentracion alta al inicio.",
-    "mpc_high_concentration_final.pgm": "Zonas de concentracion alta al final.",
-    "velocity_autocorrelation.tsv": "Serie de autocorrelacion de velocidades Cv.",
-    "velocity_autocorrelation_summary.txt": "Resumen del calculo de Cv.",
+    "mpc_concentration_summary.txt": "Resumen de mapas que muestran distribucion de particulas.",
+    "mpc_concentration_times.tsv": "Concentracion de particulas por tiempos capturados.",
+    "mpc_concentration_initial.pgm": "Distribucion de particulas al inicio.",
+    "mpc_concentration_final.pgm": "Distribucion de particulas al final.",
+    "mpc_high_concentration_initial.pgm": "Zonas con mas particulas al inicio.",
+    "mpc_high_concentration_final.pgm": "Zonas con mas particulas al final.",
+    "velocity_autocorrelation.tsv": "Serie Cv que resume memoria del movimiento.",
+    "velocity_autocorrelation_summary.txt": "Resumen legible del calculo de Cv.",
     "velocity_autocorrelation_realizations.tsv": "Detalle por realizacion de Cv.",
     "diffusion_metrics.json": "Metricas MDC, MDC0 y MDC* en formato JSON.",
     "diffusion_metrics.tsv": "Metricas MDC, MDC0 y MDC* en formato tabular.",
-    "diffusion_metrics_summary.txt": "Resumen legible de metricas de difusion.",
+    "diffusion_metrics_summary.txt": "Resumen legible de movilidad y difusion simulada.",
     "simulation_summary.txt": "Resumen general de la simulacion.",
     "simulation_state.json": "Estado tecnico de la simulacion.",
     "simulation.log": "Log producido por el simulador Julia.",
@@ -378,18 +378,60 @@ def _build_report_markdown(case, export_files, missing_items, metrics):
         "",
         "## Como interpretar este reporte",
         "",
+        (
+            "La lectura recomendada es seguir el camino completo: primero la ROI, "
+            "luego la caja de simulacion, despues los mapas y finalmente las "
+            "metricas numericas."
+        ),
+        "",
+        "### De la ROI al resultado",
+        "",
         "- **ROI**: region de interes usada como zona de trabajo del prototipo.",
-        "- **PGM**: imagen en escala de grises que se entrega al simulador.",
+        (
+            "- **PGM**: version en escala de grises que permite que el simulador "
+            "trabaje con intensidades numericas."
+        ),
         (
             "- **Caja plana**: representacion bidimensional construida desde la ROI "
             "para ejecutar la simulacion."
         ),
         (
             "- **Obstaculos**: elementos derivados de intensidades de la ROI que "
-            "representan heterogeneidad del tejido en el modelo."
+            "representan heterogeneidad del tejido en el modelo; los tonos oscuros "
+            "tienden a formar cilindros mayores y los tonos claros cilindros menores."
         ),
-        "- **MDC**: coeficiente calculado desde autocorrelacion de velocidades.",
-        "- **MDC***: valor normalizado para comparar resultados de forma academica.",
+        (
+            "- **Particulas MPC**: puntos matematicos que se mueven en la caja, "
+            "chocan con obstaculos y dejan evidencia de su distribucion."
+        ),
+        (
+            "- **Mapas**: imagenes generadas por el modelo; no son una mamografia "
+            "nueva, sino visualizaciones de dominio, obstaculos, visitas y "
+            "concentracion de particulas."
+        ),
+        "",
+        "### Guia simple de metricas",
+        "",
+        (
+            "- **MDC**: resume que tan facil se movieron las particulas dentro de "
+            "la ROI simulada."
+        ),
+        (
+            "- **MDC0**: referencia teorica de movimiento si no existieran obstaculos."
+        ),
+        (
+            "- **MDC***: MDC normalizado respecto a MDC0. Sirve para comparar "
+            "corridas o casos en una escala comun."
+        ),
+        (
+            "- **Cv**: autocorrelacion de velocidades; observa si las particulas "
+            "conservan su direccion inicial o si los choques hacen que pierdan "
+            "esa memoria."
+        ),
+        (
+            "- **Zonas altas**: celdas con concentracion superior al umbral del "
+            "modelo. No significan diagnostico ni presencia de lesion."
+        ),
         "",
         "## Datos principales del caso",
         "",
@@ -478,7 +520,8 @@ def _build_report_markdown(case, export_files, missing_items, metrics):
                 "El prototipo organiza una region de interes y resultados de "
                 "simulacion mesoscopica con fines de investigacion. No interpreta "
                 "lesiones, no clasifica hallazgos y no reemplaza la evaluacion "
-                "medica profesional."
+                "medica profesional. Las metricas y mapas describen el comportamiento "
+                "del modelo computacional sobre la ROI seleccionada."
             ),
             "",
         ]
@@ -493,18 +536,30 @@ def _build_metric_rows(metrics):
     preliminary = metrics["metrics"]
 
     candidates = (
-        ("MDC", diffusion.get("mdc"), "Difusion estimada desde la simulacion."),
-        ("MDC0", diffusion.get("mdc0"), "Referencia teorica sin obstaculos."),
-        ("MDC*", diffusion.get("mdc_star"), "MDC normalizado para comparacion academica."),
+        (
+            "MDC",
+            diffusion.get("mdc"),
+            "Resume la facilidad de movimiento de las particulas dentro de la ROI simulada.",
+        ),
+        (
+            "MDC0",
+            diffusion.get("mdc0"),
+            "Referencia de movimiento en un espacio ideal sin obstaculos.",
+        ),
+        (
+            "MDC*",
+            diffusion.get("mdc_star"),
+            "MDC dividido para MDC0; permite comparar corridas en una escala comun.",
+        ),
         (
             "Variacion MDC",
             diffusion.get("mdc_standard_deviation"),
-            "Dispersion entre las realizaciones ejecutadas.",
+            "Diferencia entre corridas cuando se ejecutan varias realizaciones.",
         ),
         (
             "Particulas MPC",
             _first_value(config, preliminary, "mpc_particle_count", "particle_count"),
-            "Cantidad de particulas usadas en la simulacion.",
+            "Puntos matematicos usados para representar movimiento en la caja.",
         ),
         (
             "Pasos",
@@ -514,7 +569,7 @@ def _build_metric_rows(metrics):
         (
             "Choques con obstaculos",
             config.get("mpc_streaming_obstacle_collision_count"),
-            "Rebotes registrados contra obstaculos.",
+            "Rebotes contra cilindros generados desde las intensidades de la ROI.",
         ),
         (
             "Rebotes con borde de ROI",
@@ -540,15 +595,35 @@ def _build_parameter_rows(metrics):
     config = metrics["config"]
 
     candidates = (
-        ("Semilla", config.get("seed"), "Permite reproducir una corrida similar."),
-        ("n0", _first_value(config, diffusion, "n0"), "Densidad media por celda."),
-        ("tau", _first_value(config, diffusion, "tau"), "Paso temporal del movimiento."),
-        ("kBT", _first_value(config, diffusion, "kbt"), "Energia termica reducida."),
-        ("Masa", _first_value(config, diffusion, "mass"), "Masa reducida por particula."),
+        (
+            "Semilla",
+            config.get("seed"),
+            "Numero inicial para repetir condiciones aleatorias comparables.",
+        ),
+        (
+            "n0",
+            _first_value(config, diffusion, "n0"),
+            "Cantidad promedio de particulas que el modelo intenta ubicar por celda.",
+        ),
+        (
+            "tau",
+            _first_value(config, diffusion, "tau"),
+            "Tamano del salto de tiempo aplicado en cada paso.",
+        ),
+        (
+            "kBT",
+            _first_value(config, diffusion, "kbt"),
+            "Parametro que controla la intensidad del movimiento aleatorio.",
+        ),
+        (
+            "Masa",
+            _first_value(config, diffusion, "mass"),
+            "Peso matematico usado para calcular cambios de velocidad.",
+        ),
         (
             "Angulo de rotacion",
             config.get("rotation_angle"),
-            "Parametro usado en colision MPC.",
+            "Regla que gira velocidades durante la colision multiparticula.",
         ),
         (
             "Realizaciones",
@@ -564,7 +639,7 @@ def _build_parameter_rows(metrics):
                 "requested_labeled_particles",
                 "labeled_particles",
             ),
-            "Cantidad objetivo indicada para calcular la autocorrelacion de velocidades.",
+            "Cantidad objetivo de particulas seguidas para medir memoria del movimiento.",
         ),
         (
             "Particulas usadas para Cv",
@@ -574,7 +649,7 @@ def _build_parameter_rows(metrics):
                 "velocity_autocorrelation_labeled_particle_count",
                 "labeled_particle_count",
             ),
-            "Cantidad real seguida para calcular Cv y MDC; si no hay 500 disponibles, se usa el total posible.",
+            "Cantidad real seguida para Cv y MDC; si no hay 500 disponibles, se usa el total posible.",
         ),
     )
 
@@ -692,10 +767,10 @@ def _result_file_description(filename):
         return RESULT_FILE_DESCRIPTIONS[filename]
 
     if filename.startswith("mpc_concentration_t_") and filename.endswith(".pgm"):
-        return "Mapa de concentracion capturado en un tiempo de simulacion."
+        return "Mapa que muestra la distribucion de particulas en un tiempo de simulacion."
 
     if filename.startswith("mpc_high_concentration_t_") and filename.endswith(".pgm"):
-        return "Mapa de zonas de alta concentracion en un tiempo de simulacion."
+        return "Mapa de celdas con mas particulas que el umbral en un tiempo de simulacion."
 
     if filename.startswith("worker_execution_") and filename.endswith(".log"):
         return "Log historico de una corrida del worker Python."

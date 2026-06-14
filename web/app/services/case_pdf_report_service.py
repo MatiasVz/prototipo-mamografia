@@ -39,6 +39,7 @@ def build_case_pdf_report(case, upload_folder):
     story.extend(_build_cover(case, styles))
     story.extend(_build_case_summary(case, styles))
     story.extend(_build_main_image_section(paths, styles))
+    story.extend(_build_result_flow_section(results_view, styles))
     story.extend(_build_results_reading_section(results_view, styles))
     story.extend(_build_metric_section(results_view, styles))
     story.extend(_build_map_sections(paths["results_dir"], results_view, styles))
@@ -203,6 +204,30 @@ def _build_main_image_section(paths, styles):
     return section
 
 
+def _build_result_flow_section(results_view, styles):
+    if not results_view["available"]:
+        return []
+
+    reading_steps = results_view.get("reading_steps") or ()
+    if not reading_steps:
+        return []
+
+    rows = [(item["label"], item["detail"]) for item in reading_steps]
+
+    return [
+        Paragraph("De la ROI al resultado", styles["section"]),
+        Paragraph(
+            "Esta guia muestra como una imagen recortada termina convertida en "
+            "mapas y metricas. La idea central es que la mamografia no se interpreta "
+            "directamente como diagnostico: primero se transforma en un dominio "
+            "matematico para simular movimiento de particulas.",
+            styles["body"],
+        ),
+        Spacer(1, 8),
+        _build_key_value_table(rows, styles),
+    ]
+
+
 def _build_results_reading_section(results_view, styles):
     if not results_view["interpretation_items"]:
         return [
@@ -223,7 +248,7 @@ def _build_results_reading_section(results_view, styles):
         Paragraph("Lectura de resultados", styles["section"]),
         Paragraph(
             "Las siguientes frases traducen las metricas principales a una lectura "
-            "mas simple para usuario final.",
+            "mas simple para usuario final y para documentacion academica.",
             styles["body"],
         ),
         Spacer(1, 8),
