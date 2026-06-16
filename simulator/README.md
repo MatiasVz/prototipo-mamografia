@@ -20,16 +20,16 @@ julia --project=simulator simulator/scripts/run_case.jl `
   --input storage/uploads/case_1/simulation_input.pgm `
   --output storage/uploads/case_1/results `
   --seed 1234 `
-  --steps 10 `
+  --steps 500 `
   --density 0.25 `
   --n0 10 `
   --mass 1 `
   --kbt 1 `
   --tau 1 `
   --rotation-angle 1.5707963267948966 `
-  --realizations 1 `
+  --realizations 3 `
   --labeled-particles 500 `
-  --correlation-initial-times 1 `
+  --correlation-initial-times 50 `
   --output-times 0,100,500 `
   --grid-shift false
 ```
