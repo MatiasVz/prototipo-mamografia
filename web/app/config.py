@@ -75,6 +75,10 @@ class Config:
         "SIMULATOR_RUN_SCRIPT_PATH",
         "simulator/scripts/run_case.jl",
     )
+    # Threads de CPU con los que se lanza Julia (paraleliza el loop de particulas del
+    # simulador). Acepta un numero o "auto". Se ajusta segun la maquina: pocos threads en
+    # la PC de desarrollo, muchos en el servidor. Por defecto 1 (serial) si no se define.
+    SIMULATION_CPU_THREADS = os.getenv("SIMULATION_CPU_THREADS", "1")
     SIMULATION_DEFAULT_SEED = int(os.getenv("SIMULATION_DEFAULT_SEED", "1234"))
     SIMULATION_DEFAULT_STEPS = int(os.getenv("SIMULATION_DEFAULT_STEPS", "500"))
     SIMULATION_DEFAULT_DENSITY = float(os.getenv("SIMULATION_DEFAULT_DENSITY", "0.25"))

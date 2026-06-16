@@ -1173,24 +1173,36 @@ function stream_mpc_particles(
     end
 
     particles = copy_mpc_particles(initialization.particles)
-    obstacle_collision_count = 0
-    domain_boundary_collision_count = 0
-    boundary_crossing_count_x = 0
-    boundary_crossing_count_y = 0
+    # Acumuladores atomicos: el loop de particulas se reparte entre varios threads y cada
+    # uno suma sus colisiones de forma segura (sin condiciones de carrera).
+    obstacle_collisions = Threads.Atomic{Int}(0)
+    domain_boundary_collisions = Threads.Atomic{Int}(0)
+    boundary_crossings_x = Threads.Atomic{Int}(0)
+    boundary_crossings_y = Threads.Atomic{Int}(0)
 
     for _step in 1:steps
-        for particle in particles
+        # El loop de pasos es serial: cada paso depende de las posiciones del anterior.
+        # Pero dentro de un paso cada particula avanza de forma independiente (solo muta su
+        # propio estado y lee `space`, que es de solo lectura), asi que repartimos las
+        # particulas entre los threads disponibles. La cantidad de threads la define el
+        # arranque de Julia (--threads), configurable con SIMULATION_CPU_THREADS.
+        Threads.@threads for index in eachindex(particles)
             collisions, domain_collisions, crossings_x, crossings_y = stream_single_mpc_particle!(
-                particle,
+                particles[index],
                 space,
                 config.tau,
             )
-            obstacle_collision_count += collisions
-            domain_boundary_collision_count += domain_collisions
-            boundary_crossing_count_x += crossings_x
-            boundary_crossing_count_y += crossings_y
+            Threads.atomic_add!(obstacle_collisions, collisions)
+            Threads.atomic_add!(domain_boundary_collisions, domain_collisions)
+            Threads.atomic_add!(boundary_crossings_x, crossings_x)
+            Threads.atomic_add!(boundary_crossings_y, crossings_y)
         end
     end
+
+    obstacle_collision_count = obstacle_collisions[]
+    domain_boundary_collision_count = domain_boundary_collisions[]
+    boundary_crossing_count_x = boundary_crossings_x[]
+    boundary_crossing_count_y = boundary_crossings_y[]
 
     return MpcStreamingResult(
         steps,
@@ -1464,13 +1476,20 @@ function ray_circle_collision_time(
     root = sqrt(discriminant)
     candidate_a = (-b - root) / (2 * a)
     candidate_b = (-b + root) / (2 * a)
-    candidates = [candidate for candidate in (candidate_a, candidate_b) if candidate > 0]
 
-    if isempty(candidates)
-        return nothing
+    # Elige el menor tiempo positivo sin construir un arreglo. Esta funcion se ejecuta
+    # miles de millones de veces durante el streaming, y la version anterior alocaba un
+    # vector por llamada, saturando el recolector de basura. Equivale exactamente a
+    # minimum(filter(c -> c > 0, (candidate_a, candidate_b))).
+    best = nothing
+    if candidate_a > 0
+        best = candidate_a
+    end
+    if candidate_b > 0 && (best === nothing || candidate_b < best)
+        best = candidate_b
     end
 
-    return minimum(candidates)
+    return best
 end
 
 function collide_mpc_particles(
