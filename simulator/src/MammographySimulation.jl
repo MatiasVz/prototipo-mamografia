@@ -263,6 +263,7 @@ const DEFAULT_TISSUE_THRESHOLD_RATIO = 0.03
 const DEFAULT_OBSTACLE_THRESHOLD_RATIO = 0.85
 const SIMULATION_ENGINE_PRELIMINARY = "sequential_minimal_random_walk"
 const MPC_CONFIGURATION_MODEL = "mpc_base_configuration"
+const DEFAULT_SIMULATION_STEPS = 500
 const DEFAULT_MPC_INPUT_ROLE = "confirmed_roi_pgm"
 const DEFAULT_MPC_CELL_LENGTH = 1.0
 const DEFAULT_MPC_LZ = 1
@@ -272,9 +273,9 @@ const DEFAULT_MPC_KBT = 1.0
 const DEFAULT_MPC_TAU = 1.0
 const DEFAULT_MPC_ROTATION_ANGLE = pi / 2
 const DEFAULT_MPC_ROTATION_POLICY = "random_sign_plus_minus_angle"
-const DEFAULT_MPC_REALIZATIONS = 1
+const DEFAULT_MPC_REALIZATIONS = 3
 const DEFAULT_MPC_LABELED_PARTICLES = 500
-const DEFAULT_MPC_CORRELATION_INITIAL_TIMES = 1
+const DEFAULT_MPC_CORRELATION_INITIAL_TIMES = 50
 const DEFAULT_MPC_OUTPUT_TIMES = (0, 100, 500)
 const DEFAULT_MPC_GRID_SHIFT_ENABLED = false
 const DEFAULT_MPC_GRID_SHIFT_DECISION = "disabled_initially_to_match_article_conditions"
@@ -312,7 +313,7 @@ Base.@kwdef struct SimulationRunConfig
     input_path::String
     output_dir::String
     seed::Int = 1234
-    steps::Int = 10
+    steps::Int = DEFAULT_SIMULATION_STEPS
     particle_density::Float64 = 0.25
     mpc_config::MpcModelConfig = MpcModelConfig()
 end
@@ -325,16 +326,16 @@ Opciones:
   --input              Ruta de la ROI confirmada convertida a PGM.
   --output             Directorio donde se escribiran los resultados.
   --seed               Semilla reproducible. Por defecto: 1234.
-  --steps              Numero de pasos de simulacion. Por defecto: 10.
+  --steps              Numero de pasos de simulacion. Por defecto: 500.
   --density            Densidad preliminar usada por el motor secuencial actual. Por defecto: 0.25.
   --n0                 Densidad media MPC de particulas por celda. Por defecto: 10.
   --mass               Masa reducida de particula MPC. Por defecto: 1.
   --kbt                Temperatura reducida kBT. Por defecto: 1.
   --tau                Paso temporal reducido. Por defecto: 1.
   --rotation-angle     Angulo de rotacion MPC en radianes. Por defecto: pi/2.
-  --realizations       Numero de realizaciones estadisticas. Por defecto: 1.
+  --realizations       Numero de realizaciones estadisticas. Por defecto: 3.
   --labeled-particles  Particulas etiquetadas para autocorrelacion. Por defecto: 500.
-  --correlation-initial-times  Numero de tiempos iniciales para Cv(t). Por defecto: 1.
+  --correlation-initial-times  Numero de tiempos iniciales para Cv(t). Por defecto: 50.
   --output-times       Tiempos de salida separados por coma. Por defecto: 0,100,500.
   --grid-shift         true/false. Por defecto: false.
   --help               Muestra esta ayuda.
@@ -404,7 +405,7 @@ function parse_cli_args(args::Vector{String})
     end
 
     seed = parse_integer_option(get(options, "--seed", "1234"), "--seed")
-    steps = parse_integer_option(get(options, "--steps", "10"), "--steps")
+    steps = parse_integer_option(get(options, "--steps", string(DEFAULT_SIMULATION_STEPS)), "--steps")
     particle_density = parse_float_option(get(options, "--density", "0.25"), "--density")
     mpc_config = parse_mpc_config(options)
 
@@ -2311,11 +2312,12 @@ function validate_synthetic_cases(
                 mpc_config = resolved_config,
             ),
         )
-        concentration_particle_sum = last(run_result.mpc_concentration.snapshots).particle_count
+        concentration_particle_sum_value = last(run_result.mpc_concentration.snapshots).particle_count
+        concentration_particle_sum = round(Int, concentration_particle_sum_value)
         actual_domain_cell_count = count_domain_cells(run_result.space)
         actual_blocking_count = count_preliminary_blocking_obstacles(run_result.space)
         particle_count = length(run_result.mpc_initialization.particles)
-        particle_conservation_ok = concentration_particle_sum == particle_count
+        particle_conservation_ok = isapprox(concentration_particle_sum_value, particle_count; atol = 1e-8)
         status = (
             actual_domain_cell_count == validation_case.expected_domain_cell_count &&
             actual_blocking_count == validation_case.expected_preliminary_blocking_obstacle_count &&

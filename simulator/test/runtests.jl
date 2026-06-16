@@ -606,6 +606,7 @@ end
         n0 = 0.5,
         tau = 1.0,
         rotation_angle = pi / 2,
+        realizations = 1,
         output_times = [0, 1, 2, 5],
     )
     initialization = MpcParticleInitialization(
@@ -697,6 +698,7 @@ end
     masked_config = MpcModelConfig(
         n0 = 0.5,
         tau = 1.0,
+        realizations = 1,
         output_times = [0, 1],
     )
     masked_initialization = MpcParticleInitialization(
