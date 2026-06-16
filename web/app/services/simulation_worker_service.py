@@ -263,6 +263,7 @@ def _build_julia_command(app_config, input_path, output_dir, *, seed, steps, den
 
     return [
         app_config["JULIA_EXECUTABLE"],
+        f"--threads={app_config['SIMULATION_CPU_THREADS']}",
         f"--project={app_config['SIMULATOR_PROJECT_PATH']}",
         app_config["SIMULATOR_RUN_SCRIPT_PATH"],
         "--input",
