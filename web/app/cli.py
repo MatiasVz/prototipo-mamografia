@@ -41,6 +41,14 @@ def register_cli_commands(app):
         _ensure_case_tracking_columns()
         click.echo("Campos de simulacion verificados correctamente.")
 
+    @app.cli.command("db-create-users")
+    def db_create_users():
+        """Create the users table on an existing database (idempotent)."""
+        # create_all solo crea las tablas que faltan (no altera las existentes),
+        # asi que en una base con la tabla cases ya creada solo agrega users.
+        db.create_all()
+        click.echo("Tabla users creada o verificada correctamente.")
+
     @app.cli.command("case-create-sample")
     def case_create_sample():
         """Create a sample case record for verification evidence."""
