@@ -47,6 +47,10 @@
       <button class="button button--primary" type="submit">Iniciar sesion</button>
 
       <p class="field-help">
+        <a href="{{ url_for('auth.forgot_password') }}">Olvidaste tu contraseña?</a>
+      </p>
+
+      <p class="field-help">
         Aun no tienes cuenta?
         <a href="{{ url_for('auth.register') }}">Crear cuenta</a>
       </p>

@@ -11,9 +11,22 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..extensions import db
 from ..models import User
 from ..services.auth_service import get_current_user, login_user, logout_user
+from ..services.email_service import EmailDeliveryError
+from ..services.password_reset_service import (
+    get_user_for_reset_token,
+    request_password_reset,
+    reset_password,
+)
 from ..services.user_registration_service import register_user
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/cuenta")
+
+# Mensaje deliberadamente generico: se muestra exista o no la cuenta, para no
+# revelar que correos estan registrados (anti-enumeracion).
+RESET_REQUEST_NOTICE = (
+    "Si el correo corresponde a una cuenta, te enviamos un enlace para "
+    "restablecer la contraseña. Revisa tu bandeja de entrada."
+)
 
 
 @auth_bp.app_context_processor
@@ -87,6 +100,76 @@ def logout():
     logout_user()
     flash("Cerraste sesion correctamente.", "success")
     return redirect(url_for("main.index"))
+
+
+@auth_bp.route("/recuperar", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email", "")
+
+        def build_reset_url(token):
+            return url_for("auth.reset_password_view", token=token, _external=True)
+
+        try:
+            request_password_reset(email, build_reset_url)
+        except EmailDeliveryError:
+            # El error ya quedo en el log. No revelamos si la cuenta existe.
+            flash(
+                "No pudimos enviar el correo en este momento. Intenta mas tarde.",
+                "error",
+            )
+            return render_template("auth/forgot_password.html", form={"email": email})
+        except SQLAlchemyError:
+            db.session.rollback()
+            flash("Ocurrio un error inesperado. Intenta nuevamente.", "error")
+            return render_template("auth/forgot_password.html", form={"email": email})
+
+        flash(RESET_REQUEST_NOTICE, "success")
+        return redirect(url_for("auth.login"))
+
+    return render_template("auth/forgot_password.html", form={})
+
+
+@auth_bp.route("/restablecer", methods=["GET", "POST"])
+def reset_password_view():
+    token = request.values.get("token", "")
+
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        password_confirm = request.form.get("password_confirm", "")
+
+        try:
+            result = reset_password(token, password, password_confirm)
+        except SQLAlchemyError:
+            db.session.rollback()
+            flash("No se pudo actualizar la contraseña. Intenta nuevamente.", "error")
+            return render_template("auth/reset_password.html", token=token, errors={})
+
+        if result.token_invalid:
+            flash(
+                "El enlace no es valido o expiro. Solicita uno nuevo.",
+                "error",
+            )
+            return redirect(url_for("auth.forgot_password"))
+
+        if result.success:
+            flash(
+                "Contraseña actualizada. Ya puedes iniciar sesion.",
+                "success",
+            )
+            return redirect(url_for("auth.login"))
+
+        flash("Revisa los datos del formulario.", "error")
+        return render_template(
+            "auth/reset_password.html", token=token, errors=result.errors
+        )
+
+    # GET: validamos el token antes de mostrar el formulario.
+    if get_user_for_reset_token(token) is None:
+        flash("El enlace no es valido o expiro. Solicita uno nuevo.", "error")
+        return redirect(url_for("auth.forgot_password"))
+
+    return render_template("auth/reset_password.html", token=token, errors={})
 
 
 def _is_safe_next_url(target):
