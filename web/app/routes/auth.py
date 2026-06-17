@@ -57,6 +57,8 @@ def register():
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
+    next_url = request.values.get("next", "")
+
     if request.method == "POST":
         email = request.form.get("email", "")
         password = request.form.get("password", "")
@@ -66,13 +68,18 @@ def login():
         if user is None or not user.check_password(password):
             # Mensaje generico a proposito: no revela si el correo existe o no.
             flash("Correo o contraseña incorrectos.", "error")
-            return render_template("auth/login.html", form={"email": email})
+            return render_template(
+                "auth/login.html", form={"email": email}, next_url=next_url
+            )
 
         login_user(user)
         flash("Sesion iniciada correctamente.", "success")
+
+        if _is_safe_next_url(next_url):
+            return redirect(next_url)
         return redirect(url_for("upload.case_list"))
 
-    return render_template("auth/login.html", form={})
+    return render_template("auth/login.html", form={}, next_url=next_url)
 
 
 @auth_bp.post("/logout")
@@ -80,3 +87,8 @@ def logout():
     logout_user()
     flash("Cerraste sesion correctamente.", "success")
     return redirect(url_for("main.index"))
+
+
+def _is_safe_next_url(target):
+    """Solo permite rutas internas relativas (evita open redirect a sitios externos)."""
+    return bool(target) and target.startswith("/") and not target.startswith("//")

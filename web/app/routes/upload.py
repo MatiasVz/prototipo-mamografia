@@ -40,6 +40,7 @@ from ..services.simulation_results_service import (
     build_mpc_results_view,
     get_result_image_path,
 )
+from ..services.auth_service import require_authenticated_user
 from ..services.storage_service import get_case_roi_directory
 from ..services.upload_error_service import (
     safe_register_request_size_error,
@@ -48,6 +49,12 @@ from ..services.upload_error_service import (
 
 
 upload_bp = Blueprint("upload", __name__, url_prefix="/mamografias")
+
+
+@upload_bp.before_request
+def _require_authenticated_user():
+    """Toda ruta de casos/cargas exige sesion iniciada (se restringe por dueño aparte)."""
+    return require_authenticated_user()
 
 SIMULATION_METRIC_FIELDS = (
     ("Particulas", "particle_count", "integer"),
