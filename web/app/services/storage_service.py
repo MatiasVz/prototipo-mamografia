@@ -1,3 +1,4 @@
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -105,6 +106,21 @@ def get_case_roi_directory(case_id: int, upload_folder: str):
 
 def get_case_simulation_results_directory(case_id: int, upload_folder: str):
     return get_case_upload_directory(case_id, upload_folder) / "results"
+
+
+def remove_case_storage_directory(case_id: int, upload_folder: str):
+    """Borrar del disco la carpeta completa de un caso (original, roi, results).
+
+    Devuelve True si la carpeta existia y se elimino. No silencia errores: el
+    llamador decide como manejarlos (p. ej. registrar y continuar).
+    """
+    case_directory = get_case_upload_directory(case_id, upload_folder)
+
+    if not case_directory.exists():
+        return False
+
+    shutil.rmtree(case_directory)
+    return True
 
 
 def to_relative_storage_path(path):

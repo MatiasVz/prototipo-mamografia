@@ -311,6 +311,25 @@ select:focus-visible {
   color: var(--color-primary);
 }
 
+.button--danger {
+  background: var(--color-danger);
+  color: #ffffff;
+}
+
+.button--danger:hover,
+.button--danger:focus {
+  background: #97140c;
+}
+
+.danger-note {
+  background: #fdeceb;
+  border-left: 4px solid var(--color-danger);
+  border-radius: 8px;
+  color: var(--color-danger);
+  margin: 0 0 12px;
+  padding: 12px 16px;
+}
+
 .hero {
   align-items: stretch;
   display: grid;

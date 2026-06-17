@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Eliminar cuenta | {{ config.APP_NAME }}{% endblock %}
+
+{% block content %}
+  <section class="page-heading" aria-labelledby="delete-title">
+    <p class="eyebrow">Cuenta</p>
+    <h1 id="delete-title">Eliminar cuenta</h1>
+    <p>
+      Esta accion es permanente. Se eliminaran tu cuenta y todos tus casos junto
+      con sus archivos y resultados. No se puede deshacer.
+    </p>
+  </section>
+
+  <section class="auth-layout" aria-label="Confirmacion de eliminacion de cuenta">
+    <form
+      class="auth-form"
+      action="{{ url_for('auth.delete_account_view') }}"
+      method="post"
+      novalidate
+    >
+      <p class="danger-note">
+        Al continuar se borraran definitivamente todos tus casos, mamografias,
+        ROIs y resultados de simulacion. Esta operacion no tiene vuelta atras.
+      </p>
+
+      <div class="form-field">
+        <label for="password">Confirma tu contraseña para continuar</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          required
+        >
+        {% if password_error %}<p class="field-error">{{ password_error }}</p>{% endif %}
+      </div>
+
+      <button class="button button--danger" type="submit">
+        Eliminar mi cuenta definitivamente
+      </button>
+
+      <p class="field-help">
+        Cambiaste de opinion?
+        <a href="{{ url_for('upload.case_list') }}">Volver a mis casos</a>
+      </p>
+    </form>
+
+    <aside class="auth-aside" aria-labelledby="delete-aside-title">
+      <h2 id="delete-aside-title">Antes de eliminar</h2>
+      <ul class="next-list">
+        <li>Si quieres conservar resultados, exportalos antes de continuar.</li>
+        <li>Se eliminan tus casos y sus archivos; no quedan copias asociadas.</li>
+        <li>Necesitas tu contraseña actual para confirmar la accion.</li>
+      </ul>
+    </aside>
+  </section>
+{% endblock %}
