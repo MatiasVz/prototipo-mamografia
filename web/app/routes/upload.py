@@ -40,7 +40,7 @@ from ..services.simulation_results_service import (
     build_mpc_results_view,
     get_result_image_path,
 )
-from ..services.auth_service import require_authenticated_user
+from ..services.auth_service import get_current_user, require_authenticated_user
 from ..services.storage_service import get_case_roi_directory
 from ..services.upload_error_service import (
     safe_register_request_size_error,
@@ -55,6 +55,21 @@ upload_bp = Blueprint("upload", __name__, url_prefix="/mamografias")
 def _require_authenticated_user():
     """Toda ruta de casos/cargas exige sesion iniciada (se restringe por dueño aparte)."""
     return require_authenticated_user()
+
+
+def _get_owned_case(case_id):
+    """Devuelve el caso solo si pertenece al usuario autenticado.
+
+    Si el caso no existe o es de otro usuario, devuelve None. Las rutas que lo usan
+    ya hacen `abort(404)` ante None, asi que un caso ajeno responde 404 (no revela su
+    existencia). El dueño va en la consulta, no en un chequeo posterior.
+    """
+    user = get_current_user()
+
+    if user is None:
+        return None
+
+    return Case.query.filter_by(id=case_id, user_id=user.id).first()
 
 SIMULATION_METRIC_FIELDS = (
     ("Particulas", "particle_count", "integer"),
@@ -176,6 +191,7 @@ def upload_mammogram():
                     validation_result,
                     current_app.config["UPLOAD_FOLDER"],
                     input_mode=input_mode,
+                    user_id=get_current_user().id,
                 )
             except (OSError, SQLAlchemyError):
                 db.session.rollback()
@@ -209,7 +225,8 @@ def upload_mammogram():
 
 @upload_bp.get("/casos")
 def case_list():
-    cases = Case.query.order_by(Case.id.desc()).all()
+    user = get_current_user()
+    cases = Case.query.filter_by(user_id=user.id).order_by(Case.id.desc()).all()
     case_rows = tuple(_build_case_list_row(case) for case in cases)
 
     return render_template(
@@ -228,8 +245,8 @@ def compare_cases():
     comparison_errors = []
 
     if selected_case_a_id is not None and selected_case_b_id is not None:
-        case_a = db.session.get(Case, selected_case_a_id)
-        case_b = db.session.get(Case, selected_case_b_id)
+        case_a = _get_owned_case(selected_case_a_id)
+        case_b = _get_owned_case(selected_case_b_id)
 
         if case_a is None:
             comparison_errors.append(f"No existe el caso #{selected_case_a_id}.")
@@ -271,7 +288,7 @@ def compare_cases():
 
 @upload_bp.get("/casos/<int:case_id>")
 def case_detail(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -320,7 +337,7 @@ def case_detail(case_id):
 
 @upload_bp.get("/casos/<int:case_id>/exportar/reporte")
 def export_case_report(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -337,7 +354,7 @@ def export_case_report(case_id):
 
 @upload_bp.get("/casos/<int:case_id>/exportar/reporte-md")
 def export_case_markdown_report(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -355,7 +372,7 @@ def export_case_markdown_report(case_id):
 
 @upload_bp.get("/casos/<int:case_id>/exportar/paquete")
 def export_case_package(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -373,7 +390,7 @@ def export_case_package(case_id):
 
 @upload_bp.post("/casos/<int:case_id>/simulacion/preparar-pgm")
 def prepare_case_simulation_input(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -405,7 +422,7 @@ def prepare_case_simulation_input(case_id):
 
 @upload_bp.post("/casos/<int:case_id>/simulacion/encolar")
 def enqueue_case_for_simulation(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -428,7 +445,7 @@ def enqueue_case_for_simulation(case_id):
 
 @upload_bp.route("/casos/<int:case_id>/roi/recortar", methods=["GET", "POST"])
 def crop_case_roi(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -469,7 +486,7 @@ def crop_case_roi(case_id):
 
 @upload_bp.post("/casos/<int:case_id>/roi/confirmar")
 def confirm_case_roi(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -540,7 +557,7 @@ def _auto_enqueue_simulation(case):
 
 @upload_bp.get("/casos/<int:case_id>/roi/vista-previa")
 def case_roi_preview(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -560,7 +577,7 @@ def case_roi_preview(case_id):
 
 @upload_bp.get("/casos/<int:case_id>/simulacion/mapa-densidad")
 def case_simulation_density_map(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -580,7 +597,7 @@ def case_simulation_density_map(case_id):
 
 @upload_bp.get("/casos/<int:case_id>/simulacion/resultados/<result_key>")
 def case_simulation_result_image(case_id, result_key):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -605,7 +622,7 @@ def case_simulation_result_image(case_id, result_key):
 
 @upload_bp.get("/casos/<int:case_id>/vista-previa")
 def case_preview(case_id):
-    case = db.session.get(Case, case_id)
+    case = _get_owned_case(case_id)
 
     if case is None:
         abort(404)
@@ -1358,8 +1375,9 @@ def _get_mpc_results(case):
 
 
 def _get_comparable_case_options():
+    user = get_current_user()
     completed_cases = (
-        Case.query.filter(Case.status == CaseStatus.COMPLETED)
+        Case.query.filter_by(user_id=user.id, status=CaseStatus.COMPLETED)
         .order_by(Case.id.desc())
         .all()
     )
