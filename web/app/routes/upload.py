@@ -245,6 +245,12 @@ def compare_cases():
     comparison_errors = []
 
     if selected_case_a_id is not None and selected_case_b_id is not None:
+        if selected_case_a_id == selected_case_b_id:
+            comparison_errors.append(
+                "Selecciona dos casos distintos: no se puede comparar un caso "
+                "consigo mismo."
+            )
+
         case_a = _get_owned_case(selected_case_a_id)
         case_b = _get_owned_case(selected_case_b_id)
 

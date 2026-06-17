@@ -59,14 +59,23 @@
         </select>
       </div>
 
-      <button class="button button--primary" type="submit">
+      <button
+        class="button button--primary"
+        type="submit"
+        {% if case_options|length < 2 %}disabled{% endif %}
+      >
         Comparar resultados
       </button>
     </form>
 
-    {% if not case_options %}
+    {% if case_options|length == 0 %}
       <p class="comparison-empty">
-        Aun no existen casos completados con metricas MPC comparables.
+        Aun no tienes casos completados con metricas MPC comparables.
+      </p>
+    {% elif case_options|length == 1 %}
+      <p class="comparison-empty">
+        Necesitas al menos dos casos completados con metricas MPC para comparar.
+        Por ahora tienes uno disponible.
       </p>
     {% endif %}
   </section>
