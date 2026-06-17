@@ -146,6 +146,37 @@ select:focus-visible {
   color: var(--color-primary-dark);
 }
 
+.app-nav__user {
+  align-self: center;
+  color: var(--color-primary-dark);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
+.app-nav__logout {
+  display: inline;
+  margin: 0;
+}
+
+.app-nav__signout {
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--color-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 10px;
+}
+
+.app-nav__signout:hover,
+.app-nav__signout:focus {
+  background: var(--color-surface-muted);
+  color: var(--color-primary-dark);
+}
+
 .app-main {
   flex: 1;
   margin: 0 auto;
