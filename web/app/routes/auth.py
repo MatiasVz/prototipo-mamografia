@@ -1,5 +1,6 @@
 from flask import (
     Blueprint,
+    current_app,
     flash,
     redirect,
     render_template,
@@ -10,7 +11,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
 from ..models import User
-from ..services.auth_service import get_current_user, login_user, logout_user
+from ..services.account_service import delete_account
+from ..services.auth_service import (
+    get_current_user,
+    login_required,
+    login_user,
+    logout_user,
+)
 from ..services.email_service import EmailDeliveryError
 from ..services.password_reset_service import (
     get_user_for_reset_token,
@@ -100,6 +107,44 @@ def logout():
     logout_user()
     flash("Cerraste sesion correctamente.", "success")
     return redirect(url_for("main.index"))
+
+
+@auth_bp.route("/eliminar", methods=["GET", "POST"])
+@login_required
+def delete_account_view():
+    user = get_current_user()
+
+    if request.method == "POST":
+        password = request.form.get("password", "")
+
+        try:
+            result = delete_account(
+                user, password, current_app.config["UPLOAD_FOLDER"]
+            )
+        except SQLAlchemyError:
+            db.session.rollback()
+            flash("No se pudo eliminar la cuenta. Intenta nuevamente.", "error")
+            return render_template("auth/delete_account.html", password_error=None)
+
+        if result.password_invalid:
+            return render_template(
+                "auth/delete_account.html",
+                password_error="Contraseña incorrecta.",
+            )
+
+        if result.orphaned_case_ids:
+            # La cuenta y los registros si se eliminaron; solo quedaron archivos
+            # sueltos en disco. Se avisa internamente sin alarmar al usuario.
+            current_app.logger.warning(
+                "Cuenta eliminada con archivos huerfanos en casos: %s",
+                result.orphaned_case_ids,
+            )
+
+        logout_user()
+        flash("Tu cuenta y todos tus casos se eliminaron definitivamente.", "success")
+        return redirect(url_for("main.index"))
+
+    return render_template("auth/delete_account.html", password_error=None)
 
 
 @auth_bp.route("/recuperar", methods=["GET", "POST"])
