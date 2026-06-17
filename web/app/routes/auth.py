@@ -10,7 +10,7 @@ from flask import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
-from ..models import User
+from ..models import Case, User
 from ..services.account_service import delete_account
 from ..services.auth_service import (
     get_current_user,
@@ -107,6 +107,23 @@ def logout():
     logout_user()
     flash("Cerraste sesion correctamente.", "success")
     return redirect(url_for("main.index"))
+
+
+@auth_bp.get("/perfil")
+@login_required
+def account():
+    user = get_current_user()
+    case_count = Case.query.filter_by(user_id=user.id).count()
+    member_since = (
+        user.created_at.strftime("%d/%m/%Y") if user.created_at else None
+    )
+
+    return render_template(
+        "auth/account.html",
+        user=user,
+        case_count=case_count,
+        member_since=member_since,
+    )
 
 
 @auth_bp.route("/eliminar", methods=["GET", "POST"])

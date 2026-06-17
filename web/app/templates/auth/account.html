@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Mi cuenta | {{ config.APP_NAME }}{% endblock %}
+
+{% block content %}
+  <section class="page-heading" aria-labelledby="account-title">
+    <p class="eyebrow">Cuenta</p>
+    <h1 id="account-title">Mi cuenta</h1>
+    <p>
+      Revisa los datos de tu cuenta y gestiona tu acceso al prototipo. Solo vos
+      ves esta informacion y los casos asociados a tu cuenta.
+    </p>
+  </section>
+
+  <section class="auth-layout" aria-label="Informacion de la cuenta">
+    <article class="auth-aside" aria-labelledby="account-data-title">
+      <h2 id="account-data-title">Datos de la cuenta</h2>
+      <dl class="detail-list">
+        <div>
+          <dt>Correo</dt>
+          <dd>{{ user.email }}</dd>
+        </div>
+        <div>
+          <dt>Nombre</dt>
+          <dd>{{ user.name or "Sin nombre" }}</dd>
+        </div>
+        <div>
+          <dt>Miembro desde</dt>
+          <dd>{{ member_since or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Casos registrados</dt>
+          <dd>{{ case_count }}</dd>
+        </div>
+      </dl>
+      <div class="page-actions">
+        <a class="button button--primary" href="{{ url_for('upload.case_list') }}">
+          Ver mis casos
+        </a>
+        <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
+          Cargar nueva imagen
+        </a>
+      </div>
+    </article>
+
+    <aside class="auth-aside" aria-labelledby="account-danger-title">
+      <h2 id="account-danger-title">Zona sensible</h2>
+      <p class="danger-note">
+        Eliminar tu cuenta borra de forma permanente todos tus casos, archivos y
+        resultados. Esta accion no se puede deshacer.
+      </p>
+      <a class="button button--danger" href="{{ url_for('auth.delete_account_view') }}">
+        Eliminar cuenta
+      </a>
+    </aside>
+  </section>
+{% endblock %}

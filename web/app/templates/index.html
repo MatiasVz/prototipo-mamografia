@@ -13,12 +13,21 @@
         ordenado, trazable y reproducible por caso.
       </p>
       <div class="page-actions">
-        <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
-          Cargar imagen o ROI
-        </a>
-        <a class="button button--secondary" href="{{ url_for('upload.case_list') }}">
-          Ver casos registrados
-        </a>
+        {% if current_user %}
+          <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
+            Cargar imagen o ROI
+          </a>
+          <a class="button button--secondary" href="{{ url_for('upload.case_list') }}">
+            Ver mis casos
+          </a>
+        {% else %}
+          <a class="button button--primary" href="{{ url_for('auth.login') }}">
+            Iniciar sesion
+          </a>
+          <a class="button button--secondary" href="{{ url_for('auth.register') }}">
+            Crear cuenta
+          </a>
+        {% endif %}
       </div>
       <ul class="hero__tags" aria-label="Caracteristicas del prototipo">
         <li>Mamografia o ROI</li>

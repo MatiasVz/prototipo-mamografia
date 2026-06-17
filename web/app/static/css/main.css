@@ -146,7 +146,7 @@ select:focus-visible {
   color: var(--color-primary-dark);
 }
 
-.app-nav__user {
+.app-nav a.app-nav__user {
   align-self: center;
   color: var(--color-primary-dark);
   font-size: 14px;
