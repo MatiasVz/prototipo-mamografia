@@ -530,7 +530,8 @@ select:focus-visible {
   content: "\00D7";
 }
 
-.upload-layout {
+.upload-layout,
+.auth-layout {
   align-items: start;
   display: grid;
   gap: 24px;
@@ -539,7 +540,9 @@ select:focus-visible {
 }
 
 .upload-form,
-.format-panel {
+.auth-form,
+.format-panel,
+.auth-aside {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -547,9 +550,15 @@ select:focus-visible {
   padding: 24px;
 }
 
-.upload-form {
+.upload-form,
+.auth-form {
   display: grid;
   gap: 22px;
+}
+
+.auth-aside h2 {
+  font-size: 20px;
+  margin: 0 0 12px;
 }
 
 .form-section-title {
@@ -604,6 +613,18 @@ select:focus-visible {
   color: var(--color-muted);
   font-size: 14px;
   margin: 0;
+}
+
+.field-error {
+  color: #b42318;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.form-optional {
+  color: var(--color-muted);
+  font-weight: 400;
 }
 
 .inline-help,
@@ -2051,7 +2072,8 @@ body.modal-open {
     grid-template-columns: 1fr;
   }
 
-  .upload-layout {
+  .upload-layout,
+  .auth-layout {
     grid-template-columns: 1fr;
   }
 

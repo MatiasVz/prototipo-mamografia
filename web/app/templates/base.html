@@ -56,6 +56,10 @@
             href="{{ url_for('upload.compare_cases') }}"
             {% if request.endpoint == 'upload.compare_cases' %}aria-current="page"{% endif %}
           >Comparar</a>
+          <a
+            href="{{ url_for('auth.register') }}"
+            {% if request.endpoint == 'auth.register' %}aria-current="page"{% endif %}
+          >Crear cuenta</a>
         </nav>
       </div>
     </header>
