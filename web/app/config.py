@@ -113,3 +113,21 @@ class Config:
     REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
     REDIS_URL = os.getenv("REDIS_URL", build_redis_url())
     SIMULATION_QUEUE_NAME = os.getenv("SIMULATION_QUEUE_NAME", "simulation_jobs")
+    # Envio de correo. Agnostico al proveedor: "console" (por defecto) escribe el
+    # correo en el log (desarrollo/demo, sin credenciales); "smtp" entrega via un
+    # servidor SMTP (p. ej. una cuenta de Gmail dedicada) en produccion.
+    MAIL_BACKEND = os.getenv("MAIL_BACKEND", "console")
+    MAIL_SMTP_HOST = os.getenv("MAIL_SMTP_HOST", "")
+    MAIL_SMTP_PORT = int(os.getenv("MAIL_SMTP_PORT", "587"))
+    MAIL_SMTP_USERNAME = os.getenv("MAIL_SMTP_USERNAME", "")
+    MAIL_SMTP_PASSWORD = os.getenv("MAIL_SMTP_PASSWORD", "")
+    MAIL_SMTP_USE_TLS = os.getenv("MAIL_SMTP_USE_TLS", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    MAIL_SENDER = os.getenv("MAIL_SENDER", "")
+    # Validez del enlace de recuperacion de contraseña, en segundos (1 hora).
+    PASSWORD_RESET_TOKEN_MAX_AGE = int(
+        os.getenv("PASSWORD_RESET_TOKEN_MAX_AGE", "3600")
+    )

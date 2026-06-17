@@ -22,6 +22,22 @@ class UserRegistrationResult:
         return self.user is not None and not self.errors
 
 
+def validate_password(password, password_confirm):
+    """Validar una contraseña y su confirmacion. Reutilizable en registro y reseteo."""
+    errors = {}
+
+    if not password:
+        errors["password"] = "La contraseña es obligatoria."
+    elif len(password) < MIN_PASSWORD_LENGTH:
+        errors["password"] = (
+            f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres."
+        )
+    elif password != password_confirm:
+        errors["password_confirm"] = "Las contraseñas no coinciden."
+
+    return errors
+
+
 def validate_registration(email, name, password, password_confirm):
     """Validate the registration fields without touching the database session."""
     errors = {}
@@ -38,14 +54,7 @@ def validate_registration(email, name, password, password_confirm):
     if clean_name and len(clean_name) > MAX_NAME_LENGTH:
         errors["name"] = "El nombre es demasiado largo."
 
-    if not password:
-        errors["password"] = "La contraseña es obligatoria."
-    elif len(password) < MIN_PASSWORD_LENGTH:
-        errors["password"] = (
-            f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres."
-        )
-    elif password != password_confirm:
-        errors["password_confirm"] = "Las contraseñas no coinciden."
+    errors.update(validate_password(password, password_confirm))
 
     return errors, email_norm, clean_name
 
