@@ -61,6 +61,11 @@ class Case(db.Model):
         default=utc_now,
         onupdate=utc_now,
     )
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     input_mode = db.Column(
         db.String(40),
         nullable=False,
@@ -88,6 +93,10 @@ class Case(db.Model):
         default=CaseStatus.REGISTERED,
     )
     error_message = db.Column(db.Text, nullable=True)
+    user = db.relationship(
+        "User",
+        backref=db.backref("cases", cascade="all, delete-orphan"),
+    )
 
     def __init__(
         self,
@@ -110,6 +119,7 @@ class Case(db.Model):
         simulation_log_file_path=None,
         status=CaseStatus.REGISTERED,
         error_message=None,
+        user_id=None,
     ):
         setattr(self, "input_mode", input_mode)
         setattr(self, "original_filename", original_filename)
@@ -130,6 +140,7 @@ class Case(db.Model):
         setattr(self, "simulation_log_file_path", simulation_log_file_path)
         setattr(self, "status", status)
         setattr(self, "error_message", error_message)
+        setattr(self, "user_id", user_id)
 
     def to_dict(self):
         return {
@@ -155,6 +166,7 @@ class Case(db.Model):
             "simulation_log_file_path": self.simulation_log_file_path,
             "status": self.status,
             "error_message": self.error_message,
+            "user_id": self.user_id,
         }
 
     def __repr__(self):

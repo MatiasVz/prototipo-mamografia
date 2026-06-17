@@ -22,6 +22,7 @@ def register_case_upload(
     validation_result: FileValidationResult,
     upload_folder: str,
     input_mode: str = InputMode.MAMMOGRAM,
+    user_id: int | None = None,
 ):
     stored_file = None
     stored_roi_file = None
@@ -34,6 +35,7 @@ def register_case_upload(
             file_type=validation_result.file_type or "",
             file_size_bytes=0,
             status=CaseStatus.REGISTERED,
+            user_id=user_id,
         )
         db.session.add(case)
         db.session.flush()

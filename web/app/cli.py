@@ -27,6 +27,7 @@ def register_cli_commands(app):
         """Create configured database tables for local development."""
         db.create_all()
         _ensure_case_tracking_columns()
+        _ensure_case_user_column()
         click.echo("Tablas de base de datos creadas o verificadas correctamente.")
 
     @app.cli.command("db-upgrade-roi-fields")
@@ -48,6 +49,12 @@ def register_cli_commands(app):
         # asi que en una base con la tabla cases ya creada solo agrega users.
         db.create_all()
         click.echo("Tabla users creada o verificada correctamente.")
+
+    @app.cli.command("db-upgrade-case-user")
+    def db_upgrade_case_user():
+        """Add the user_id owner column to an existing cases table."""
+        _ensure_case_user_column()
+        click.echo("Columna user_id verificada correctamente en la tabla cases.")
 
     @app.cli.command("case-create-sample")
     def case_create_sample():
@@ -256,3 +263,18 @@ def _ensure_case_tracking_columns():
                 connection.execute(
                     text(f"ALTER TABLE cases ADD COLUMN {column_name} {column_type}")
                 )
+
+
+def _ensure_case_user_column():
+    with db.engine.begin() as connection:
+        existing_columns = {
+            column["name"] for column in inspect(connection).get_columns("cases")
+        }
+
+        if "user_id" not in existing_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE cases ADD COLUMN user_id INTEGER "
+                    "REFERENCES users(id) ON DELETE CASCADE"
+                )
+            )
