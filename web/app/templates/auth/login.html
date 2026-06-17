@@ -19,6 +19,8 @@
       method="post"
       novalidate
     >
+      <input type="hidden" name="next" value="{{ next_url or '' }}">
+
       <div class="form-field">
         <label for="email">Correo electronico</label>
         <input
