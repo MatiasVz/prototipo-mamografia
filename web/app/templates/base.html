@@ -57,13 +57,12 @@
             {% if request.endpoint == 'upload.compare_cases' %}aria-current="page"{% endif %}
           >Comparar</a>
           {% if current_user %}
-            <span class="app-nav__user" aria-label="Sesion iniciada">
-              {{ current_user.name or current_user.email }}
-            </span>
             <a
-              href="{{ url_for('auth.delete_account_view') }}"
-              {% if request.endpoint == 'auth.delete_account_view' %}aria-current="page"{% endif %}
-            >Eliminar cuenta</a>
+              href="{{ url_for('auth.account') }}"
+              class="app-nav__user"
+              aria-label="Mi cuenta, sesion iniciada"
+              {% if request.endpoint in ('auth.account', 'auth.delete_account_view') %}aria-current="page"{% endif %}
+            >{{ current_user.name or current_user.email }}</a>
             <form action="{{ url_for('auth.logout') }}" method="post" class="app-nav__logout">
               <button type="submit" class="app-nav__signout">Cerrar sesion</button>
             </form>
