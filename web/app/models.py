@@ -114,6 +114,12 @@ class Case(db.Model):
         cascade="all, delete-orphan",
         order_by="File.id",
     )
+    result = db.relationship(
+        "Result",
+        back_populates="case",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     # Propiedades de compatibilidad: la informacion de archivos vive ahora en la
     # tabla `files` (una fila por archivo, identificada por su rol). Estas
@@ -288,6 +294,69 @@ class File(db.Model):
 
     def __repr__(self):
         return f"<File id={self.id} case_id={self.case_id} role={self.role}>"
+
+
+class Result(db.Model):
+    """Metricas de difusion (MDC, MDC0, MDC*) de un caso procesado.
+
+    Relacion 1:1 con `cases`: un caso tiene a lo sumo un resultado, que se
+    reemplaza si el caso se vuelve a procesar. Guarda los valores numericos en la
+    base de datos (antes solo existian dentro de archivos JSON en disco).
+    """
+
+    __tablename__ = "results"
+    __table_args__ = (
+        db.UniqueConstraint("case_id", name="uq_results_case_id"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+    case_id = db.Column(
+        db.Integer,
+        db.ForeignKey("cases.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    mdc = db.Column(db.Float, nullable=True)
+    mdc0 = db.Column(db.Float, nullable=True)
+    mdc_star = db.Column(db.Float, nullable=True)
+    mdc_standard_deviation = db.Column(db.Float, nullable=True)
+
+    case = db.relationship("Case", back_populates="result")
+
+    def __init__(
+        self,
+        case_id=None,
+        mdc=None,
+        mdc0=None,
+        mdc_star=None,
+        mdc_standard_deviation=None,
+    ):
+        setattr(self, "case_id", case_id)
+        setattr(self, "mdc", mdc)
+        setattr(self, "mdc0", mdc0)
+        setattr(self, "mdc_star", mdc_star)
+        setattr(self, "mdc_standard_deviation", mdc_standard_deviation)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "case_id": self.case_id,
+            "mdc": self.mdc,
+            "mdc0": self.mdc0,
+            "mdc_star": self.mdc_star,
+            "mdc_standard_deviation": self.mdc_standard_deviation,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return f"<Result id={self.id} case_id={self.case_id} mdc={self.mdc}>"
 
 
 class User(db.Model):

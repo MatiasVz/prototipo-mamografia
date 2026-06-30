@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 
 from ..extensions import db
-from ..models import CaseStatus
+from ..models import CaseStatus, Result
 from .storage_service import (
     get_case_simulation_results_directory,
     get_case_upload_directory,
@@ -620,6 +620,52 @@ def _update_case_simulation_results(case, output_dir, result_paths):
     case.simulation_log_file_path = to_relative_storage_path(
         result_paths["simulation_log"],
     )
+    _store_diffusion_metrics(case, result_paths)
+
+
+def _store_diffusion_metrics(case, result_paths):
+    """Persistir las metricas de difusion (MDC, MDC0, MDC*) en la tabla results.
+
+    Lee los valores que el simulador ya calculo en diffusion_metrics.json y los
+    guarda en la base de datos. Es tolerante a fallos: si el archivo falta o no se
+    puede parsear, no interrumpe el cierre del caso (los archivos ya estan en disco).
+    """
+    diffusion = _read_diffusion_metrics(result_paths.get("diffusion_metrics_json"))
+
+    if diffusion is None:
+        return
+
+    result = case.result
+    if result is None:
+        result = Result()
+        case.result = result
+
+    result.mdc = _metric_to_float(diffusion.get("mdc"))
+    result.mdc0 = _metric_to_float(diffusion.get("mdc0"))
+    result.mdc_star = _metric_to_float(diffusion.get("mdc_star"))
+    result.mdc_standard_deviation = _metric_to_float(
+        diffusion.get("mdc_standard_deviation"),
+    )
+
+
+def _read_diffusion_metrics(path):
+    if path is None or not Path(path).exists():
+        return None
+
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _metric_to_float(value):
+    if value is None:
+        return None
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _get_expected_result_paths(output_dir):
