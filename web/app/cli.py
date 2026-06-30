@@ -1,5 +1,5 @@
 import click
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from .extensions import db
@@ -24,37 +24,16 @@ def register_cli_commands(app):
 
     @app.cli.command("db-init")
     def db_init():
-        """Create configured database tables for local development."""
+        """Create configured database tables (users, cases, files)."""
         db.create_all()
-        _ensure_case_tracking_columns()
-        _ensure_case_user_column()
         click.echo("Tablas de base de datos creadas o verificadas correctamente.")
 
-    @app.cli.command("db-upgrade-roi-fields")
-    def db_upgrade_roi_fields():
-        """Add ROI fields to an existing local cases table."""
-        _ensure_case_tracking_columns()
-        click.echo("Campos de ROI verificados correctamente en la tabla cases.")
-
-    @app.cli.command("db-upgrade-simulation-fields")
-    def db_upgrade_simulation_fields():
-        """Add simulation input and result fields to an existing local cases table."""
-        _ensure_case_tracking_columns()
-        click.echo("Campos de simulacion verificados correctamente.")
-
-    @app.cli.command("db-create-users")
-    def db_create_users():
-        """Create the users table on an existing database (idempotent)."""
-        # create_all solo crea las tablas que faltan (no altera las existentes),
-        # asi que en una base con la tabla cases ya creada solo agrega users.
+    @app.cli.command("db-reset")
+    def db_reset():
+        """Drop and recreate all tables. Destructivo: borra todos los datos."""
+        db.drop_all()
         db.create_all()
-        click.echo("Tabla users creada o verificada correctamente.")
-
-    @app.cli.command("db-upgrade-case-user")
-    def db_upgrade_case_user():
-        """Add the user_id owner column to an existing cases table."""
-        _ensure_case_user_column()
-        click.echo("Columna user_id verificada correctamente en la tabla cases.")
+        click.echo("Base de datos recreada desde cero (todos los datos borrados).")
 
     @app.cli.command("case-create-sample")
     def case_create_sample():
@@ -235,46 +214,3 @@ def _format_timestamp(value):
         return ""
 
     return value.isoformat()
-
-
-def _ensure_case_tracking_columns():
-    case_columns = {
-        "roi_filename": "VARCHAR(255)",
-        "roi_file_path": "VARCHAR(500)",
-        "roi_file_type": "VARCHAR(50)",
-        "roi_size_bytes": "BIGINT",
-        "simulation_input_filename": "VARCHAR(255)",
-        "simulation_input_file_path": "VARCHAR(500)",
-        "simulation_input_file_type": "VARCHAR(50)",
-        "simulation_input_size_bytes": "BIGINT",
-        "simulation_results_path": "VARCHAR(500)",
-        "simulation_metrics_file_path": "VARCHAR(500)",
-        "simulation_density_map_file_path": "VARCHAR(500)",
-        "simulation_log_file_path": "VARCHAR(500)",
-    }
-
-    with db.engine.begin() as connection:
-        existing_columns = {
-            column["name"] for column in inspect(connection).get_columns("cases")
-        }
-
-        for column_name, column_type in case_columns.items():
-            if column_name not in existing_columns:
-                connection.execute(
-                    text(f"ALTER TABLE cases ADD COLUMN {column_name} {column_type}")
-                )
-
-
-def _ensure_case_user_column():
-    with db.engine.begin() as connection:
-        existing_columns = {
-            column["name"] for column in inspect(connection).get_columns("cases")
-        }
-
-        if "user_id" not in existing_columns:
-            connection.execute(
-                text(
-                    "ALTER TABLE cases ADD COLUMN user_id INTEGER "
-                    "REFERENCES users(id) ON DELETE CASCADE"
-                )
-            )
