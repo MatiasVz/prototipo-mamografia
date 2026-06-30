@@ -115,6 +115,24 @@
         </div>
         <p class="simulation-results__message">{{ simulation_results_status_message }}</p>
 
+        {% if stored_metrics %}
+          <section class="result-section" aria-labelledby="stored-metrics-title">
+            <h4 id="stored-metrics-title">Metricas de difusion (almacenadas)</h4>
+            <p class="result-section__note">
+              Valores de difusion registrados en la base de datos para este caso,
+              disponibles para consulta y comparacion.
+            </p>
+            <dl class="metric-summary metric-summary--compact" aria-label="Metricas almacenadas">
+              {% for metric in stored_metrics %}
+                <div class="metric-summary__item">
+                  <dt>{{ metric.label }}</dt>
+                  <dd>{{ metric.value }}</dd>
+                </div>
+              {% endfor %}
+            </dl>
+          </section>
+        {% endif %}
+
         {% if mpc_results.available %}
           <div class="simulation-results__content">
             <div class="mpc-flow" aria-label="Flujo MPC del caso">

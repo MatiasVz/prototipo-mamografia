@@ -301,6 +301,7 @@ def case_detail(case_id):
 
     preview = _get_case_preview(case)
     simulation_metrics = _get_simulation_metrics(case)
+    stored_metrics = _get_stored_metrics(case)
     simulation_density_map_url = _get_simulation_density_map_url(case)
     mpc_results = _get_mpc_results(case)
 
@@ -319,6 +320,7 @@ def case_detail(case_id):
         pgm_state_label=_get_pgm_state_label(case),
         simulation_result_state_label=_get_simulation_result_state_label(case),
         simulation_metrics=simulation_metrics,
+        stored_metrics=stored_metrics,
         simulation_density_map_url=simulation_density_map_url,
         mpc_results=mpc_results,
         simulation_results_status_title=_get_simulation_results_status_title(case),
@@ -1355,6 +1357,32 @@ def _get_simulation_metrics(case):
     return tuple(formatted_metrics)
 
 
+def _get_stored_metrics(case):
+    """Metricas de difusion (MDC, MDC0, MDC*) leidas desde la tabla results (BD)."""
+    result = case.result
+
+    if result is None:
+        return ()
+
+    fields = (
+        ("MDC", result.mdc, "decimal"),
+        ("MDC0 (referencia libre)", result.mdc0, "decimal"),
+        ("MDC* (normalizado)", result.mdc_star, "percent"),
+        ("Desviacion estandar MDC", result.mdc_standard_deviation, "decimal"),
+    )
+
+    formatted = []
+    for label, value, value_type in fields:
+        if value is None:
+            continue
+
+        formatted.append(
+            {"label": label, "value": _format_metric_value(value, value_type)}
+        )
+
+    return tuple(formatted)
+
+
 def _get_simulation_density_map_url(case):
     density_map_path = _resolve_storage_path(case.simulation_density_map_file_path)
 
@@ -1432,6 +1460,12 @@ def _format_metric_value(value, value_type):
     if value_type == "integer":
         try:
             return f"{int(value):,}".replace(",", ".")
+        except (TypeError, ValueError):
+            return "No disponible"
+
+    if value_type == "decimal":
+        try:
+            return f"{float(value):.4f}"
         except (TypeError, ValueError):
             return "No disponible"
 
