@@ -57,15 +57,24 @@
             {% if request.endpoint == 'upload.compare_cases' %}aria-current="page"{% endif %}
           >Comparar</a>
           {% if current_user %}
-            <a
-              href="{{ url_for('auth.account') }}"
-              class="app-nav__user"
-              aria-label="Mi cuenta, sesion iniciada"
-              {% if request.endpoint in ('auth.account', 'auth.delete_account_view') %}aria-current="page"{% endif %}
-            >{{ current_user.name or current_user.email }}</a>
-            <form action="{{ url_for('auth.logout') }}" method="post" class="app-nav__logout">
-              <button type="submit" class="app-nav__signout">Cerrar sesion</button>
-            </form>
+            <div class="app-account-actions" aria-label="Cuenta de usuario">
+              <a
+                href="{{ url_for('auth.account') }}"
+                class="app-account-actions__profile"
+                aria-label="Gestionar mi cuenta"
+                title="Mi cuenta"
+                {% if request.endpoint in ('auth.account', 'auth.delete_account_view') %}aria-current="page"{% endif %}
+              >
+                <svg viewBox="0 0 24 24" width="22" height="22" role="img" focusable="false" aria-hidden="true">
+                  <path d="M20 21a8 8 0 0 0-16 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                  <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                </svg>
+                <span class="visually-hidden">Mi cuenta</span>
+              </a>
+              <form action="{{ url_for('auth.logout') }}" method="post" class="app-nav__logout">
+                <button type="submit" class="app-account-actions__signout">Salir</button>
+              </form>
+            </div>
           {% else %}
             <a
               href="{{ url_for('auth.login') }}"
