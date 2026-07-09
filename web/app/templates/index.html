@@ -3,155 +3,165 @@
 {% block title %}Inicio | {{ config.APP_NAME }}{% endblock %}
 
 {% block content %}
-  <section class="hero" aria-labelledby="page-title">
-    <div class="hero__content">
-      <p class="eyebrow">Prototipo academico de investigacion</p>
-      <h1 id="page-title">Analisis de lesiones mamarias por simulacion mesoscopica</h1>
-      <p class="hero__lead">
-        Registra una mamografia completa o una ROI recortada, delimita y confirma la
-        region de interes y prepara la entrada para el modulo de simulacion. Un flujo
-        ordenado, trazable y reproducible por caso.
-      </p>
-      <div class="page-actions">
+  <section class="home-dashboard" aria-labelledby="page-title">
+    <div class="home-hero">
+      <p class="eyebrow">Panel de trabajo</p>
+      {% if current_user %}
+        <h1 id="page-title">Hola, {{ current_user.name or "bienvenido" }}</h1>
+        <p>
+          Gestiona tus casos de mamografia, continua flujos pendientes y revisa
+          resultados de simulacion desde un solo lugar.
+        </p>
+      {% else %}
+        <h1 id="page-title">Analisis mamografico por simulacion mesoscopica</h1>
+        <p>
+          Carga una mamografia o ROI, confirma la region de interes y consulta
+          resultados computacionales organizados por caso.
+        </p>
+      {% endif %}
+
+      <div class="page-actions home-hero__actions">
         {% if current_user %}
           <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
-            Cargar imagen o ROI
+            Nuevo caso
           </a>
           <a class="button button--secondary" href="{{ url_for('upload.case_list') }}">
             Ver mis casos
           </a>
         {% else %}
-          <a class="button button--primary" href="{{ url_for('auth.login') }}">
-            Iniciar sesion
-          </a>
-          <a class="button button--secondary" href="{{ url_for('auth.register') }}">
+          <a class="button button--primary" href="{{ url_for('auth.register') }}">
             Crear cuenta
+          </a>
+          <a class="button button--secondary" href="{{ url_for('auth.login') }}">
+            Iniciar sesion
           </a>
         {% endif %}
       </div>
-      <ul class="hero__tags" aria-label="Caracteristicas del prototipo">
-        <li>Mamografia o ROI</li>
-        <li>Recorte y confirmacion de ROI</li>
-        <li>Preparacion de entrada PGM</li>
-        <li>Trazabilidad por caso</li>
-      </ul>
     </div>
-    <aside class="hero__aside" aria-label="Naturaleza del prototipo">
-      <p class="hero__aside-label">Sobre el prototipo</p>
-      <p class="hero__aside-text">
-        Explora una alternativa computacional basada en mamografias frente a tecnicas
-        como DWI y ADC, que dependen de resonancia magnetica e infraestructura
-        especializada.
-      </p>
-      <p class="hero__aside-note">
-        Herramienta de investigacion. No realiza diagnostico clinico.
-      </p>
+
+    <aside class="home-side-panel" aria-label="Siguiente accion">
+      {% if current_user and recent_cases %}
+        <p class="home-side-panel__label">Ultima actividad</p>
+        <h2>Caso #{{ recent_cases[0].id }}</h2>
+        <p>{{ recent_cases[0].status_label }} · {{ recent_cases[0].input_mode }}</p>
+        <a class="button button--secondary" href="{{ recent_cases[0].action_url }}">
+          {{ recent_cases[0].action_label }}
+        </a>
+      {% elif current_user %}
+        <p class="home-side-panel__label">Comenzar</p>
+        <h2>No hay casos registrados</h2>
+        <p>Crea tu primer caso para iniciar el flujo de analisis.</p>
+        <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
+          Cargar imagen
+        </a>
+      {% else %}
+        <p class="home-side-panel__label">Uso academico</p>
+        <h2>Prototipo de investigacion</h2>
+        <p>No emite diagnostico clinico ni reemplaza la evaluacion medica profesional.</p>
+      {% endif %}
     </aside>
   </section>
 
-  <section class="section" aria-labelledby="context-title">
-    <div class="section-head">
-      <p class="eyebrow">Contexto</p>
-      <h2 id="context-title">Que aborda el prototipo</h2>
-      <p class="section-head__lead">
-        El analisis se concentra en una region de interes asociada a la lesion, no en la
-        mamografia completa como imagen diagnostica.
-      </p>
-    </div>
-    <div class="info-grid">
-      <article class="info-card">
-        <h3>El problema</h3>
-        <p>
-          Las tecnicas de difusion como DWI y ADC son utiles para estudiar lesiones y
-          respuesta a tratamientos, pero dependen de resonancia magnetica, infraestructura
-          especializada y costos elevados.
-        </p>
+  {% if current_user %}
+    <section class="home-stats" aria-label="Resumen de casos">
+      <article class="home-stat-card">
+        <span>Total</span>
+        <strong>{{ dashboard_summary.total }}</strong>
       </article>
-      <article class="info-card">
-        <h3>La propuesta</h3>
-        <p>
-          Aplicar simulacion mesoscopica sobre una region de interes obtenida de una
-          mamografia, organizando un flujo funcional de analisis computacional accesible
-          desde el navegador.
-        </p>
+      <article class="home-stat-card">
+        <span>En proceso</span>
+        <strong>{{ dashboard_summary.processing }}</strong>
       </article>
-      <article class="info-card">
-        <h3>La salida prevista</h3>
-        <p>
-          El resultado no es otra mamografia, sino una salida computacional: mapas de
-          densidad bidimensionales y metricas numericas relativas de difusion.
-        </p>
+      <article class="home-stat-card">
+        <span>Completados</span>
+        <strong>{{ dashboard_summary.completed }}</strong>
       </article>
-    </div>
-  </section>
+      <article class="home-stat-card">
+        <span>Por continuar</span>
+        <strong>{{ dashboard_summary.attention }}</strong>
+      </article>
+    </section>
 
-  <section class="section" aria-labelledby="pipeline-title">
-    <div class="section-head">
-      <p class="eyebrow">Flujo de analisis</p>
-      <h2 id="pipeline-title">Del caso al resultado</h2>
-      <p class="section-head__lead">
-        El prototipo guia el analisis desde la imagen cargada hasta los mapas y
-        metricas derivados de la simulacion.
-      </p>
+    <section class="home-workspace" aria-labelledby="recent-cases-title">
+      <div class="home-panel">
+        <div class="home-panel__header">
+          <div>
+            <p class="eyebrow">Actividad</p>
+            <h2 id="recent-cases-title">Casos recientes</h2>
+          </div>
+          <a href="{{ url_for('upload.case_list') }}">Ver todos</a>
+        </div>
+
+        {% if recent_cases %}
+          <div class="home-case-list">
+            {% for case_row in recent_cases %}
+              <article class="home-case-item">
+                <div>
+                  <div class="home-case-item__topline">
+                    <h3>Caso #{{ case_row.id }}</h3>
+                    <span class="status-badge status-badge--{{ case_row.status }}">
+                      {{ case_row.status_label }}
+                    </span>
+                  </div>
+                  <p>{{ case_row.input_mode }} · {{ case_row.created_at }}</p>
+                  <span>{{ case_row.filename }}</span>
+                </div>
+                <a class="button button--secondary" href="{{ case_row.action_url }}">
+                  {{ case_row.action_label }}
+                </a>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="home-empty">
+            <h3>Tu lista esta vacia</h3>
+            <p>Carga una mamografia completa o una ROI recortada para crear el primer caso.</p>
+            <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
+              Nuevo caso
+            </a>
+          </div>
+        {% endif %}
+      </div>
+
+      <aside class="home-panel home-panel--compact" aria-labelledby="quick-actions-title">
+        <p class="eyebrow">Accesos</p>
+        <h2 id="quick-actions-title">Atajos</h2>
+        <div class="home-quick-actions">
+          <a href="{{ url_for('upload.upload_mammogram') }}">Cargar nuevo caso</a>
+          <a href="{{ url_for('upload.case_list') }}">Revisar casos</a>
+          <a href="{{ url_for('upload.compare_cases') }}">Comparar resultados</a>
+          <a href="{{ url_for('auth.account') }}">Gestionar cuenta</a>
+        </div>
+      </aside>
+    </section>
+  {% endif %}
+
+  <section class="home-flow" aria-labelledby="flow-title">
+    <div class="home-flow__header">
+      <p class="eyebrow">Flujo</p>
+      <h2 id="flow-title">Del archivo al resultado</h2>
     </div>
-    <ol class="pipeline" aria-label="Etapas del flujo de analisis">
-      <li class="pipeline-step pipeline-step--done">
-        <span class="pipeline-step__index">1</span>
-        <span class="pipeline-step__badge">Disponible</span>
-        <h3>Registrar caso</h3>
-        <p>Carga una mamografia completa, una ROI recortada o una entrada PGM.</p>
+    <ol class="home-flow-list">
+      <li>
+        <span>1</span>
+        <strong>Cargar</strong>
+        <p>Mamografia completa, ROI o PGM.</p>
       </li>
-      <li class="pipeline-step pipeline-step--done">
-        <span class="pipeline-step__index">2</span>
-        <span class="pipeline-step__badge">Disponible</span>
-        <h3>Definir ROI</h3>
-        <p>Confirma una ROI directa o recorta la region de interes sobre la mamografia.</p>
+      <li>
+        <span>2</span>
+        <strong>Confirmar ROI</strong>
+        <p>Seleccionar la region que se analizara.</p>
       </li>
-      <li class="pipeline-step pipeline-step--done">
-        <span class="pipeline-step__index">3</span>
-        <span class="pipeline-step__badge">Disponible</span>
-        <h3>Preparar PGM</h3>
-        <p>Genera la representacion PGM compatible con el modulo de simulacion.</p>
+      <li>
+        <span>3</span>
+        <strong>Procesar</strong>
+        <p>Ejecutar la simulacion MPC.</p>
       </li>
-      <li class="pipeline-step pipeline-step--done">
-        <span class="pipeline-step__index">4</span>
-        <span class="pipeline-step__badge">Disponible</span>
-        <h3>Simular y medir</h3>
-        <p>Ejecuta la simulacion mesoscopica y calcula metricas relativas de difusion.</p>
-      </li>
-      <li class="pipeline-step pipeline-step--done">
-        <span class="pipeline-step__index">5</span>
-        <span class="pipeline-step__badge">Disponible</span>
-        <h3>Entregar resultados</h3>
-        <p>Presenta mapas de densidad, metricas y comparacion basica de referencia.</p>
+      <li>
+        <span>4</span>
+        <strong>Revisar</strong>
+        <p>Consultar metricas, mapas y reporte.</p>
       </li>
     </ol>
-  </section>
-
-  <section class="section" aria-labelledby="scope-title">
-    <div class="section-head">
-      <p class="eyebrow">Alcance</p>
-      <h2 id="scope-title">Que hace y que no hace</h2>
-    </div>
-    <div class="scope-grid">
-      <article class="scope-card scope-card--yes">
-        <h3>El prototipo si</h3>
-        <ul>
-          <li>Organiza y registra casos de analisis por imagen.</li>
-          <li>Permite cargar o recortar y confirmar una region de interes.</li>
-          <li>Prepara la entrada para el modulo de simulacion.</li>
-          <li>Mantiene trazabilidad y estados de cada caso.</li>
-        </ul>
-      </article>
-      <article class="scope-card scope-card--no">
-        <h3>El prototipo no</h3>
-        <ul>
-          <li>No emite diagnostico ni criterios clinicos.</li>
-          <li>No sustituye la evaluacion medica profesional.</li>
-          <li>No realiza validacion clinica con pacientes.</li>
-          <li>No se integra con sistemas PACS ni historias clinicas.</li>
-        </ul>
-      </article>
-    </div>
   </section>
 {% endblock %}
