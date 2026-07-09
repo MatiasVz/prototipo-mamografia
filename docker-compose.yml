@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     environment:
       APP_NAME: ${APP_NAME:-Prototipo de Analisis Mamografico}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:5000}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
       MAX_CONTENT_LENGTH: ${MAX_CONTENT_LENGTH:-52428800}
       UPLOAD_FOLDER: /app/storage/uploads
@@ -41,6 +42,14 @@ services:
       REDIS_PORT: 6379
       REDIS_URL: redis://redis:6379/0
       SIMULATION_QUEUE_NAME: ${SIMULATION_QUEUE_NAME:-simulation_jobs}
+      MAIL_BACKEND: ${MAIL_BACKEND:-console}
+      MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-}
+      MAIL_SMTP_PORT: ${MAIL_SMTP_PORT:-587}
+      MAIL_SMTP_USERNAME: ${MAIL_SMTP_USERNAME:-}
+      MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
+      MAIL_SMTP_USE_TLS: ${MAIL_SMTP_USE_TLS:-true}
+      MAIL_SENDER: ${MAIL_SENDER:-}
+      PASSWORD_RESET_TOKEN_MAX_AGE: ${PASSWORD_RESET_TOKEN_MAX_AGE:-3600}
     ports:
       - "${WEB_PORT:-5000}:5000"
     volumes:
@@ -69,6 +78,7 @@ services:
           cpus: "${WORKER_CPU_LIMIT:-6}"
     environment:
       APP_NAME: ${APP_NAME:-Prototipo de Analisis Mamografico}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:5000}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
       MAX_CONTENT_LENGTH: ${MAX_CONTENT_LENGTH:-52428800}
       UPLOAD_FOLDER: /app/storage/uploads
@@ -100,6 +110,14 @@ services:
       REDIS_PORT: 6379
       REDIS_URL: redis://redis:6379/0
       SIMULATION_QUEUE_NAME: ${SIMULATION_QUEUE_NAME:-simulation_jobs}
+      MAIL_BACKEND: ${MAIL_BACKEND:-console}
+      MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-}
+      MAIL_SMTP_PORT: ${MAIL_SMTP_PORT:-587}
+      MAIL_SMTP_USERNAME: ${MAIL_SMTP_USERNAME:-}
+      MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
+      MAIL_SMTP_USE_TLS: ${MAIL_SMTP_USE_TLS:-true}
+      MAIL_SENDER: ${MAIL_SENDER:-}
+      PASSWORD_RESET_TOKEN_MAX_AGE: ${PASSWORD_RESET_TOKEN_MAX_AGE:-3600}
     volumes:
       - ./storage/uploads:/app/storage/uploads
     depends_on:
