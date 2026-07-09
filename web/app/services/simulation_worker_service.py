@@ -6,6 +6,7 @@ import subprocess
 
 from ..extensions import db
 from ..models import CaseStatus, Result
+from .case_notification_service import notify_case_completed
 from .storage_service import (
     get_case_simulation_results_directory,
     get_case_upload_directory,
@@ -201,6 +202,7 @@ def process_case_simulation(
 
     _update_case_simulation_results(case, output_dir, result_paths)
     db.session.commit()
+    notify_case_completed(case)
 
     return SimulationWorkerResult(
         case_id=case.id,

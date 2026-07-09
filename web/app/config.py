@@ -65,6 +65,7 @@ def build_optional_positive_int(value, default="0"):
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
     APP_NAME = os.getenv("APP_NAME", "Prototipo de Analisis Mamografico")
+    PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", 50 * 1024 * 1024))
     UPLOAD_FOLDER = build_upload_folder()
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", build_database_url())
