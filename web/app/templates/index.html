@@ -5,59 +5,64 @@
 {% block content %}
   <section class="home-dashboard" aria-labelledby="page-title">
     <div class="home-hero">
-      <p class="eyebrow">Panel de trabajo</p>
-      {% if current_user %}
-        <h1 id="page-title">Hola, {{ current_user.name or "bienvenido" }}</h1>
-        <p>
-          Gestiona tus casos de mamografia, continua flujos pendientes y revisa
-          resultados de simulacion desde un solo lugar.
-        </p>
-      {% else %}
-        <h1 id="page-title">Analisis mamografico por simulacion mesoscopica</h1>
-        <p>
-          Carga una mamografia o ROI, confirma la region de interes y consulta
-          resultados computacionales organizados por caso.
-        </p>
-      {% endif %}
+      <div>
+        <p class="eyebrow">Panel personal</p>
+        {% if current_user %}
+          <h1 id="page-title">Hola, {{ current_user.name or "bienvenido" }}</h1>
+          <p>
+            Continúa tus análisis y consulta los resultados más recientes desde
+            un mismo lugar.
+          </p>
+        {% else %}
+          <h1 id="page-title">Análisis mamográfico por simulación mesoscópica</h1>
+          <p>
+            Organiza mamografías y regiones de interés en un flujo académico de
+            análisis computacional.
+          </p>
+        {% endif %}
+      </div>
 
       <div class="page-actions home-hero__actions">
         {% if current_user %}
           <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
-            Nuevo caso
-          </a>
-          <a class="button button--secondary" href="{{ url_for('upload.case_list') }}">
-            Ver mis casos
+            Nuevo análisis
           </a>
         {% else %}
           <a class="button button--primary" href="{{ url_for('auth.register') }}">
             Crear cuenta
           </a>
           <a class="button button--secondary" href="{{ url_for('auth.login') }}">
-            Iniciar sesion
+            Iniciar sesión
           </a>
         {% endif %}
       </div>
     </div>
 
-    <aside class="home-side-panel" aria-label="Siguiente accion">
-      {% if current_user and recent_cases %}
-        <p class="home-side-panel__label">Ultima actividad</p>
-        <h2>Caso #{{ recent_cases[0].id }}</h2>
-        <p>{{ recent_cases[0].status_label }} · {{ recent_cases[0].input_mode }}</p>
-        <a class="button button--secondary" href="{{ recent_cases[0].action_url }}">
-          {{ recent_cases[0].action_label }}
+    <aside
+      class="home-continuation{% if current_user and not continuation_case %} home-continuation--clear{% endif %}"
+      aria-label="Continuidad del análisis"
+    >
+      {% if current_user and continuation_case %}
+        <div class="home-continuation__header">
+          <p class="home-continuation__label">Continuar análisis</p>
+          <span class="status-badge status-badge--{{ continuation_case.status }}">
+            {{ continuation_case.status_label }}
+          </span>
+        </div>
+        <p class="home-continuation__case">Caso #{{ continuation_case.id }}</p>
+        <h2>{{ continuation_case.title }}</h2>
+        <p>{{ continuation_case.message }}</p>
+        <a class="button button--secondary" href="{{ continuation_case.detail_url }}">
+          Abrir caso
         </a>
       {% elif current_user %}
-        <p class="home-side-panel__label">Comenzar</p>
-        <h2>No hay casos registrados</h2>
-        <p>Crea tu primer caso para iniciar el flujo de analisis.</p>
-        <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
-          Cargar imagen
-        </a>
+        <p class="home-continuation__label">Actividad</p>
+        <h2>Todo al día</h2>
+        <p>No tienes casos pendientes. Tus resultados recientes están disponibles abajo.</p>
       {% else %}
-        <p class="home-side-panel__label">Uso academico</p>
-        <h2>Prototipo de investigacion</h2>
-        <p>No emite diagnostico clinico ni reemplaza la evaluacion medica profesional.</p>
+        <p class="home-continuation__label">Propósito</p>
+        <h2>Investigación académica</h2>
+        <p>El prototipo presenta resultados computacionales y no emite diagnósticos clínicos.</p>
       {% endif %}
     </aside>
   </section>
@@ -65,102 +70,160 @@
   {% if current_user %}
     <section class="home-stats" aria-label="Resumen de casos">
       <article class="home-stat-card">
-        <span>Total</span>
+        <span>Total de casos</span>
         <strong>{{ dashboard_summary.total }}</strong>
       </article>
       <article class="home-stat-card">
-        <span>En proceso</span>
+        <span>En procesamiento</span>
         <strong>{{ dashboard_summary.processing }}</strong>
       </article>
       <article class="home-stat-card">
         <span>Completados</span>
         <strong>{{ dashboard_summary.completed }}</strong>
       </article>
-      <article class="home-stat-card">
-        <span>Por continuar</span>
-        <strong>{{ dashboard_summary.attention }}</strong>
-      </article>
     </section>
 
-    <section class="home-workspace" aria-labelledby="recent-cases-title">
-      <div class="home-panel">
+    <section class="home-workspace" aria-label="Actividad y resultados recientes">
+      <article class="home-result-panel" aria-labelledby="latest-result-title">
+        <div class="home-panel__header">
+          <div>
+            <p class="eyebrow">Resultado reciente</p>
+            <h2 id="latest-result-title">Último análisis completado</h2>
+          </div>
+        </div>
+
+        {% if latest_result %}
+          <div class="home-result-summary">
+            {% if latest_result.image_url %}
+              <a
+                class="home-result-summary__media"
+                href="{{ latest_result.detail_url }}"
+                aria-label="Abrir resultados del caso {{ latest_result.id }}"
+              >
+                <img
+                  src="{{ latest_result.image_url }}"
+                  alt="Mapa de visitas de partículas del caso {{ latest_result.id }}"
+                >
+                <span>Mapa de visitas</span>
+              </a>
+            {% else %}
+              <div class="home-result-summary__media home-result-summary__media--empty">
+                <span>Resultado disponible</span>
+              </div>
+            {% endif %}
+
+            <div class="home-result-summary__body">
+              <div>
+                <span class="home-result-summary__case">Caso #{{ latest_result.id }}</span>
+                <h3>{{ latest_result.input_mode }}</h3>
+                <p>Procesado a partir de la ROI confirmada.</p>
+              </div>
+
+              <dl class="home-result-metrics">
+                <div>
+                  <dt>Difusión calculada</dt>
+                  <dd>{{ latest_result.mdc }}</dd>
+                </div>
+                <div>
+                  <dt>Difusión normalizada</dt>
+                  <dd>{{ latest_result.mdc_star }}</dd>
+                </div>
+              </dl>
+
+              <div class="home-result-summary__footer">
+                <span>{{ latest_result.created_at }}</span>
+                <a href="{{ latest_result.detail_url }}">Abrir resultado &rarr;</a>
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <div class="home-empty home-empty--result">
+            <span class="home-empty__number">0</span>
+            <div>
+              <h3>Aún no hay resultados</h3>
+              <p>Cuando finalice tu primer análisis, el mapa y sus métricas aparecerán aquí.</p>
+            </div>
+          </div>
+        {% endif %}
+      </article>
+
+      <section class="home-recent-panel" aria-labelledby="recent-cases-title">
         <div class="home-panel__header">
           <div>
             <p class="eyebrow">Actividad</p>
             <h2 id="recent-cases-title">Casos recientes</h2>
           </div>
-          <a href="{{ url_for('upload.case_list') }}">Ver todos</a>
+          {% if recent_cases %}
+            <a href="{{ url_for('upload.case_list') }}">Ver todos</a>
+          {% endif %}
         </div>
 
         {% if recent_cases %}
           <div class="home-case-list">
             {% for case_row in recent_cases %}
-              <article class="home-case-item">
-                <div>
+              <a class="home-case-item" href="{{ case_row.detail_url }}">
+                <div class="home-case-item__main">
                   <div class="home-case-item__topline">
                     <h3>Caso #{{ case_row.id }}</h3>
                     <span class="status-badge status-badge--{{ case_row.status }}">
                       {{ case_row.status_label }}
                     </span>
                   </div>
-                  <p>{{ case_row.input_mode }} · {{ case_row.created_at }}</p>
+                  <p>{{ case_row.input_mode }}</p>
                   <span>{{ case_row.filename }}</span>
                 </div>
-                <a class="button button--secondary" href="{{ case_row.action_url }}">
-                  {{ case_row.action_label }}
-                </a>
-              </article>
+                <div class="home-case-item__meta">
+                  <time>{{ case_row.created_at }}</time>
+                  <span class="home-case-item__arrow" aria-hidden="true">&rarr;</span>
+                </div>
+              </a>
             {% endfor %}
           </div>
         {% else %}
           <div class="home-empty">
-            <h3>Tu lista esta vacia</h3>
-            <p>Carga una mamografia completa o una ROI recortada para crear el primer caso.</p>
-            <a class="button button--primary" href="{{ url_for('upload.upload_mammogram') }}">
-              Nuevo caso
-            </a>
+            <div>
+              <h3>Tu lista está vacía</h3>
+              <p>Los casos que registres aparecerán aquí para que puedas retomarlos fácilmente.</p>
+            </div>
           </div>
         {% endif %}
-      </div>
-
-      <aside class="home-panel home-panel--compact" aria-labelledby="quick-actions-title">
-        <p class="eyebrow">Accesos</p>
-        <h2 id="quick-actions-title">Atajos</h2>
-        <div class="home-quick-actions">
-          <a href="{{ url_for('upload.upload_mammogram') }}">Cargar nuevo caso</a>
-          <a href="{{ url_for('upload.case_list') }}">Revisar casos</a>
-          <a href="{{ url_for('upload.compare_cases') }}">Comparar resultados</a>
-          <a href="{{ url_for('auth.account') }}">Gestionar cuenta</a>
-        </div>
-      </aside>
+      </section>
     </section>
   {% endif %}
 
   <section class="home-flow" aria-labelledby="flow-title">
     <div class="home-flow__header">
-      <p class="eyebrow">Flujo</p>
+      <p class="eyebrow">Flujo de análisis</p>
       <h2 id="flow-title">Del archivo al resultado</h2>
     </div>
     <ol class="home-flow-list">
       <li>
         <span>1</span>
-        <strong>Cargar</strong>
-        <p>Mamografia completa, ROI o PGM.</p>
+        <div>
+          <strong>Cargar</strong>
+          <p>Imagen o ROI</p>
+        </div>
       </li>
       <li>
         <span>2</span>
-        <strong>Confirmar ROI</strong>
-        <p>Seleccionar la region que se analizara.</p>
+        <div>
+          <strong>Confirmar</strong>
+          <p>Región de interés</p>
+        </div>
       </li>
       <li>
         <span>3</span>
-        <strong>Procesar</strong>
-        <p>Ejecutar la simulacion MPC.</p>
+        <div>
+          <strong>Procesar</strong>
+          <p>Simulación MPC</p>
+        </div>
       </li>
       <li>
         <span>4</span>
-        <strong>Revisar</strong>
-        <p>Consultar metricas, mapas y reporte.</p>
+        <div>
+          <strong>Revisar</strong>
+          <p>Mapas y métricas</p>
+        </div>
       </li>
     </ol>
   </section>
