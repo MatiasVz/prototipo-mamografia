@@ -188,6 +188,55 @@ if (uploadForm) {
   });
 }
 
+const deleteCaseModals = document.querySelectorAll("[data-delete-modal]");
+
+deleteCaseModals.forEach((deleteModal) => {
+  const modalId = deleteModal.dataset.deleteModal;
+  const openButton = document.querySelector(`[data-delete-modal-open="${modalId}"]`);
+  const closeControls = deleteModal.querySelectorAll("[data-delete-modal-close]");
+  const closeButton = deleteModal.querySelector(".modal__close");
+  let lastFocused = null;
+
+  const openDeleteModal = () => {
+    if (!openButton) {
+      return;
+    }
+
+    lastFocused = document.activeElement;
+    deleteModal.hidden = false;
+    deleteModal.classList.add("is-open");
+    document.body.classList.add("modal-open");
+
+    if (closeButton) {
+      closeButton.focus();
+    }
+  };
+
+  const closeDeleteModal = () => {
+    deleteModal.hidden = true;
+    deleteModal.classList.remove("is-open");
+    document.body.classList.remove("modal-open");
+
+    if (lastFocused && typeof lastFocused.focus === "function") {
+      lastFocused.focus();
+    }
+  };
+
+  if (openButton) {
+    openButton.addEventListener("click", openDeleteModal);
+  }
+
+  closeControls.forEach((control) => {
+    control.addEventListener("click", closeDeleteModal);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && deleteModal.classList.contains("is-open")) {
+      closeDeleteModal();
+    }
+  });
+});
+
 const roiCropTool = document.querySelector("[data-roi-crop-tool]");
 
 if (roiCropTool) {
