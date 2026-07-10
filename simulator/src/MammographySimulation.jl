@@ -261,6 +261,7 @@ end
 
 const DEFAULT_TISSUE_THRESHOLD_RATIO = 0.03
 const DEFAULT_OBSTACLE_THRESHOLD_RATIO = 0.85
+const DOMAIN_MASK_MODEL = "largest_connected_tissue_component_with_internal_hole_fill"
 const SIMULATION_ENGINE_PRELIMINARY = "sequential_minimal_random_walk"
 const MPC_CONFIGURATION_MODEL = "mpc_base_configuration"
 const DEFAULT_SIMULATION_STEPS = 500
@@ -2685,6 +2686,10 @@ function write_mpc_config_json(
         ("steps", run_config.steps),
         ("preliminary_particle_density", run_config.particle_density),
         ("tissue_threshold", space.tissue_threshold),
+        ("tissue_threshold_ratio", DEFAULT_TISSUE_THRESHOLD_RATIO),
+        ("domain_mask_model", DOMAIN_MASK_MODEL),
+        ("domain_mask_exterior_policy", "exclude_background_connected_to_image_border"),
+        ("domain_mask_internal_dark_policy", "preserve_enclosed_dark_regions"),
         ("obstacle_threshold", space.obstacle_threshold),
         ("domain_cell_count", count_domain_cells(space)),
         ("obstacle_count", length(space.obstacles)),
@@ -2855,6 +2860,10 @@ function write_space_summary(
         println(io, "max_gray=$(space.max_gray)")
         println(io, "cell_count=$(cell_count)")
         println(io, "tissue_threshold=$(space.tissue_threshold)")
+        println(io, "tissue_threshold_ratio=$(DEFAULT_TISSUE_THRESHOLD_RATIO)")
+        println(io, "domain_mask_model=$(DOMAIN_MASK_MODEL)")
+        println(io, "domain_mask_exterior_policy=exclude_background_connected_to_image_border")
+        println(io, "domain_mask_internal_dark_policy=preserve_enclosed_dark_regions")
         println(io, "domain_cell_count=$(domain_cell_count)")
         println(io, "excluded_background_count=$(excluded_background_count)")
         println(io, "domain_fraction=$(domain_fraction)")

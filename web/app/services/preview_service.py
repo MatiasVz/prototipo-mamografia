@@ -22,6 +22,39 @@ class PreviewFile:
     mimetype: str
 
 
+def load_processing_image_for_path(original_path: Path):
+    """Load a full-resolution image for scientific preprocessing.
+
+    Preview generation may resize or enhance an image for the browser. The
+    simulation input must instead be derived directly from the stored ROI.
+    """
+    extension = _get_extension(original_path)
+
+    if not original_path.exists():
+        return None
+
+    try:
+        if extension in DICOM_PREVIEW_EXTENSIONS:
+            dataset = dcmread(original_path)
+            return _dicom_dataset_to_image(dataset, use_stored_range=True)
+
+        if extension in DIRECT_PREVIEW_EXTENSIONS | GENERATED_PREVIEW_EXTENSIONS:
+            with Image.open(original_path) as image:
+                image.load()
+                return image.copy()
+    except (
+        AttributeError,
+        InvalidDicomError,
+        NotImplementedError,
+        OSError,
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+    return None
+
+
 def ensure_preview_for_stored_file(stored_file):
     return ensure_preview_for_path(stored_file.absolute_path)
 
@@ -118,7 +151,7 @@ def _generate_dicom_png_preview(original_path: Path, preview_path: Path):
     return True
 
 
-def _dicom_dataset_to_image(dataset):
+def _dicom_dataset_to_image(dataset, *, use_stored_range=False):
     if _is_compressed_dicom(dataset):
         raise NotImplementedError("DICOM comprimido no soportado para vista previa basica.")
 
@@ -138,6 +171,7 @@ def _dicom_dataset_to_image(dataset):
             columns,
             bits_allocated,
             photometric,
+            use_stored_range=use_stored_range,
         )
 
     if samples_per_pixel == 3 and photometric == "RGB" and bits_allocated == 8:
@@ -151,7 +185,15 @@ def _dicom_dataset_to_image(dataset):
     raise NotImplementedError("Formato DICOM no soportado para vista previa basica.")
 
 
-def _monochrome_dicom_to_image(dataset, rows, columns, bits_allocated, photometric):
+def _monochrome_dicom_to_image(
+    dataset,
+    rows,
+    columns,
+    bits_allocated,
+    photometric,
+    *,
+    use_stored_range=False,
+):
     if bits_allocated == 8:
         expected_bytes = rows * columns
         pixel_data = dataset.PixelData[:expected_bytes]
@@ -165,7 +207,13 @@ def _monochrome_dicom_to_image(dataset, rows, columns, bits_allocated, photometr
         if len(pixel_data) < expected_bytes:
             raise ValueError("PixelData monocromatico incompleto.")
 
-        image = _scale_16_bit_monochrome_to_l(dataset, pixel_data, rows, columns)
+        image = _scale_16_bit_monochrome_to_l(
+            dataset,
+            pixel_data,
+            rows,
+            columns,
+            use_stored_range=use_stored_range,
+        )
     else:
         raise NotImplementedError("Profundidad DICOM no soportada.")
 
@@ -175,21 +223,35 @@ def _monochrome_dicom_to_image(dataset, rows, columns, bits_allocated, photometr
     return image.convert("RGB")
 
 
-def _scale_16_bit_monochrome_to_l(dataset, pixel_data, rows, columns):
+def _scale_16_bit_monochrome_to_l(
+    dataset,
+    pixel_data,
+    rows,
+    columns,
+    *,
+    use_stored_range=False,
+):
     value_count = rows * columns
     signed = int(getattr(dataset, "PixelRepresentation", 0)) == 1
     byteorder = "big" if _is_big_endian(dataset) else "little"
 
-    min_value = None
-    max_value = None
-    for index in range(0, value_count * 2, 2):
-        value = int.from_bytes(
-            pixel_data[index : index + 2],
-            byteorder,
-            signed=signed,
-        )
-        min_value = value if min_value is None else min(min_value, value)
-        max_value = value if max_value is None else max(max_value, value)
+    if use_stored_range:
+        bits_stored = int(getattr(dataset, "BitsStored", 16))
+        if not 1 <= bits_stored <= 16:
+            raise ValueError("BitsStored DICOM invalido.")
+
+        if signed:
+            min_value = -(1 << (bits_stored - 1))
+            max_value = (1 << (bits_stored - 1)) - 1
+        else:
+            min_value = 0
+            max_value = (1 << bits_stored) - 1
+    else:
+        min_value = None
+        max_value = None
+        for value in _iter_16_bit_values(pixel_data, value_count, byteorder, signed):
+            min_value = value if min_value is None else min(min_value, value)
+            max_value = value if max_value is None else max(max_value, value)
 
     if min_value is None or max_value is None:
         raise ValueError("PixelData monocromatico vacio.")
@@ -199,18 +261,23 @@ def _scale_16_bit_monochrome_to_l(dataset, pixel_data, rows, columns):
     else:
         scale = 255 / (max_value - min_value)
         scaled_pixels = bytearray(value_count)
-        output_index = 0
-        for index in range(0, value_count * 2, 2):
-            value = int.from_bytes(
-                pixel_data[index : index + 2],
-                byteorder,
-                signed=signed,
-            )
-            scaled_pixels[output_index] = round((value - min_value) * scale)
-            output_index += 1
+        for output_index, value in enumerate(
+            _iter_16_bit_values(pixel_data, value_count, byteorder, signed)
+        ):
+            bounded_value = min(max(value, min_value), max_value)
+            scaled_pixels[output_index] = round((bounded_value - min_value) * scale)
         scaled_pixels = bytes(scaled_pixels)
 
     return Image.frombytes("L", (columns, rows), scaled_pixels)
+
+
+def _iter_16_bit_values(pixel_data, value_count, byteorder, signed):
+    for index in range(0, value_count * 2, 2):
+        yield int.from_bytes(
+            pixel_data[index : index + 2],
+            byteorder,
+            signed=signed,
+        )
 
 
 def _is_compressed_dicom(dataset):
