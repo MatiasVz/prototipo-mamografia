@@ -22,6 +22,7 @@ from ..services.case_export_service import (
     build_case_export_bundle,
     build_case_results_package,
 )
+from ..services.case_deletion_service import can_delete_case, delete_case as delete_case_record
 from ..services.case_pdf_report_service import build_case_pdf_report
 from ..services.case_registration_service import register_case_upload
 from ..services.file_validation import ALLOWED_EXTENSIONS, validate_mammogram_file
@@ -234,6 +235,36 @@ def case_list():
         case_rows=case_rows,
         case_summary=_build_case_list_summary(cases),
     )
+
+
+@upload_bp.post("/casos/<int:case_id>/eliminar")
+def delete_case(case_id):
+    case = _get_owned_case(case_id)
+
+    if case is None:
+        abort(404)
+
+    try:
+        deletion = delete_case_record(case, current_app.config["UPLOAD_FOLDER"])
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("No se pudo eliminar el caso %s.", case_id)
+        flash("No se pudo eliminar el caso. Intenta nuevamente.", "error")
+    else:
+        if deletion.processing_active:
+            flash(
+                "No puedes eliminar este caso mientras se encuentra en cola o procesandose.",
+                "warning",
+            )
+        elif deletion.storage_cleanup_failed:
+            flash(
+                f"El caso #{case_id} fue eliminado, pero algunos archivos no pudieron limpiarse.",
+                "warning",
+            )
+        else:
+            flash(f"El caso #{case_id} fue eliminado correctamente.", "success")
+
+    return redirect(url_for("upload.case_list"))
 
 
 @upload_bp.get("/comparar")
@@ -896,6 +927,8 @@ def _build_case_list_row(case):
         + "#simulation-results",
         "report_url": url_for("upload.export_case_report", case_id=case.id),
         "crop_url": url_for("upload.crop_case_roi", case_id=case.id),
+        "delete_url": url_for("upload.delete_case", case_id=case.id),
+        "can_delete": can_delete_case(case),
         "error_message": _format_error_message_for_list(case),
     }
 

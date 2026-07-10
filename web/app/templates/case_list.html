@@ -6,42 +6,34 @@
   <section class="page-heading cases-heading" aria-labelledby="cases-title">
     <p class="eyebrow">Gestion de casos</p>
     <h1 id="cases-title">Casos registrados</h1>
-    <p>
-      Consulta los casos creados, revisa su estado dentro del flujo y accede al
-      detalle o resultados disponibles.
-    </p>
+    <p>Consulta el estado de tus casos y continua el analisis donde lo dejaste.</p>
   </section>
 
   <section class="cases-overview" aria-label="Resumen de casos">
-    <article class="cases-summary-card">
+    <article class="cases-summary-card cases-summary-card--total">
       <span>Total</span>
       <strong>{{ case_summary.total }}</strong>
     </article>
-    <article class="cases-summary-card">
+    <article class="cases-summary-card cases-summary-card--completed">
       <span>Completados</span>
       <strong>{{ case_summary.completed }}</strong>
     </article>
-    <article class="cases-summary-card">
+    <article class="cases-summary-card cases-summary-card--processing">
       <span>En proceso</span>
       <strong>{{ case_summary.processing }}</strong>
     </article>
-    <article class="cases-summary-card">
+    <article class="cases-summary-card cases-summary-card--error">
       <span>Con error</span>
       <strong>{{ case_summary.errors }}</strong>
     </article>
   </section>
 
-  <section class="inline-help inline-help--wide" role="note">
-    <strong>Seguimiento del flujo:</strong>
-    cada caso avanza desde carga y ROI hasta preparacion PGM, simulacion y resultados.
-    Los estados ayudan a saber cual es la siguiente accion disponible.
-  </section>
-
   <section class="cases-panel" aria-labelledby="cases-panel-title">
     <div class="panel-header">
       <div>
-        <p class="eyebrow">Seguimiento</p>
+        <p class="eyebrow">Mis casos</p>
         <h2 id="cases-panel-title">Listado de casos</h2>
+        <span class="cases-panel__count">{{ case_summary.total }} registrados</span>
       </div>
       <div class="cases-actions">
         <a class="button button--secondary" href="{{ url_for('upload.compare_cases') }}">
@@ -93,7 +85,7 @@
                 <td>{{ row.results_state }}</td>
                 <td>
                   <div class="cases-row-actions">
-                    <a class="button button--primary" href="{{ row.primary_action.url }}">
+                    <a class="button button--primary cases-row-actions__primary" href="{{ row.primary_action.url }}">
                       {{ row.primary_action.label }}
                     </a>
                     <a class="button button--secondary" href="{{ row.detail_url }}">
@@ -102,12 +94,62 @@
                     <a class="button button--secondary" href="{{ row.report_url }}">
                       PDF
                     </a>
+                    {% if row.can_delete %}
+                      <button
+                        type="button"
+                        class="cases-row-actions__delete"
+                        data-delete-modal-open="{{ row.id }}"
+                      >
+                        Eliminar
+                      </button>
+                    {% else %}
+                      <span class="cases-row-actions__unavailable" title="No se puede eliminar mientras el caso esta en procesamiento.">
+                        En procesamiento
+                      </span>
+                    {% endif %}
                   </div>
                 </td>
               </tr>
             {% endfor %}
           </tbody>
         </table>
+
+        {% for row in case_rows if row.can_delete %}
+          <div class="modal case-delete-modal" data-delete-modal="{{ row.id }}" hidden>
+            <div class="modal__backdrop" data-delete-modal-close></div>
+            <div
+              class="modal__dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-case-title-{{ row.id }}"
+            >
+              <button
+                type="button"
+                class="modal__close"
+                data-delete-modal-close
+                aria-label="Cerrar"
+              >&times;</button>
+              <p class="eyebrow">Eliminar caso</p>
+              <h2 id="delete-case-title-{{ row.id }}">&iquest;Eliminar el caso #{{ row.id }}?</h2>
+              <p class="modal__intro">
+                Esta accion eliminara la imagen, la region asociada y los resultados disponibles.
+                No se puede deshacer.
+              </p>
+              <div class="case-delete-modal__summary">
+                <strong>{{ row.original_filename }}</strong>
+                <span>{{ row.input_mode }} · {{ row.created_at }}</span>
+              </div>
+              <div class="modal__actions">
+                <button type="button" class="button button--secondary" data-delete-modal-close>
+                  Cancelar
+                </button>
+                <form action="{{ row.delete_url }}" method="post">
+                  <button type="submit" class="button button--danger">Eliminar caso</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
       </div>
     {% else %}
       <div class="cases-empty">
