@@ -2,11 +2,9 @@ const fileInput = document.querySelector("[data-file-input]");
 const fileName = document.querySelector("[data-file-name]");
 
 if (fileInput && fileName) {
-  const defaultMessage = fileName.textContent;
-
   fileInput.addEventListener("change", () => {
     const selectedFile = fileInput.files && fileInput.files[0];
-    fileName.textContent = selectedFile ? `Archivo seleccionado: ${selectedFile.name}` : defaultMessage;
+    fileName.textContent = selectedFile ? selectedFile.name : "";
   });
 }
 
@@ -16,6 +14,11 @@ if (uploadForm) {
   const uploadFileInput = uploadForm.querySelector("[data-file-input]");
   const continueButton = uploadForm.querySelector("[data-open-type-modal]");
   const uploadHint = uploadForm.querySelector("[data-upload-hint]");
+  const dropzone = uploadForm.querySelector("[data-file-dropzone]");
+  const selectedFilePanel = uploadForm.querySelector("[data-file-selection]");
+  const selectedFileMeta = uploadForm.querySelector("[data-file-meta]");
+  const clearFileButton = uploadForm.querySelector("[data-clear-file]");
+  const uploadStepStatus = uploadForm.querySelector("[data-upload-step-status]");
   const typeModal = uploadForm.querySelector("[data-type-modal]");
   const modalFileLabel = typeModal ? typeModal.querySelector("[data-type-modal-file]") : null;
   const closeControls = typeModal ? typeModal.querySelectorAll("[data-type-modal-close]") : [];
@@ -23,6 +26,78 @@ if (uploadForm) {
   let lastFocused = null;
 
   const hasFile = () => Boolean(uploadFileInput && uploadFileInput.files && uploadFileInput.files.length);
+
+  const formatFileSize = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return "Tamano no disponible";
+    }
+
+    const units = ["B", "KB", "MB", "GB"];
+    const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const size = bytes / (1024 ** index);
+
+    return `${size.toLocaleString("es-EC", { maximumFractionDigits: index === 0 ? 0 : 1 })} ${units[index]}`;
+  };
+
+  const updateSelectedFile = () => {
+    const selectedFile = hasFile() ? uploadFileInput.files[0] : null;
+
+    if (continueButton) {
+      continueButton.disabled = !selectedFile;
+    }
+
+    if (selectedFilePanel) {
+      selectedFilePanel.hidden = !selectedFile;
+    }
+
+    if (dropzone) {
+      dropzone.classList.toggle("is-selected", Boolean(selectedFile));
+    }
+
+    if (selectedFileMeta && selectedFile) {
+      const extension = selectedFile.name.includes(".")
+        ? selectedFile.name.split(".").pop().toUpperCase()
+        : "Archivo";
+      selectedFileMeta.textContent = `${extension} - ${formatFileSize(selectedFile.size)}`;
+    } else if (selectedFileMeta) {
+      selectedFileMeta.textContent = "";
+    }
+
+    if (uploadStepStatus) {
+      uploadStepStatus.textContent = selectedFile ? "Archivo listo" : "Sin archivo";
+      uploadStepStatus.classList.toggle("is-ready", Boolean(selectedFile));
+    }
+
+    if (uploadHint) {
+      uploadHint.hidden = Boolean(selectedFile);
+    }
+  };
+
+  const clearSelectedFile = () => {
+    if (!uploadFileInput) {
+      return;
+    }
+
+    uploadFileInput.value = "";
+    if (fileName) {
+      fileName.textContent = "";
+    }
+    updateSelectedFile();
+  };
+
+  const setDroppedFile = (file) => {
+    if (!uploadFileInput || !file) {
+      return;
+    }
+
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    uploadFileInput.files = transfer.files;
+    if (fileName) {
+      fileName.textContent = file.name;
+    }
+    updateSelectedFile();
+  };
 
   const openModal = () => {
     if (!typeModal || !hasFile()) {
@@ -59,17 +134,34 @@ if (uploadForm) {
 
   if (uploadFileInput) {
     uploadFileInput.addEventListener("change", () => {
-      if (continueButton) {
-        continueButton.disabled = !hasFile();
-      }
+      updateSelectedFile();
+    });
+  }
 
-      if (uploadHint) {
-        uploadHint.hidden = true;
-      }
+  if (clearFileButton) {
+    clearFileButton.addEventListener("click", clearSelectedFile);
+  }
 
-      if (hasFile()) {
-        openModal();
-      }
+  if (dropzone) {
+    ["dragenter", "dragover"].forEach((eventName) => {
+      dropzone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropzone.classList.add("is-dragging");
+      });
+    });
+
+    ["dragleave", "drop"].forEach((eventName) => {
+      dropzone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropzone.classList.remove("is-dragging");
+      });
+    });
+
+    dropzone.addEventListener("drop", (event) => {
+      const droppedFile = event.dataTransfer && event.dataTransfer.files
+        ? event.dataTransfer.files[0]
+        : null;
+      setDroppedFile(droppedFile);
     });
   }
 
@@ -82,6 +174,8 @@ if (uploadForm) {
       }
     });
   }
+
+  updateSelectedFile();
 
   closeControls.forEach((control) => {
     control.addEventListener("click", closeModal);
