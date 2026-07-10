@@ -180,6 +180,37 @@ end
     @test_throws ArgumentError build_simulation_space(PgmImage(2, 2, 255, zeros(Int, 2, 2)))
 end
 
+@testset "Breast domain separates exterior and preserves internal dark tissue" begin
+    irregular_pixels = [
+        255 0 0 0 0 0 0
+        0 0 0 0 0 0 0
+        0 0 100 100 100 0 0
+        0 0 100 0 100 0 0
+        0 0 100 100 100 0 0
+        0 0 0 0 0 0 0
+        0 0 0 0 0 0 0
+    ]
+    irregular_space = build_simulation_space(PgmImage(7, 7, 255, irregular_pixels))
+
+    @test count(irregular_space.domain_mask) == 9
+    @test !irregular_space.domain_mask[1, 1]
+    @test irregular_space.domain_mask[4, 4]
+    @test !irregular_space.domain_mask[2, 4]
+
+    open_shape_pixels = [
+        0 0 0 0 0
+        0 100 0 100 0
+        0 100 0 100 0
+        0 100 100 100 0
+        0 0 0 0 0
+    ]
+    open_shape_space = build_simulation_space(PgmImage(5, 5, 255, open_shape_pixels))
+
+    @test !open_shape_space.domain_mask[2, 3]
+    @test !open_shape_space.domain_mask[3, 3]
+    @test open_shape_space.domain_mask[4, 3]
+end
+
 @testset "Minimal sequential simulation" begin
     space = build_simulation_space(synthetic_roi_image())
 

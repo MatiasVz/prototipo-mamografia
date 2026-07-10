@@ -1,3 +1,4 @@
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,6 +95,29 @@ def store_simulation_input_pgm(image, case_id: int, upload_folder: str):
         relative_path=_to_relative_storage_path(absolute_path),
         size_bytes=size_bytes,
     )
+
+
+def store_simulation_grayscale_png(image, case_id: int, upload_folder: str):
+    case_directory = get_case_upload_directory(case_id, upload_folder)
+    case_directory.mkdir(parents=True, exist_ok=True)
+
+    stored_filename = "simulation_grayscale.png"
+    absolute_path = case_directory / stored_filename
+    image.save(absolute_path, format="PNG")
+
+    return absolute_path
+
+
+def store_simulation_preparation_metadata(metadata, case_id: int, upload_folder: str):
+    case_directory = get_case_upload_directory(case_id, upload_folder)
+    case_directory.mkdir(parents=True, exist_ok=True)
+
+    absolute_path = case_directory / "simulation_preparation.json"
+    with absolute_path.open("w", encoding="utf-8", newline="\n") as metadata_file:
+        json.dump(metadata, metadata_file, ensure_ascii=True, indent=2, sort_keys=True)
+        metadata_file.write("\n")
+
+    return absolute_path
 
 
 def get_case_upload_directory(case_id: int, upload_folder: str):

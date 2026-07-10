@@ -120,6 +120,8 @@ def _build_case_paths(case, upload_folder):
             case.simulation_input_file_path,
             upload_folder_path,
         ),
+        "simulation_grayscale": case_dir / "simulation_grayscale.png",
+        "simulation_preparation": case_dir / "simulation_preparation.json",
         "results_dir": _resolve_results_dir(case, upload_folder_path, case_dir),
     }
 
@@ -192,6 +194,28 @@ def _collect_export_files(case, paths):
         path=paths["simulation_input"],
         archive_path="03_entrada_simulacion/simulation_input.pgm",
         registered_path=case.simulation_input_file_path,
+        category="entrada_simulacion",
+        required=False,
+    )
+    _append_file_or_missing(
+        export_files,
+        missing_items,
+        label="Imagen en escala de grises",
+        description="Conversion determinista de la ROI previa a la entrada PGM.",
+        path=paths["simulation_grayscale"],
+        archive_path="03_entrada_simulacion/simulation_grayscale.png",
+        registered_path=str(paths["simulation_grayscale"]),
+        category="entrada_simulacion",
+        required=False,
+    )
+    _append_file_or_missing(
+        export_files,
+        missing_items,
+        label="Metadatos de preparacion",
+        description="Politica de conversion, dimensiones y huella de la entrada PGM.",
+        path=paths["simulation_preparation"],
+        archive_path="03_entrada_simulacion/simulation_preparation.json",
+        registered_path=str(paths["simulation_preparation"]),
         category="entrada_simulacion",
         required=False,
     )
