@@ -350,6 +350,8 @@ def case_detail(case_id):
         roi_state_label=_get_roi_state_label(case),
         pgm_state_label=_get_pgm_state_label(case),
         simulation_result_state_label=_get_simulation_result_state_label(case),
+        case_status_label=_format_status_label(case.status),
+        case_has_completed_results=_has_completed_results(case),
         simulation_metrics=simulation_metrics,
         stored_metrics=stored_metrics,
         simulation_density_map_url=simulation_density_map_url,
@@ -889,7 +891,7 @@ def _format_status_label(status):
         CaseStatus.PROCESSING: "Procesando",
         CaseStatus.COMPLETED: "Completado",
         CaseStatus.ERROR: "Error",
-        CaseStatus.NOTIFIED: "Notificado",
+        CaseStatus.NOTIFIED: "Completado",
     }
 
     return status_labels.get(status, status or "No registrado")
@@ -906,8 +908,6 @@ def _get_roi_state_label(case):
 
 
 def _build_case_list_row(case):
-    has_results = case.status == CaseStatus.COMPLETED and _has_simulation_results(case)
-
     return {
         "id": case.id,
         "created_at": _format_datetime(case.created_at),
@@ -920,13 +920,8 @@ def _build_case_list_row(case):
         "roi_state": _get_roi_state_label(case),
         "pgm_state": _get_pgm_state_label(case),
         "results_state": _get_simulation_result_state_label(case),
-        "has_results": has_results,
-        "primary_action": _get_case_list_primary_action(case, has_results),
         "detail_url": url_for("upload.case_detail", case_id=case.id),
-        "results_url": url_for("upload.case_detail", case_id=case.id)
-        + "#simulation-results",
         "report_url": url_for("upload.export_case_report", case_id=case.id),
-        "crop_url": url_for("upload.crop_case_roi", case_id=case.id),
         "delete_url": url_for("upload.delete_case", case_id=case.id),
         "can_delete": can_delete_case(case),
         "error_message": _format_error_message_for_list(case),
@@ -936,74 +931,17 @@ def _build_case_list_row(case):
 def _build_case_list_summary(cases):
     return {
         "total": len(cases),
-        "completed": sum(1 for case in cases if case.status == CaseStatus.COMPLETED),
+        "completed": sum(
+            1
+            for case in cases
+            if case.status in {CaseStatus.COMPLETED, CaseStatus.NOTIFIED}
+        ),
         "processing": sum(
             1
             for case in cases
             if case.status in {CaseStatus.PENDING, CaseStatus.PROCESSING}
         ),
         "errors": sum(1 for case in cases if case.status == CaseStatus.ERROR),
-    }
-
-
-def _get_case_list_primary_action(case, has_results):
-    if has_results:
-        return {
-            "label": "Ver resultados",
-            "url": url_for("upload.case_detail", case_id=case.id) + "#simulation-results",
-        }
-
-    if case.status == CaseStatus.COMPLETED:
-        return {
-            "label": "Revisar resultados",
-            "url": url_for("upload.case_detail", case_id=case.id) + "#simulation-results",
-        }
-
-    if case.status == CaseStatus.PROCESSING:
-        return {
-            "label": "Seguir proceso",
-            "url": url_for("upload.case_detail", case_id=case.id),
-        }
-
-    if case.status == CaseStatus.PENDING:
-        return {
-            "label": "Ver cola",
-            "url": url_for("upload.case_detail", case_id=case.id),
-        }
-
-    if case.status == CaseStatus.ERROR:
-        return {
-            "label": "Revisar error",
-            "url": url_for("upload.case_detail", case_id=case.id),
-        }
-
-    if case.input_mode == InputMode.MAMMOGRAM and not case.roi_file_path:
-        return {
-            "label": "Recortar ROI",
-            "url": url_for("upload.crop_case_roi", case_id=case.id),
-        }
-
-    if case.roi_file_path and not _is_roi_confirmed_state(case):
-        return {
-            "label": "Confirmar ROI",
-            "url": url_for("upload.case_detail", case_id=case.id),
-        }
-
-    if case.status == CaseStatus.ROI_CONFIRMED and not case.simulation_input_file_path:
-        return {
-            "label": "Preparar PGM",
-            "url": url_for("upload.case_detail", case_id=case.id),
-        }
-
-    if case.simulation_input_file_path:
-        return {
-            "label": "Encolar simulacion",
-            "url": url_for("upload.case_detail", case_id=case.id),
-        }
-
-    return {
-        "label": "Ver detalle",
-        "url": url_for("upload.case_detail", case_id=case.id),
     }
 
 
@@ -1050,10 +988,7 @@ def _get_roi_flow_state(case):
     if _is_roi_confirmed_state(case):
         return "complete"
 
-    if case.roi_file_path:
-        return "active"
-
-    return "pending"
+    return "active"
 
 
 def _get_roi_flow_detail(case):
@@ -1087,7 +1022,7 @@ def _get_pgm_flow_detail(case):
 
 
 def _get_results_flow_state(case):
-    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+    if _has_completed_results(case):
         return "complete"
 
     if case.status in {CaseStatus.PENDING, CaseStatus.PROCESSING, CaseStatus.ERROR}:
@@ -1103,7 +1038,7 @@ def _get_results_flow_state(case):
 
 
 def _get_results_flow_detail(case):
-    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+    if _has_completed_results(case):
         return "Resultados disponibles"
 
     if case.status == CaseStatus.PROCESSING:
@@ -1182,7 +1117,7 @@ def _get_simulation_status_title(case):
     if case.status == CaseStatus.PROCESSING:
         return "Simulacion en proceso"
 
-    if case.status == CaseStatus.COMPLETED:
+    if case.status in {CaseStatus.COMPLETED, CaseStatus.NOTIFIED}:
         return "Simulacion completada"
 
     if case.status == CaseStatus.ERROR:
@@ -1201,7 +1136,7 @@ def _get_simulation_status_message(case):
     if case.status == CaseStatus.PROCESSING:
         return "El worker esta ejecutando la simulacion del caso."
 
-    if case.status == CaseStatus.COMPLETED:
+    if case.status in {CaseStatus.COMPLETED, CaseStatus.NOTIFIED}:
         return "La simulacion termino y los resultados estan disponibles."
 
     if case.status == CaseStatus.ERROR:
@@ -1221,7 +1156,7 @@ def _get_simulation_status_message(case):
 
 
 def _get_simulation_result_state_label(case):
-    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+    if _has_completed_results(case):
         return "Disponibles"
 
     if case.status == CaseStatus.PROCESSING:
@@ -1233,7 +1168,7 @@ def _get_simulation_result_state_label(case):
     if case.status == CaseStatus.ERROR:
         return "Error"
 
-    if case.status == CaseStatus.COMPLETED:
+    if case.status in {CaseStatus.COMPLETED, CaseStatus.NOTIFIED}:
         return "No disponibles"
 
     if case.simulation_input_file_path:
@@ -1243,7 +1178,7 @@ def _get_simulation_result_state_label(case):
 
 
 def _get_simulation_results_status_title(case):
-    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+    if _has_completed_results(case):
         return "Resultados disponibles"
 
     if case.status == CaseStatus.PROCESSING:
@@ -1255,7 +1190,7 @@ def _get_simulation_results_status_title(case):
     if case.status == CaseStatus.ERROR:
         return "Procesamiento con error"
 
-    if case.status == CaseStatus.COMPLETED:
+    if case.status in {CaseStatus.COMPLETED, CaseStatus.NOTIFIED}:
         return "Resultados no disponibles"
 
     if case.simulation_input_file_path:
@@ -1265,7 +1200,7 @@ def _get_simulation_results_status_title(case):
 
 
 def _get_simulation_results_status_message(case):
-    if case.status == CaseStatus.COMPLETED and _has_simulation_results(case):
+    if _has_completed_results(case):
         return (
             "El caso tiene resultados MPC, mapas de concentracion y metricas "
             "relativas de difusion asociadas."
@@ -1284,7 +1219,7 @@ def _get_simulation_results_status_message(case):
         error_context = _get_case_error_context(case)
         return f"{error_context['message']} {error_context['action']}"
 
-    if case.status == CaseStatus.COMPLETED:
+    if case.status in {CaseStatus.COMPLETED, CaseStatus.NOTIFIED}:
         return "El caso figura como completado, pero no se encontraron los archivos de resultados."
 
     if case.simulation_input_file_path:
@@ -1483,6 +1418,12 @@ def _has_simulation_results(case):
     )
 
 
+def _has_completed_results(case):
+    return case.status in {CaseStatus.COMPLETED, CaseStatus.NOTIFIED} and _has_simulation_results(
+        case,
+    )
+
+
 def _format_metric_value(value, value_type):
     if value_type == "percent":
         try:
@@ -1506,7 +1447,17 @@ def _format_metric_value(value, value_type):
 
 
 def _can_crop_roi(case, preview):
-    return case.input_mode == InputMode.MAMMOGRAM and preview is not None
+    return (
+        case.input_mode == InputMode.MAMMOGRAM
+        and preview is not None
+        and case.status
+        not in {
+            CaseStatus.PENDING,
+            CaseStatus.PROCESSING,
+            CaseStatus.COMPLETED,
+            CaseStatus.NOTIFIED,
+        }
+    )
 
 
 def _get_roi_preview_url(case):

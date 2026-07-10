@@ -136,41 +136,51 @@ RESULT_CONCEPTS = (
 
 RESULT_READING_STEPS = (
     {
-        "label": "1. ROI",
+        "number": "1",
+        "label": "ROI",
+        "caption": "Regi\u00f3n que se analiza",
         "detail": (
-            "Es el recorte de mamografia que se usa como zona de trabajo. El "
-            "prototipo analiza esta region, no toda la imagen clinica."
+            "Es el recorte de mamograf\u00eda que se usa como zona de trabajo. El "
+            "prototipo analiza esta regi\u00f3n, no toda la imagen cl\u00ednica."
         ),
     },
     {
-        "label": "2. Caja y cilindros",
+        "number": "2",
+        "label": "Caja y cilindros",
+        "caption": "Modelo del tejido",
         "detail": (
-            "La ROI se convierte en una caja de simulacion. Cada zona de gris "
-            "ayuda a definir obstaculos cilindricos: oscuros mas grandes, claros "
-            "mas pequenos, segun el modelo del articulo base."
+            "La ROI se convierte en una caja de simulaci\u00f3n. Cada zona de gris "
+            "ayuda a definir obst\u00e1culos cil\u00edndricos: oscuros m\u00e1s grandes, claros "
+            "m\u00e1s peque\u00f1os, seg\u00fan el modelo del art\u00edculo base."
         ),
     },
     {
-        "label": "3. Particulas MPC",
+        "number": "3",
+        "label": "Part\u00edculas MPC",
+        "caption": "Movimiento simulado",
         "detail": (
-            "El simulador coloca particulas matematicas dentro de la caja. Al "
-            "moverse, chocar y cambiar de direccion, dejan evidencia de como se "
-            "comporta la difusion en esa ROI."
+            "El simulador coloca part\u00edculas matem\u00e1ticas dentro de la caja. Al "
+            "moverse, chocar y cambiar de direcci\u00f3n, dejan evidencia de c\u00f3mo se "
+            "comporta la difusi\u00f3n en esa ROI."
         ),
     },
     {
-        "label": "4. Mapas",
+        "number": "4",
+        "label": "Mapas",
+        "caption": "Distribuci\u00f3n observada",
         "detail": (
-            "Los mapas no son una nueva mamografia. Son dibujos del comportamiento "
-            "de la simulacion: dominio valido, obstaculos, concentracion y visitas "
-            "de particulas."
+            "Los mapas no son una nueva mamograf\u00eda. Son representaciones del "
+            "comportamiento de la simulaci\u00f3n: dominio v\u00e1lido, obst\u00e1culos, concentraci\u00f3n "
+            "y visitas de part\u00edculas."
         ),
     },
     {
-        "label": "5. Metricas",
+        "number": "5",
+        "label": "M\u00e9tricas",
+        "caption": "Resultados comparables",
         "detail": (
-            "MDC, MDC* y Cv resumen el movimiento en numeros para compararlo de "
-            "forma academica. No clasifican lesiones ni entregan diagnostico."
+            "MDC, MDC* y Cv resumen el movimiento en n\u00fameros para compararlo de "
+            "forma acad\u00e9mica. No clasifican lesiones ni entregan diagn\u00f3stico."
         ),
     },
 )
