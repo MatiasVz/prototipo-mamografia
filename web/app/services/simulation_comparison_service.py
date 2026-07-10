@@ -4,48 +4,48 @@ from pathlib import Path
 
 COMPARABLE_METRICS = (
     (
-        "Difusion calculada (MDC)",
+        "Difusión calculada (MDC)",
         "mdc",
-        "Que tan facil se movieron las particulas dentro de la ROI simulada.",
+        "Qué tan fácil se movieron las partículas dentro de la ROI simulada.",
     ),
     (
         "Referencia libre (MDC0)",
         "mdc0",
-        "Valor esperado si no existieran obstaculos en el dominio.",
+        "Valor esperado si no existieran obstáculos en el dominio.",
     ),
     (
-        "Difusion normalizada (MDC*)",
+        "Difusión normalizada (MDC*)",
         "mdc_star",
-        "Relacion entre la difusion calculada y la referencia libre.",
+        "Relación entre la difusión calculada y la referencia libre.",
     ),
 )
 
 COMPARABLE_PARAMETERS = (
     ("Pasos ejecutados", "steps"),
-    ("Densidad media de particulas (n0)", "n0"),
+    ("Densidad media de partículas (n0)", "n0"),
     ("Paso temporal (tau)", "tau"),
-    ("Energia termica (kBT)", "kbt"),
-    ("Masa por particula", "mass"),
-    ("Numero de corridas", "realizations"),
-    ("Particulas seguidas para Cv", "velocity_autocorrelation_labeled_particle_count"),
-    ("Angulo de rotacion MPC", "rotation_angle"),
+    ("Energía térmica (kBT)", "kbt"),
+    ("Masa por partícula", "mass"),
+    ("Número de corridas", "realizations"),
+    ("Partículas seguidas para Cv", "velocity_autocorrelation_labeled_particle_count"),
+    ("Ángulo de rotación MPC", "rotation_angle"),
 )
 
 COMMON_MAPS = (
     (
         "domain_mask",
-        "Region usada por la simulacion",
-        "Compara que zona de cada ROI se tomo como tejido valido.",
+        "Región usada por la simulación",
+        "Compara qué zona de cada ROI se tomó como tejido válido.",
     ),
     (
         "obstacle_radius_map",
-        "Obstaculos derivados del tejido",
-        "Compara como se transformo la ROI en obstaculos del modelo.",
+        "Obstáculos derivados del tejido",
+        "Compara cómo se transformó la ROI en obstáculos del modelo.",
     ),
     (
         "density_map",
-        "Mapa de visitas de particulas",
-        "Compara por donde pasaron o se acumularon mas particulas.",
+        "Mapa de visitas de partículas",
+        "Compara por dónde pasaron o se acumularon más partículas.",
     ),
 )
 
@@ -65,10 +65,10 @@ def build_case_comparison(case_a, case_b, results_dir_a: Path | None, results_di
     errors = []
 
     if not result_a["comparable"]:
-        errors.append(f"El caso #{case_a.id} no tiene metricas MPC comparables.")
+        errors.append(f"El caso #{case_a.id} no tiene métricas MPC comparables.")
 
     if not result_b["comparable"]:
-        errors.append(f"El caso #{case_b.id} no tiene metricas MPC comparables.")
+        errors.append(f"El caso #{case_b.id} no tiene métricas MPC comparables.")
 
     if case_a.id == case_b.id:
         errors.append("Selecciona dos casos diferentes para comparar.")
@@ -181,10 +181,10 @@ def _build_map_pairs(results_dir_a, results_dir_b):
         map_pairs.append(
             {
                 "key": concentration_key,
-                "title": "Concentracion MPC comparable",
+                "title": "Concentración MPC comparable",
                 "description": (
-                    "Muestra la distribucion de particulas capturada en un "
-                    "tiempo comun para ambos casos."
+                    "Muestra la distribución de partículas capturada en un "
+                    "tiempo común para ambos casos."
                 ),
             }
         )
@@ -218,20 +218,20 @@ def _select_common_concentration_key(results_dir_a, results_dir_b):
 def _build_compatibility_warnings(result_a, result_b):
     warnings = []
     sensitive_parameter_labels = {
-        "Densidad media de particulas (n0)",
+        "Densidad media de partículas (n0)",
         "Paso temporal (tau)",
-        "Energia termica (kBT)",
-        "Masa por particula",
-        "Angulo de rotacion MPC",
+        "Energía térmica (kBT)",
+        "Masa por partícula",
+        "Ángulo de rotación MPC",
     }
 
     for row in _build_parameter_rows(result_a, result_b):
-        if row["label"] in sensitive_parameter_labels:
-            if not row["matches"]:
-                warnings.append(
-                    f"Parametro distinto: {row['label']} "
-                    f"(caso A: {row['case_a']}, caso B: {row['case_b']})."
-                )
+        if row["label"] in sensitive_parameter_labels and not row["matches"]:
+            warnings.append(
+                "Los casos se procesaron con configuraciones distintas. "
+                "Interpreta la comparación con cautela."
+            )
+            break
 
     return tuple(warnings)
 

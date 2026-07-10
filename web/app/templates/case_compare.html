@@ -1,31 +1,24 @@
 {% extends "base.html" %}
 
-{% block title %}Comparacion academica | {{ config.APP_NAME }}{% endblock %}
+{% block title %}Comparaci&oacute;n acad&eacute;mica | {{ config.APP_NAME }}{% endblock %}
 
 {% block content %}
   <section class="page-heading comparison-heading" aria-labelledby="comparison-title">
-    <p class="eyebrow">Comparacion academica</p>
+    <p class="eyebrow">Comparaci&oacute;n acad&eacute;mica</p>
     <h1 id="comparison-title">Comparar casos procesados</h1>
     <p>
-      Contrasta dos casos completados por sus metricas relativas de difusion,
-      parametros principales y mapas MPC. Esta comparacion es investigativa y no
-      constituye una interpretacion diagnostica.
+      Contrasta dos casos completados mediante sus m&eacute;tricas relativas de difusi&oacute;n
+      y mapas MPC. Esta comparaci&oacute;n es investigativa y no constituye una
+      interpretaci&oacute;n diagn&oacute;stica.
     </p>
   </section>
 
   <section class="comparison-panel" aria-labelledby="comparison-form-title">
     <div class="panel-header">
       <div>
-        <p class="eyebrow">Seleccion</p>
+        <p class="eyebrow">Selecci&oacute;n</p>
         <h2 id="comparison-form-title">Casos con resultados MPC</h2>
       </div>
-    </div>
-
-    <div class="inline-help" role="note">
-      <strong>Lectura rapida:</strong>
-      compara casos procesados bajo una mirada academica. La diferencia muestra
-      cuanto cambia el caso B respecto al caso A, pero no representa una conclusion
-      clinica.
     </div>
 
     <form class="comparison-form" method="get" action="{{ url_for('upload.compare_cases') }}">
@@ -70,18 +63,18 @@
 
     {% if case_options|length == 0 %}
       <p class="comparison-empty">
-        Aun no tienes casos completados con metricas MPC comparables.
+        A&uacute;n no tienes casos completados con m&eacute;tricas MPC comparables.
       </p>
     {% elif case_options|length == 1 %}
       <p class="comparison-empty">
-        Necesitas al menos dos casos completados con metricas MPC para comparar.
+        Necesitas al menos dos casos completados con m&eacute;tricas MPC para comparar.
         Por ahora tienes uno disponible.
       </p>
     {% endif %}
   </section>
 
   {% if comparison_errors %}
-    <section class="comparison-alert" aria-label="Errores de comparacion">
+    <section class="comparison-alert" aria-label="Errores de comparaci&oacute;n">
       {% for error in comparison_errors %}
         <p>{{ error }}</p>
       {% endfor %}
@@ -90,7 +83,7 @@
 
   {% if comparison %}
     {% if comparison.errors %}
-      <section class="comparison-alert" aria-label="Validacion de comparacion">
+      <section class="comparison-alert" aria-label="Validaci&oacute;n de comparaci&oacute;n">
         {% for error in comparison.errors %}
           <p>{{ error }}</p>
         {% endfor %}
@@ -99,23 +92,33 @@
 
     {% if comparison.available %}
       <section class="comparison-results" aria-labelledby="comparison-results-title">
-        <div class="panel-header">
+        <div class="comparison-results__header">
           <div>
             <p class="eyebrow">Resultado comparativo</p>
             <h2 id="comparison-results-title">
               Caso #{{ comparison.case_a.id }} frente a caso #{{ comparison.case_b.id }}
             </h2>
           </div>
+          <div class="comparison-case-pair" aria-label="Casos comparados">
+            <span>
+              <small>Caso A</small>
+              <strong>#{{ comparison.case_a.id }}</strong>
+            </span>
+            <span>
+              <small>Caso B</small>
+              <strong>#{{ comparison.case_b.id }}</strong>
+            </span>
+          </div>
         </div>
 
-        <p class="comparison-notice">
+        <p class="comparison-reading-note">
           La diferencia se calcula como caso B menos caso A. Usa esta vista para
-          revisar tendencias entre corridas, manteniendo la comparacion como
-          evidencia academica y no diagnostica.
+          revisar tendencias entre corridas, manteniendo la comparaci&oacute;n como
+          evidencia acad&eacute;mica y no diagn&oacute;stica.
         </p>
 
         {% if comparison.compatibility_warnings %}
-          <div class="comparison-warning" aria-label="Advertencias de parametros">
+          <div class="comparison-warning" aria-label="Advertencias de par&aacute;metros">
             {% for warning in comparison.compatibility_warnings %}
               <p>{{ warning }}</p>
             {% endfor %}
@@ -123,12 +126,12 @@
         {% endif %}
 
         <section class="comparison-section" aria-labelledby="metric-comparison-title">
-          <h3 id="metric-comparison-title">Metricas de difusion</h3>
+          <h3 id="metric-comparison-title">M&eacute;tricas de difusi&oacute;n</h3>
           <div class="comparison-table-wrap">
-            <table class="comparison-table">
+            <table class="comparison-table comparison-table--metrics">
               <thead>
                 <tr>
-                  <th>Metrica</th>
+                  <th>M&eacute;trica</th>
                   <th>Caso A</th>
                   <th>Caso B</th>
                   <th>Diferencia</th>
@@ -189,50 +192,6 @@
           </section>
         {% endif %}
 
-        <section class="comparison-section" aria-labelledby="parameter-comparison-title">
-          <h3 id="parameter-comparison-title">Parametros principales</h3>
-          <div class="comparison-table-wrap">
-            <table class="comparison-table comparison-table--compact">
-              <thead>
-                <tr>
-                  <th>Parametro</th>
-                  <th>Caso A</th>
-                  <th>Caso B</th>
-                  <th>Coincide</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in comparison.parameter_rows %}
-                  <tr>
-                    <th scope="row">{{ row.label }}</th>
-                    <td>{{ row.case_a }}</td>
-                    <td>{{ row.case_b }}</td>
-                    <td>{{ "Si" if row.matches else "No" }}</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <details class="result-technical">
-          <summary>Trazabilidad de la comparacion</summary>
-          <div class="result-technical__body">
-            <dl class="detail-list">
-              {% for row in comparison.trace_rows %}
-                <div>
-                  <dt>{{ row.label }}</dt>
-                  <dd>
-                    <span class="comparison-trace-label">Caso A:</span>
-                    <span class="detail-path">{{ row.case_a }}</span>
-                    <span class="comparison-trace-label">Caso B:</span>
-                    <span class="detail-path">{{ row.case_b }}</span>
-                  </dd>
-                </div>
-              {% endfor %}
-            </dl>
-          </div>
-        </details>
       </section>
     {% endif %}
   {% endif %}
