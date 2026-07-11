@@ -46,41 +46,29 @@ STATIC_RESULT_IMAGES = {
             "representan la heterogeneidad del tejido."
         ),
     },
-    "density_map": {
-        "filename": "density_map.pgm",
-        "title": "Mapa de visitas de particulas",
-        "description": (
-            "Indica por donde pasaron o se acumularon mas particulas durante "
-            "la simulacion."
-        ),
-        "reading": (
-            "Las zonas claras recibieron mas visitas de particulas. Las zonas "
-            "oscuras tuvieron pocas visitas o quedaron fuera del dominio valido."
-        ),
+    "mpc_concentration_representative_final": {
+        "filename": "mpc_concentration_representative_final.pgm",
+        "title": "Realizacion representativa final",
+        "description": "Conteo final de particulas de una corrida MPC real.",
+        "reading": "Resume la distribucion final sin mezclar realizaciones.",
     },
-    "mpc_concentration_initial": {
-        "filename": "mpc_concentration_initial.pgm",
-        "title": "Concentracion al inicio",
-        "description": "Distribucion de particulas al comenzar la simulacion.",
-        "reading": "Sirve como punto de partida para comparar como cambia la distribucion.",
+    "mpc_concentration_representative_initial": {
+        "filename": "mpc_concentration_representative_initial.pgm",
+        "title": "Realizacion representativa inicial",
+        "description": "Conteo inicial de particulas de una corrida MPC real.",
+        "reading": "Es el punto de partida de la realizacion representativa.",
     },
-    "mpc_concentration_final": {
-        "filename": "mpc_concentration_final.pgm",
-        "title": "Concentracion al final",
-        "description": "Distribucion de particulas despues de ejecutar la simulacion.",
-        "reading": "Permite observar hacia donde se desplazaron o acumularon las particulas.",
+    "mpc_concentration_mean_initial": {
+        "filename": "mpc_concentration_mean_initial.pgm",
+        "title": "Concentracion promedio inicial",
+        "description": "Promedio inicial entre todas las realizaciones MPC.",
+        "reading": "Resume la tendencia inicial de las corridas configuradas.",
     },
-    "mpc_high_concentration_initial": {
-        "filename": "mpc_high_concentration_initial.pgm",
-        "title": "Zonas mas concentradas al inicio",
-        "description": "Marca las celdas con mayor acumulacion inicial de particulas.",
-        "reading": "Los puntos claros senalan las zonas con concentracion superior al umbral.",
-    },
-    "mpc_high_concentration_final": {
-        "filename": "mpc_high_concentration_final.pgm",
-        "title": "Zonas mas concentradas al final",
-        "description": "Marca las celdas con mayor acumulacion final de particulas.",
-        "reading": "Ayuda a comparar si las zonas de mayor acumulacion cambiaron con el tiempo.",
+    "mpc_concentration_mean_final": {
+        "filename": "mpc_concentration_mean_final.pgm",
+        "title": "Concentracion promedio final",
+        "description": "Promedio final entre todas las realizaciones MPC.",
+        "reading": "Resume la tendencia final de las corridas configuradas.",
     },
 }
 
@@ -185,14 +173,17 @@ RESULT_READING_STEPS = (
     },
 )
 
-CONCENTRATION_KEY_PATTERN = re.compile(r"^mpc_concentration_t_(\d+)$")
+CONCENTRATION_KEY_PATTERN = re.compile(
+    r"^mpc_concentration_(representative|mean)_t_(\d+)$",
+)
+HIGH_CONCENTRATION_KEY_PATTERN = re.compile(r"^mpc_high_concentration_mean_t_(\d+)$")
 
 
 def build_mpc_results_view(results_dir: Path | None):
     if results_dir is None or not results_dir.exists():
         return _empty_results_view()
 
-    metrics = _read_json(results_dir / "metrics.json")
+    metrics = {}
     config = _read_json(results_dir / "mpc_config.json")
     diffusion = _read_json(results_dir / "diffusion_metrics.json")
     concentration_summary = _read_key_value_file(
@@ -219,7 +210,7 @@ def build_mpc_results_view(results_dir: Path | None):
         or velocity_summary
         or autocorrelation_rows
         or concentration_maps
-        or [result_map for result_map in domain_maps if result_map["key"] != "density_map"]
+        or domain_maps
     )
 
     return {
@@ -252,7 +243,12 @@ def get_result_image_path(results_dir: Path, result_key: str):
 
     match = CONCENTRATION_KEY_PATTERN.match(result_key)
     if match:
-        return results_dir / f"mpc_concentration_t_{match.group(1)}.pgm"
+        aggregation, time_value = match.groups()
+        return results_dir / f"mpc_concentration_{aggregation}_t_{time_value}.pgm"
+
+    high_match = HIGH_CONCENTRATION_KEY_PATTERN.match(result_key)
+    if high_match:
+        return results_dir / f"mpc_high_concentration_mean_t_{high_match.group(1)}.pgm"
 
     return None
 
@@ -277,7 +273,7 @@ def _empty_results_view():
 def _build_domain_maps(results_dir):
     return tuple(
         _build_image_card(results_dir, key)
-        for key in ("simulation_box_3d", "domain_mask", "obstacle_radius_map", "density_map")
+        for key in ("simulation_box_3d", "domain_mask", "obstacle_radius_map")
         if get_result_image_path(results_dir, key).exists()
     )
 
@@ -287,44 +283,43 @@ def _build_concentration_maps(results_dir, concentration_summary):
     maps = []
 
     for time_value in captured_times:
-        key = f"mpc_concentration_t_{time_value}"
-        path = get_result_image_path(results_dir, key)
+        for aggregation, label in (
+            ("representative", "Realizacion representativa"),
+            ("mean", "Promedio de realizaciones"),
+        ):
+            key = f"mpc_concentration_{aggregation}_t_{time_value}"
+            path = get_result_image_path(results_dir, key)
+            if path is not None and path.exists():
+                maps.append(
+                    {
+                        "key": key,
+                        "title": f"{label} en t={time_value}",
+                        "description": (
+                            "Conteo de particulas MPC por celda con una escala visual "
+                            "estable basada en el umbral 2 x n0."
+                        ),
+                        "reading": (
+                            "La realizacion representativa muestra una corrida real; "
+                            "el promedio resume todas las corridas configuradas. El "
+                            "fondo negro queda fuera del dominio mamario."
+                        ),
+                    }
+                )
 
-        if path is not None and path.exists():
+        high_key = f"mpc_high_concentration_mean_t_{time_value}"
+        high_path = get_result_image_path(results_dir, high_key)
+        if high_path is not None and high_path.exists():
             maps.append(
                 {
-                    "key": key,
-                    "title": f"Concentracion t={time_value}",
-                    "description": (
-                        "Distribucion de particulas capturada en este momento "
-                        "de la simulacion."
-                    ),
+                    "key": high_key,
+                    "title": f"Zonas altas promedio en t={time_value}",
+                    "description": "Celdas cuyo promedio supera el umbral 2 x n0.",
                     "reading": (
-                        "Permite comparar si las particulas se repartieron por "
-                        "la ROI o si quedaron mas presentes en zonas especificas. "
-                        "No identifica lesiones; solo muestra el estado del modelo."
+                        "Las celdas claras superaron el umbral de concentracion del "
+                        "modelo; no representan una clasificacion clinica."
                     ),
                 }
             )
-
-    if not maps:
-        maps.extend(
-            _build_image_card(results_dir, key)
-            for key in (
-                "mpc_concentration_initial",
-                "mpc_concentration_final",
-            )
-            if get_result_image_path(results_dir, key).exists()
-        )
-
-    maps.extend(
-        _build_image_card(results_dir, key)
-        for key in (
-            "mpc_high_concentration_initial",
-            "mpc_high_concentration_final",
-        )
-        if get_result_image_path(results_dir, key).exists()
-    )
 
     return tuple(maps)
 

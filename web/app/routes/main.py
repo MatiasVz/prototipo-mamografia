@@ -89,7 +89,10 @@ def _build_continuation_case(case):
 
 def _build_latest_result(case):
     stored_result = case.result
-    has_density_map = bool(case.simulation_density_map_file_path)
+    concentration_path = case.simulation_density_map_file_path or ""
+    has_mpc_concentration_map = concentration_path.replace("\\", "/").endswith(
+        "/mpc_concentration_representative_final.pgm",
+    )
 
     return {
         "id": case.id,
@@ -101,9 +104,9 @@ def _build_latest_result(case):
             url_for(
                 "upload.case_simulation_result_image",
                 case_id=case.id,
-                result_key="density_map",
+                result_key="mpc_concentration_representative_final",
             )
-            if has_density_map
+            if has_mpc_concentration_map
             else None
         ),
         "mdc": _format_decimal(stored_result.mdc if stored_result else None),

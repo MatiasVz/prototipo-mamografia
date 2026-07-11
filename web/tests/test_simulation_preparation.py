@@ -16,6 +16,10 @@ from web.app.services.simulation_preparation_service import (
     _normalize_simulation_image,
     prepare_simulation_input_for_case,
 )
+from web.app.services.simulation_worker_service import (
+    SimulationWorkerError,
+    _validate_mpc_result_files,
+)
 
 
 class SimulationImageNormalizationTests(unittest.TestCase):
@@ -144,8 +148,57 @@ class SimulationPreparationTests(unittest.TestCase):
                 loaded_image.close()
 
 
+class MpcWorkerResultValidationTests(unittest.TestCase):
+    def test_accepts_complete_mpc_outputs(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            result_paths = _build_mpc_result_paths(Path(temporary_directory))
+
+            _validate_mpc_result_files(result_paths)
+
+    def test_rejects_legacy_or_incomplete_outputs(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            result_paths = _build_mpc_result_paths(Path(temporary_directory))
+            result_paths["mpc_concentration_summary"].write_text(
+                "aggregation=mean_across_realizations\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SimulationWorkerError):
+                _validate_mpc_result_files(result_paths)
+
+
 def _file_digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _build_mpc_result_paths(directory):
+    paths = {
+        "diffusion_metrics_json": directory / "diffusion_metrics.json",
+        "mpc_concentration_summary": directory / "mpc_concentration_summary.txt",
+        "mpc_concentration_representative_initial_map": directory
+        / "mpc_concentration_representative_initial.pgm",
+        "mpc_concentration_representative_final_map": directory
+        / "mpc_concentration_representative_final.pgm",
+        "mpc_concentration_mean_initial_map": directory
+        / "mpc_concentration_mean_initial.pgm",
+        "mpc_concentration_mean_final_map": directory
+        / "mpc_concentration_mean_final.pgm",
+    }
+    paths["diffusion_metrics_json"].write_text(
+        json.dumps({"mdc": 0.4, "mdc0": 1.1, "mdc_star": 0.36}),
+        encoding="utf-8",
+    )
+    paths["mpc_concentration_summary"].write_text(
+        "aggregation=mean_across_realizations\n"
+        "representative_aggregation=single_realization\n"
+        "domain_mask_applied=true\n",
+        encoding="utf-8",
+    )
+    for key, path in paths.items():
+        if key.endswith("_map"):
+            path.write_text("P2\n1 1\n255\n0\n", encoding="ascii")
+
+    return paths
 
 
 if __name__ == "__main__":

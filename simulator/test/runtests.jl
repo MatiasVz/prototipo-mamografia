@@ -720,8 +720,27 @@ end
 
     @test multi_concentration.realization_count == 3
     @test multi_concentration.realization_seeds == [99, 10106, 20113]
+    @test multi_concentration.representative_realization_index == 1
+    @test multi_concentration.representative_seed == 99
+    @test length(multi_concentration.representative_snapshots) == 2
     @test all(snapshot -> isapprox(sum(snapshot.density_grid), 3.0), multi_concentration.snapshots)
+    @test all(snapshot -> sum(snapshot.density_grid) == 3, multi_concentration.representative_snapshots)
     @test all(snapshot -> snapshot.max_concentration <= 3.0, multi_concentration.snapshots)
+
+    stable_scale_mask = trues(1, 2)
+    stable_values_a = MammographySimulation.build_concentration_map_values(
+        [1.0 2.0],
+        stable_scale_mask,
+        4.0,
+    )
+    stable_values_b = MammographySimulation.build_concentration_map_values(
+        [1.0 4.0],
+        stable_scale_mask,
+        4.0,
+    )
+    @test stable_values_a[1, 1] == stable_values_b[1, 1]
+    @test stable_values_a[1, 2] < stable_values_b[1, 2]
+    @test stable_values_b[1, 2] == 255
 
     mktempdir() do dir
         outputs = MammographySimulation.write_mpc_concentration_outputs(
@@ -732,23 +751,30 @@ end
 
         @test isfile(outputs.summary_path)
         @test isfile(outputs.times_path)
-        @test isfile(outputs.initial_map_path)
-        @test isfile(outputs.final_map_path)
-        @test isfile(outputs.initial_high_map_path)
-        @test isfile(outputs.final_high_map_path)
-        @test length(outputs.time_map_paths) == 2
-        @test all(isfile, outputs.time_map_paths)
-        @test all(isfile, outputs.time_high_map_paths)
+        @test isfile(outputs.representative_initial_map_path)
+        @test isfile(outputs.representative_final_map_path)
+        @test isfile(outputs.mean_initial_map_path)
+        @test isfile(outputs.mean_final_map_path)
+        @test isfile(outputs.mean_initial_high_map_path)
+        @test isfile(outputs.mean_final_high_map_path)
+        @test length(outputs.representative_time_map_paths) == 2
+        @test length(outputs.mean_time_map_paths) == 2
+        @test all(isfile, outputs.representative_time_map_paths)
+        @test all(isfile, outputs.mean_time_map_paths)
+        @test all(isfile, outputs.mean_time_high_map_paths)
         @test occursin("aggregation=mean_across_realizations", read(outputs.summary_path, String))
+        @test occursin("representative_aggregation=single_realization", read(outputs.summary_path, String))
+        @test occursin("representative_seed=99", read(outputs.summary_path, String))
         @test occursin("realizations=3", read(outputs.summary_path, String))
         @test occursin("realization_seeds=99,10106,20113", read(outputs.summary_path, String))
         @test occursin("captured_output_times=0,2", read(outputs.summary_path, String))
         @test occursin("skipped_output_times=", read(outputs.summary_path, String))
         @test occursin("snapshot_t_0_particle_sum=3", read(outputs.summary_path, String))
         @test occursin("domain_mask_applied=true", read(outputs.summary_path, String))
-        @test occursin("time\tx\ty\tconcentration", read(outputs.times_path, String))
-        @test startswith(read(outputs.initial_map_path, String), "P2")
-        @test startswith(read(outputs.initial_high_map_path, String), "P2")
+        @test occursin("aggregation\trealization\tseed\ttime\tx\ty\tconcentration", read(outputs.times_path, String))
+        @test startswith(read(outputs.representative_initial_map_path, String), "P2")
+        @test startswith(read(outputs.mean_initial_map_path, String), "P2")
+        @test startswith(read(outputs.mean_initial_high_map_path, String), "P2")
     end
 
     masked_space = vertical_breast_domain_space()
@@ -786,10 +812,12 @@ end
             masked_concentration,
             masked_space,
         )
-        final_map = read_pgm(outputs.final_map_path)
-        final_high_map = read_pgm(outputs.final_high_map_path)
+        final_map = read_pgm(outputs.representative_final_map_path)
+        mean_final_map = read_pgm(outputs.mean_final_map_path)
+        final_high_map = read_pgm(outputs.mean_final_high_map_path)
 
         @test all(final_map.pixels[.!masked_space.domain_mask] .== 0)
+        @test all(mean_final_map.pixels[.!masked_space.domain_mask] .== 0)
         @test all(final_high_map.pixels[.!masked_space.domain_mask] .== 0)
         @test all(final_map.pixels[masked_space.domain_mask] .>= 16)
         @test all(final_high_map.pixels[masked_space.domain_mask] .>= 16)
@@ -1156,7 +1184,6 @@ end
             output_dir = output_dir,
             seed = 42,
             steps = 3,
-            particle_density = 0.5,
             mpc_config = MpcModelConfig(
                 n0 = 10.0,
                 mass = 1.0,
@@ -1190,12 +1217,15 @@ end
         @test isfile(result.mpc_cell_collisions_path)
         @test isfile(result.mpc_concentration_summary_path)
         @test isfile(result.mpc_concentration_times_path)
-        @test isfile(result.mpc_concentration_initial_map_path)
-        @test isfile(result.mpc_concentration_final_map_path)
-        @test isfile(result.mpc_high_concentration_initial_map_path)
-        @test isfile(result.mpc_high_concentration_final_map_path)
-        @test all(isfile, result.mpc_concentration_time_map_paths)
-        @test all(isfile, result.mpc_high_concentration_time_map_paths)
+        @test isfile(result.mpc_concentration_representative_initial_map_path)
+        @test isfile(result.mpc_concentration_representative_final_map_path)
+        @test isfile(result.mpc_concentration_mean_initial_map_path)
+        @test isfile(result.mpc_concentration_mean_final_map_path)
+        @test isfile(result.mpc_high_concentration_mean_initial_map_path)
+        @test isfile(result.mpc_high_concentration_mean_final_map_path)
+        @test all(isfile, result.mpc_concentration_representative_time_map_paths)
+        @test all(isfile, result.mpc_concentration_mean_time_map_paths)
+        @test all(isfile, result.mpc_high_concentration_mean_time_map_paths)
         @test isfile(result.velocity_autocorrelation_path)
         @test isfile(result.velocity_autocorrelation_summary_path)
         @test isfile(result.velocity_autocorrelation_realizations_path)
@@ -1203,13 +1233,11 @@ end
         @test isfile(result.diffusion_metrics_tsv_path)
         @test isfile(result.diffusion_metrics_summary_path)
         @test isfile(result.simulation_summary_path)
-        @test isfile(result.simulation_state_path)
-        @test isfile(result.visit_counts_path)
-        @test isfile(result.metrics_path)
         @test isfile(result.domain_mask_path)
-        @test isfile(result.density_map_path)
-        @test isfile(result.density_matrix_path)
-        @test occursin("status=preliminary_results_ready", read(result.log_path, String))
+        @test !isfile(joinpath(output_dir, "metrics.json"))
+        @test !isfile(joinpath(output_dir, "density_map.pgm"))
+        @test !isfile(joinpath(output_dir, "density_matrix.tsv"))
+        @test occursin("status=mpc_results_ready", read(result.log_path, String))
         @test occursin("width=5", read(result.summary_path, String))
         @test occursin("domain_cell_count=9", read(result.space_summary_path, String))
         @test occursin("excluded_background_count=16", read(result.space_summary_path, String))
@@ -1217,8 +1245,7 @@ end
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.space_summary_path, String))
         @test occursin("radius_formula=0.5 * cell_length * (1 - intensity / (max_gray + 1))", read(result.space_summary_path, String))
         @test occursin("configuration_model=mpc_base_configuration", read(result.simulation_summary_path, String))
-        @test occursin("execution_engine=sequential_minimal_random_walk", read(result.simulation_summary_path, String))
-        @test occursin("particle_count=1", read(result.simulation_summary_path, String))
+        @test occursin("execution_engine=multiparticle_collision_dynamics", read(result.simulation_summary_path, String))
         @test occursin("mpc_particle_model=continuous_position_maxwellian_velocity", read(result.simulation_summary_path, String))
         @test occursin("mpc_particle_count=90", read(result.simulation_summary_path, String))
         @test occursin("mpc_velocity_sigma=1.0", read(result.simulation_summary_path, String))
@@ -1248,7 +1275,6 @@ end
         @test occursin("diffusion_metric_mdc_standard_error=", read(result.simulation_summary_path, String))
         @test occursin("diffusion_metric_mdc_star_standard_deviation=", read(result.simulation_summary_path, String))
         @test occursin("diffusion_metric_mdc_star_standard_error=", read(result.simulation_summary_path, String))
-        @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
         @test occursin("\"configuration_model\": \"mpc_base_configuration\"", read(result.mpc_config_path, String))
@@ -1286,7 +1312,6 @@ end
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
         @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
-        @test occursin("\"status\": \"preliminary_results_ready\"", read(result.metrics_path, String))
         @test occursin("center_z", read(result.obstacles_path, String))
         @test occursin("preliminary_blocking", read(result.obstacles_path, String))
         @test occursin("x\ty\tintensity\tnormalized_intensity\tradius\tis_domain\tpreliminary_blocking", read(result.obstacle_radius_matrix_path, String))
@@ -1305,9 +1330,10 @@ end
         @test occursin("cell_x\tcell_y\tparticle_count", read(result.mpc_cell_collisions_path, String))
         @test occursin("captured_output_times=0,3", read(result.mpc_concentration_summary_path, String))
         @test occursin("snapshot_t_0_particle_sum=90", read(result.mpc_concentration_summary_path, String))
-        @test occursin("time\tx\ty\tconcentration", read(result.mpc_concentration_times_path, String))
-        @test startswith(read(result.mpc_concentration_initial_map_path, String), "P2")
-        @test startswith(read(result.mpc_high_concentration_initial_map_path, String), "P2")
+        @test occursin("aggregation\trealization\tseed\ttime\tx\ty\tconcentration", read(result.mpc_concentration_times_path, String))
+        @test startswith(read(result.mpc_concentration_representative_initial_map_path, String), "P2")
+        @test startswith(read(result.mpc_concentration_mean_initial_map_path, String), "P2")
+        @test startswith(read(result.mpc_high_concentration_mean_initial_map_path, String), "P2")
         @test occursin("lag\ttime\tcv", read(result.velocity_autocorrelation_path, String))
         @test occursin("mdc=", read(result.velocity_autocorrelation_summary_path, String))
         @test occursin("realization\tseed\tlabeled_particle_count", read(result.velocity_autocorrelation_realizations_path, String))
@@ -1315,6 +1341,5 @@ end
         @test occursin("metric_model\treference_origin", read(result.diffusion_metrics_tsv_path, String))
         @test occursin("MDC* = MDC / MDC0", read(result.diffusion_metrics_summary_path, String))
         @test startswith(read(result.domain_mask_path, String), "P2")
-        @test startswith(read(result.density_map_path, String), "P2")
     end
 end

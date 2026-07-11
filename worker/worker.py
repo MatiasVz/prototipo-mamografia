@@ -38,7 +38,6 @@ def main(argv=None):
     process_parser.add_argument("case_id", type=int)
     process_parser.add_argument("--seed", type=int, default=None)
     process_parser.add_argument("--steps", type=int, default=None)
-    process_parser.add_argument("--density", type=float, default=None)
 
     idle_parser = subparsers.add_parser(
         "idle",
@@ -76,11 +75,10 @@ def process_case(args):
             flask_app,
             seed=args.seed,
             steps=args.steps,
-            density=args.density,
         )
 
 
-def _process_case_id(case_id, flask_app, *, seed=None, steps=None, density=None):
+def _process_case_id(case_id, flask_app, *, seed=None, steps=None):
     case = db.session.get(Case, case_id)
 
     if case is None:
@@ -93,7 +91,6 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None, density=None)
             flask_app.config,
             seed=seed,
             steps=steps,
-            density=density,
         )
     except SimulationWorkerError as exc:
         print(f"Error de procesamiento: {exc}", file=sys.stderr)
@@ -106,9 +103,9 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None, density=None)
     print(f"Caso {result.case_id} procesado correctamente.", flush=True)
     print(f"status={result.status}", flush=True)
     print(f"output_dir={result.output_dir}", flush=True)
-    print(f"metrics_path={result.metrics_path}", flush=True)
+    print(f"diffusion_metrics_path={result.diffusion_metrics_path}", flush=True)
     print(f"domain_mask_path={result.domain_mask_path}", flush=True)
-    print(f"density_map_path={result.density_map_path}", flush=True)
+    print(f"concentration_map_path={result.concentration_map_path}", flush=True)
     print(f"mpc_config_path={result.mpc_config_path}", flush=True)
     print(f"obstacle_radius_matrix_path={result.obstacle_radius_matrix_path}", flush=True)
     print(f"obstacle_radius_map_path={result.obstacle_radius_map_path}", flush=True)
@@ -122,19 +119,31 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None, density=None)
     print(f"mpc_concentration_summary_path={result.mpc_concentration_summary_path}", flush=True)
     print(f"mpc_concentration_times_path={result.mpc_concentration_times_path}", flush=True)
     print(
-        f"mpc_concentration_initial_map_path={result.mpc_concentration_initial_map_path}",
+        "mpc_concentration_representative_initial_map_path="
+        f"{result.mpc_concentration_representative_initial_map_path}",
         flush=True,
     )
     print(
-        f"mpc_concentration_final_map_path={result.mpc_concentration_final_map_path}",
+        "mpc_concentration_representative_final_map_path="
+        f"{result.mpc_concentration_representative_final_map_path}",
         flush=True,
     )
     print(
-        f"mpc_high_concentration_initial_map_path={result.mpc_high_concentration_initial_map_path}",
+        f"mpc_concentration_mean_initial_map_path={result.mpc_concentration_mean_initial_map_path}",
         flush=True,
     )
     print(
-        f"mpc_high_concentration_final_map_path={result.mpc_high_concentration_final_map_path}",
+        f"mpc_concentration_mean_final_map_path={result.mpc_concentration_mean_final_map_path}",
+        flush=True,
+    )
+    print(
+        "mpc_high_concentration_mean_initial_map_path="
+        f"{result.mpc_high_concentration_mean_initial_map_path}",
+        flush=True,
+    )
+    print(
+        "mpc_high_concentration_mean_final_map_path="
+        f"{result.mpc_high_concentration_mean_final_map_path}",
         flush=True,
     )
     print(f"velocity_autocorrelation_path={result.velocity_autocorrelation_path}", flush=True)
