@@ -81,7 +81,7 @@ class Config:
     # la PC de desarrollo, muchos en el servidor. Por defecto 1 (serial) si no se define.
     SIMULATION_CPU_THREADS = os.getenv("SIMULATION_CPU_THREADS", "1")
     SIMULATION_DEFAULT_SEED = int(os.getenv("SIMULATION_DEFAULT_SEED", "1234"))
-    SIMULATION_DEFAULT_STEPS = int(os.getenv("SIMULATION_DEFAULT_STEPS", "500"))
+    SIMULATION_DEFAULT_STEPS = int(os.getenv("SIMULATION_DEFAULT_STEPS", "100"))
     SIMULATION_DEFAULT_DENSITY = float(os.getenv("SIMULATION_DEFAULT_DENSITY", "0.25"))
     SIMULATION_DEFAULT_N0 = float(os.getenv("SIMULATION_DEFAULT_N0", "10"))
     SIMULATION_DEFAULT_MASS = float(os.getenv("SIMULATION_DEFAULT_MASS", "1"))
@@ -101,7 +101,7 @@ class Config:
     )
     SIMULATION_DEFAULT_OUTPUT_TIMES = os.getenv(
         "SIMULATION_DEFAULT_OUTPUT_TIMES",
-        "0,100,500",
+        "0,100",
     )
     SIMULATION_GRID_SHIFT_ENABLED = os.getenv(
         "SIMULATION_GRID_SHIFT_ENABLED",
