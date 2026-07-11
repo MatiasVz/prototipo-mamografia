@@ -126,7 +126,7 @@ Evidencias recomendadas para anexos o sustentacion:
 
 - salida de `validation_summary.md`;
 - capturas de la pantalla de detalle del caso completado;
-- mapas `domain_mask.pgm`, `obstacle_radius_map.pgm` y `mpc_concentration_t_<tiempo>.pgm`;
+- mapas `domain_mask.pgm`, `obstacle_radius_map.pgm`, `mpc_concentration_representative_t_<tiempo>.pgm` y `mpc_concentration_mean_t_<tiempo>.pgm`;
 - tabla `velocity_autocorrelation.tsv`;
 - archivo `diffusion_metrics.json`;
 - log `worker_execution.log` cuando la corrida se ejecute desde la app web.

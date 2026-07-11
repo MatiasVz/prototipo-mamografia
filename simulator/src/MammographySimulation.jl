@@ -148,6 +148,9 @@ struct MpcConcentrationResult
     high_concentration_threshold::Float64
     particle_count::Float64
     snapshots::Vector{MpcConcentrationSnapshot}
+    representative_realization_index::Int
+    representative_seed::Int
+    representative_snapshots::Vector{MpcConcentrationSnapshot}
 end
 
 struct MpcVelocityAutocorrelationResult
@@ -269,6 +272,7 @@ const DEFAULT_TISSUE_THRESHOLD_RATIO = 0.03
 const DEFAULT_OBSTACLE_THRESHOLD_RATIO = 0.85
 const DOMAIN_MASK_MODEL = "largest_connected_tissue_component_with_internal_hole_fill"
 const SIMULATION_ENGINE_PRELIMINARY = "sequential_minimal_random_walk"
+const SIMULATION_ENGINE_MPC = "multiparticle_collision_dynamics"
 const MPC_CONFIGURATION_MODEL = "mpc_base_configuration"
 const DEFAULT_SIMULATION_STEPS = 100
 const DEFAULT_MPC_INPUT_ROLE = "confirmed_roi_pgm"
@@ -321,7 +325,6 @@ Base.@kwdef struct SimulationRunConfig
     output_dir::String
     seed::Int = 1234
     steps::Int = DEFAULT_SIMULATION_STEPS
-    particle_density::Float64 = 0.25
     mpc_config::MpcModelConfig = MpcModelConfig()
 end
 
@@ -334,7 +337,6 @@ Opciones:
   --output             Directorio donde se escribiran los resultados.
   --seed               Semilla reproducible. Por defecto: 1234.
   --steps              Horizonte de correlacion y pasos de salida. Por defecto: 100.
-  --density            Densidad preliminar usada por el motor secuencial actual. Por defecto: 0.25.
   --n0                 Densidad media MPC de particulas por celda. Por defecto: 10.
   --mass               Masa reducida de particula MPC. Por defecto: 1.
   --kbt                Temperatura reducida kBT. Por defecto: 1.
@@ -353,7 +355,6 @@ const VALUE_OPTIONS = Set([
     "--output",
     "--seed",
     "--steps",
-    "--density",
     "--n0",
     "--mass",
     "--kbt",
@@ -413,15 +414,10 @@ function parse_cli_args(args::Vector{String})
 
     seed = parse_integer_option(get(options, "--seed", "1234"), "--seed")
     steps = parse_integer_option(get(options, "--steps", string(DEFAULT_SIMULATION_STEPS)), "--steps")
-    particle_density = parse_float_option(get(options, "--density", "0.25"), "--density")
     mpc_config = parse_mpc_config(options)
 
     if steps < 0
         throw(ArgumentError("La opcion --steps no puede ser negativa."))
-    end
-
-    if !(0.0 <= particle_density <= 1.0)
-        throw(ArgumentError("La opcion --density debe estar entre 0.0 y 1.0."))
     end
 
     return SimulationRunConfig(
@@ -429,7 +425,6 @@ function parse_cli_args(args::Vector{String})
         output_dir = output_dir,
         seed = seed,
         steps = steps,
-        particle_density = particle_density,
         mpc_config = mpc_config,
     )
 end
@@ -475,14 +470,20 @@ function run_case(config::SimulationRunConfig)
         mpc_velocity_autocorrelation,
         config.mpc_config,
     )
-    simulation_result = run_minimal_simulation(
-        simulation_space;
-        seed = config.seed,
-        steps = config.steps,
-        particle_density = config.particle_density,
-    )
-
     mkpath(output_dir)
+    for legacy_filename in (
+        "metrics.json",
+        "density_map.pgm",
+        "density_matrix.tsv",
+        "simulation_state.tsv",
+        "visit_counts.tsv",
+        "mpc_concentration_initial.pgm",
+        "mpc_concentration_final.pgm",
+        "mpc_high_concentration_initial.pgm",
+        "mpc_high_concentration_final.pgm",
+    )
+        rm(joinpath(output_dir, legacy_filename); force = true)
+    end
 
     timestamp = Dates.format(Dates.now(), dateformat"yyyy-mm-ddTHH:MM:SS")
     log_path = joinpath(output_dir, "simulation.log")
@@ -502,18 +503,17 @@ function run_case(config::SimulationRunConfig)
     mpc_collision_summary_path = joinpath(output_dir, "mpc_collision_summary.txt")
     mpc_cell_collisions_path = joinpath(output_dir, "mpc_cell_collisions.tsv")
     simulation_summary_path = joinpath(output_dir, "simulation_summary.txt")
-    simulation_state_path = joinpath(output_dir, "simulation_state.tsv")
-    visit_counts_path = joinpath(output_dir, "visit_counts.tsv")
+    domain_mask_path = joinpath(output_dir, "domain_mask.pgm")
 
     open(log_path, "w") do io
         println(io, "MammographySimulation")
-        println(io, "status=preliminary_results_ready")
+        println(io, "status=mpc_results_ready")
         println(io, "created_at=$(timestamp)")
         println(io, "input_path=$(input_path)")
         println(io, "output_dir=$(output_dir)")
         println(io, "input_role=$(config.mpc_config.input_role)")
         println(io, "configuration_model=$(MPC_CONFIGURATION_MODEL)")
-        println(io, "execution_engine=$(SIMULATION_ENGINE_PRELIMINARY)")
+        println(io, "execution_engine=$(SIMULATION_ENGINE_MPC)")
         println(io, "lx=$(mpc_box_lx(simulation_space, config.mpc_config))")
         println(io, "ly=$(mpc_box_ly(simulation_space, config.mpc_config))")
         println(io, "lz=$(config.mpc_config.lz)")
@@ -528,7 +528,6 @@ function run_case(config::SimulationRunConfig)
         println(io, "excluded_background_count=$(count_excluded_background_cells(simulation_space))")
         println(io, "seed=$(config.seed)")
         println(io, "steps=$(config.steps)")
-        println(io, "particle_density=$(config.particle_density)")
         println(io, "n0=$(config.mpc_config.n0)")
         println(io, "mass=$(config.mpc_config.mass)")
         println(io, "kbt=$(config.mpc_config.kbt)")
@@ -541,7 +540,6 @@ function run_case(config::SimulationRunConfig)
         println(io, "output_times=$(join(config.mpc_config.output_times, ","))")
         println(io, "grid_shift_enabled=$(config.mpc_config.grid_shift_enabled)")
         println(io, "grid_shift_decision=$(config.mpc_config.grid_shift_decision)")
-        println(io, "particle_count=$(length(simulation_result.particles))")
         println(io, "mpc_particle_count=$(length(mpc_initialization.particles))")
         println(io, "mpc_domain_volume=$(mpc_initialization.domain_volume)")
         println(io, "mpc_velocity_sigma=$(mpc_initialization.velocity_sigma)")
@@ -564,6 +562,8 @@ function run_case(config::SimulationRunConfig)
         println(io, "mpc_concentration_expected_density_n0=$(mpc_concentration.expected_density)")
         println(io, "mpc_concentration_high_threshold=$(mpc_concentration.high_concentration_threshold)")
         println(io, "mpc_concentration_snapshot_count=$(length(mpc_concentration.snapshots))")
+        println(io, "mpc_concentration_representative_realization_index=$(mpc_concentration.representative_realization_index)")
+        println(io, "mpc_concentration_representative_seed=$(mpc_concentration.representative_seed)")
         println(io, "velocity_autocorrelation_model=green_kubo_xy")
         println(io, "velocity_autocorrelation_dimension=$(mpc_velocity_autocorrelation.dimension)")
         println(io, "velocity_autocorrelation_requested_labeled_particles=$(mpc_velocity_autocorrelation.requested_labeled_particles)")
@@ -578,9 +578,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "diffusion_metric_mdc_standard_deviation=$(mpc_diffusion_metrics.mdc_standard_deviation)")
         println(io, "diffusion_metric_units=$(mpc_diffusion_metrics.units)")
         println(io, "diffusion_metric_reference_origin=$(mpc_diffusion_metrics.reference_origin)")
-        println(io, "attempted_moves=$(simulation_result.attempted_moves)")
-        println(io, "collision_count=$(simulation_result.collision_count)")
-        println(io, "message=Simulacion minima secuencial ejecutada y resultados preliminares generados.")
+        println(io, "message=Simulacion MPC ejecutada y mapas generados desde posiciones de particulas.")
     end
 
     open(config_path, "w") do io
@@ -588,7 +586,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "output_dir=$(output_dir)")
         println(io, "input_role=$(config.mpc_config.input_role)")
         println(io, "configuration_model=$(MPC_CONFIGURATION_MODEL)")
-        println(io, "execution_engine=$(SIMULATION_ENGINE_PRELIMINARY)")
+        println(io, "execution_engine=$(SIMULATION_ENGINE_MPC)")
         println(io, "cell_length=$(config.mpc_config.cell_length)")
         println(io, "lx=$(mpc_box_lx(simulation_space, config.mpc_config))")
         println(io, "ly=$(mpc_box_ly(simulation_space, config.mpc_config))")
@@ -600,7 +598,6 @@ function run_case(config::SimulationRunConfig)
         println(io, "obstacle_threshold=$(simulation_space.obstacle_threshold)")
         println(io, "seed=$(config.seed)")
         println(io, "steps=$(config.steps)")
-        println(io, "particle_density=$(config.particle_density)")
         println(io, "n0=$(config.mpc_config.n0)")
         println(io, "mass=$(config.mpc_config.mass)")
         println(io, "kbt=$(config.mpc_config.kbt)")
@@ -640,6 +637,7 @@ function run_case(config::SimulationRunConfig)
     end
 
     write_space_summary(space_summary_path, simulation_space; mpc_config = config.mpc_config)
+    write_domain_mask_pgm(domain_mask_path, simulation_space.domain_mask)
     write_obstacles_tsv(obstacles_path, simulation_space.obstacles)
     write_obstacle_radius_matrix_tsv(obstacle_radius_matrix_path, simulation_space)
     write_obstacle_radius_map_pgm(obstacle_radius_map_path, simulation_space)
@@ -670,7 +668,7 @@ function run_case(config::SimulationRunConfig)
     )
     write_simulation_summary(
         simulation_summary_path,
-        simulation_result,
+        config,
         simulation_space;
         mpc_initialization = mpc_initialization,
         mpc_streaming = mpc_streaming,
@@ -680,9 +678,6 @@ function run_case(config::SimulationRunConfig)
         mpc_diffusion_metrics = mpc_diffusion_metrics,
         simulation_box_visualization_path = simulation_box_visualization_path,
     )
-    write_simulation_state(simulation_state_path, simulation_result.particles)
-    write_visit_counts(visit_counts_path, simulation_result.visit_counts)
-    preliminary_results = generate_preliminary_results(output_dir, simulation_result, simulation_space)
 
     return (
         log_path = log_path,
@@ -703,12 +698,15 @@ function run_case(config::SimulationRunConfig)
         mpc_cell_collisions_path = mpc_cell_collisions_path,
         mpc_concentration_summary_path = mpc_concentration_outputs.summary_path,
         mpc_concentration_times_path = mpc_concentration_outputs.times_path,
-        mpc_concentration_initial_map_path = mpc_concentration_outputs.initial_map_path,
-        mpc_concentration_final_map_path = mpc_concentration_outputs.final_map_path,
-        mpc_high_concentration_initial_map_path = mpc_concentration_outputs.initial_high_map_path,
-        mpc_high_concentration_final_map_path = mpc_concentration_outputs.final_high_map_path,
-        mpc_concentration_time_map_paths = mpc_concentration_outputs.time_map_paths,
-        mpc_high_concentration_time_map_paths = mpc_concentration_outputs.time_high_map_paths,
+        mpc_concentration_representative_initial_map_path = mpc_concentration_outputs.representative_initial_map_path,
+        mpc_concentration_representative_final_map_path = mpc_concentration_outputs.representative_final_map_path,
+        mpc_concentration_mean_initial_map_path = mpc_concentration_outputs.mean_initial_map_path,
+        mpc_concentration_mean_final_map_path = mpc_concentration_outputs.mean_final_map_path,
+        mpc_high_concentration_mean_initial_map_path = mpc_concentration_outputs.mean_initial_high_map_path,
+        mpc_high_concentration_mean_final_map_path = mpc_concentration_outputs.mean_final_high_map_path,
+        mpc_concentration_representative_time_map_paths = mpc_concentration_outputs.representative_time_map_paths,
+        mpc_concentration_mean_time_map_paths = mpc_concentration_outputs.mean_time_map_paths,
+        mpc_high_concentration_mean_time_map_paths = mpc_concentration_outputs.mean_time_high_map_paths,
         velocity_autocorrelation_path = velocity_autocorrelation_outputs.autocorrelation_path,
         velocity_autocorrelation_summary_path = velocity_autocorrelation_outputs.summary_path,
         velocity_autocorrelation_realizations_path = velocity_autocorrelation_outputs.realizations_path,
@@ -716,12 +714,7 @@ function run_case(config::SimulationRunConfig)
         diffusion_metrics_tsv_path = diffusion_metrics_outputs.tsv_path,
         diffusion_metrics_summary_path = diffusion_metrics_outputs.summary_path,
         simulation_summary_path = simulation_summary_path,
-        simulation_state_path = simulation_state_path,
-        visit_counts_path = visit_counts_path,
-        metrics_path = preliminary_results.metrics_path,
-        domain_mask_path = preliminary_results.domain_mask_path,
-        density_map_path = preliminary_results.density_map_path,
-        density_matrix_path = preliminary_results.density_matrix_path,
+        domain_mask_path = domain_mask_path,
         image = pgm_image,
         space = simulation_space,
         mpc_initialization = mpc_initialization,
@@ -730,8 +723,6 @@ function run_case(config::SimulationRunConfig)
         mpc_concentration = mpc_concentration,
         mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
         mpc_diffusion_metrics = mpc_diffusion_metrics,
-        simulation = simulation_result,
-        preliminary_results = preliminary_results,
     )
 end
 
@@ -745,7 +736,7 @@ function cli_main(args::Vector{String} = ARGS)
         end
 
         result = run_case(config)
-        println("Simulacion mesoscopica minima ejecutada correctamente.")
+        println("Simulacion mesoscopica MPC ejecutada correctamente.")
         println("log_path=$(result.log_path)")
         println("config_path=$(result.config_path)")
         println("mpc_config_path=$(result.mpc_config_path)")
@@ -764,10 +755,12 @@ function cli_main(args::Vector{String} = ARGS)
         println("mpc_cell_collisions_path=$(result.mpc_cell_collisions_path)")
         println("mpc_concentration_summary_path=$(result.mpc_concentration_summary_path)")
         println("mpc_concentration_times_path=$(result.mpc_concentration_times_path)")
-        println("mpc_concentration_initial_map_path=$(result.mpc_concentration_initial_map_path)")
-        println("mpc_concentration_final_map_path=$(result.mpc_concentration_final_map_path)")
-        println("mpc_high_concentration_initial_map_path=$(result.mpc_high_concentration_initial_map_path)")
-        println("mpc_high_concentration_final_map_path=$(result.mpc_high_concentration_final_map_path)")
+        println("mpc_concentration_representative_initial_map_path=$(result.mpc_concentration_representative_initial_map_path)")
+        println("mpc_concentration_representative_final_map_path=$(result.mpc_concentration_representative_final_map_path)")
+        println("mpc_concentration_mean_initial_map_path=$(result.mpc_concentration_mean_initial_map_path)")
+        println("mpc_concentration_mean_final_map_path=$(result.mpc_concentration_mean_final_map_path)")
+        println("mpc_high_concentration_mean_initial_map_path=$(result.mpc_high_concentration_mean_initial_map_path)")
+        println("mpc_high_concentration_mean_final_map_path=$(result.mpc_high_concentration_mean_final_map_path)")
         println("velocity_autocorrelation_path=$(result.velocity_autocorrelation_path)")
         println("velocity_autocorrelation_summary_path=$(result.velocity_autocorrelation_summary_path)")
         println("velocity_autocorrelation_realizations_path=$(result.velocity_autocorrelation_realizations_path)")
@@ -775,12 +768,7 @@ function cli_main(args::Vector{String} = ARGS)
         println("diffusion_metrics_tsv_path=$(result.diffusion_metrics_tsv_path)")
         println("diffusion_metrics_summary_path=$(result.diffusion_metrics_summary_path)")
         println("simulation_summary_path=$(result.simulation_summary_path)")
-        println("simulation_state_path=$(result.simulation_state_path)")
-        println("visit_counts_path=$(result.visit_counts_path)")
-        println("metrics_path=$(result.metrics_path)")
         println("domain_mask_path=$(result.domain_mask_path)")
-        println("density_map_path=$(result.density_map_path)")
-        println("density_matrix_path=$(result.density_matrix_path)")
         return 0
     catch error
         println(stderr, "Error: $(error)")
@@ -1697,6 +1685,7 @@ function generate_mpc_concentration_maps(
     )
     realization_seeds = Int[]
     particle_count_sum = 0.0
+    representative_density_grids = Dict{Int,Matrix{Float64}}()
 
     for realization_index in 1:config.realizations
         realization_seed = seed + (realization_index - 1) * 10007
@@ -1711,7 +1700,11 @@ function generate_mpc_concentration_maps(
         particle_count_sum += length(realization_initialization.particles)
 
         if 0 in captured_output_set
-            density_sums[0] .+= build_mpc_concentration_grid(particles, space)
+            density_grid = build_mpc_concentration_grid(particles, space)
+            density_sums[0] .+= density_grid
+            if realization_index == 1
+                representative_density_grids[0] = copy(density_grid)
+            end
         end
 
         for step in 1:steps
@@ -1738,7 +1731,11 @@ function generate_mpc_concentration_maps(
             particles = copy_mpc_particles(step_collision.particles)
 
             if step in captured_output_set
-                density_sums[step] .+= build_mpc_concentration_grid(particles, space)
+                density_grid = build_mpc_concentration_grid(particles, space)
+                density_sums[step] .+= density_grid
+                if realization_index == 1
+                    representative_density_grids[step] = copy(density_grid)
+                end
             end
         end
     end
@@ -1747,6 +1744,15 @@ function generate_mpc_concentration_maps(
         build_mpc_concentration_snapshot_from_grid(
             time,
             density_sums[time] ./ config.realizations,
+            space,
+            config,
+        )
+        for time in captured_output_times
+    ]
+    representative_snapshots = [
+        build_mpc_concentration_snapshot_from_grid(
+            time,
+            representative_density_grids[time],
             space,
             config,
         )
@@ -1762,6 +1768,9 @@ function generate_mpc_concentration_maps(
         high_concentration_threshold(config),
         particle_count_sum / config.realizations,
         snapshots,
+        1,
+        first(realization_seeds),
+        representative_snapshots,
     )
 end
 
@@ -2425,7 +2434,6 @@ function validate_synthetic_cases(
                 output_dir = result_dir,
                 seed = seed,
                 steps = steps,
-                particle_density = 0.25,
                 mpc_config = resolved_config,
             ),
         )
@@ -2758,8 +2766,8 @@ function write_mpc_config_json(
         ("created_at", timestamp),
         ("input_role", config.input_role),
         ("configuration_model", MPC_CONFIGURATION_MODEL),
-        ("execution_engine", SIMULATION_ENGINE_PRELIMINARY),
-        ("simulation_note", "MPC parameters configured; full MPC dynamics implemented in later issues."),
+        ("execution_engine", SIMULATION_ENGINE_MPC),
+        ("simulation_note", "MPC dynamics, concentration maps and diffusion metrics generated by the production pipeline."),
         ("input_width", image.width),
         ("input_height", image.height),
         ("input_max_gray", image.max_gray),
@@ -2781,7 +2789,6 @@ function write_mpc_config_json(
         ("grid_shift_decision", config.grid_shift_decision),
         ("seed", run_config.seed),
         ("steps", run_config.steps),
-        ("preliminary_particle_density", run_config.particle_density),
         ("tissue_threshold", space.tissue_threshold),
         ("tissue_threshold_ratio", DEFAULT_TISSUE_THRESHOLD_RATIO),
         ("domain_mask_model", DOMAIN_MASK_MODEL),
@@ -2868,6 +2875,9 @@ function write_mpc_config_json(
                 ("mpc_concentration_high_threshold", mpc_concentration.high_concentration_threshold),
                 ("mpc_concentration_particle_count", mpc_concentration.particle_count),
                 ("mpc_concentration_snapshot_count", length(mpc_concentration.snapshots)),
+                ("mpc_concentration_representative_realization_index", mpc_concentration.representative_realization_index),
+                ("mpc_concentration_representative_seed", mpc_concentration.representative_seed),
+                ("mpc_concentration_visual_scale_max", mpc_concentration.high_concentration_threshold),
             ],
         )
     end
@@ -2957,7 +2967,7 @@ function write_space_summary(
         println(io, "height=$(space.height)")
         println(io, "input_role=$(mpc_config.input_role)")
         println(io, "configuration_model=$(MPC_CONFIGURATION_MODEL)")
-        println(io, "execution_engine=$(SIMULATION_ENGINE_PRELIMINARY)")
+        println(io, "execution_engine=$(SIMULATION_ENGINE_MPC)")
         println(io, "cell_length=$(mpc_config.cell_length)")
         println(io, "lx=$(mpc_box_lx(space, mpc_config))")
         println(io, "ly=$(mpc_box_ly(space, mpc_config))")
@@ -3679,42 +3689,73 @@ function write_mpc_concentration_outputs(
 )
     summary_path = joinpath(output_dir, "mpc_concentration_summary.txt")
     times_path = joinpath(output_dir, "mpc_concentration_times.tsv")
-    initial_map_path = joinpath(output_dir, "mpc_concentration_initial.pgm")
-    final_map_path = joinpath(output_dir, "mpc_concentration_final.pgm")
-    initial_high_map_path = joinpath(output_dir, "mpc_high_concentration_initial.pgm")
-    final_high_map_path = joinpath(output_dir, "mpc_high_concentration_final.pgm")
-    time_map_paths = String[]
-    time_high_map_paths = String[]
+    representative_initial_map_path = joinpath(output_dir, "mpc_concentration_representative_initial.pgm")
+    representative_final_map_path = joinpath(output_dir, "mpc_concentration_representative_final.pgm")
+    mean_initial_map_path = joinpath(output_dir, "mpc_concentration_mean_initial.pgm")
+    mean_final_map_path = joinpath(output_dir, "mpc_concentration_mean_final.pgm")
+    mean_initial_high_map_path = joinpath(output_dir, "mpc_high_concentration_mean_initial.pgm")
+    mean_final_high_map_path = joinpath(output_dir, "mpc_high_concentration_mean_final.pgm")
+    representative_time_map_paths = String[]
+    mean_time_map_paths = String[]
+    mean_time_high_map_paths = String[]
 
     write_mpc_concentration_summary(summary_path, concentration)
     write_mpc_concentration_times_tsv(times_path, concentration, space)
 
-    for snapshot in concentration.snapshots
-        time_map_path = joinpath(output_dir, "mpc_concentration_t_$(snapshot.time).pgm")
-        high_map_path = joinpath(output_dir, "mpc_high_concentration_t_$(snapshot.time).pgm")
+    for (mean_snapshot, representative_snapshot) in zip(
+        concentration.snapshots,
+        concentration.representative_snapshots,
+    )
+        representative_time_map_path = joinpath(
+            output_dir,
+            "mpc_concentration_representative_t_$(representative_snapshot.time).pgm",
+        )
+        mean_time_map_path = joinpath(output_dir, "mpc_concentration_mean_t_$(mean_snapshot.time).pgm")
+        mean_high_map_path = joinpath(output_dir, "mpc_high_concentration_mean_t_$(mean_snapshot.time).pgm")
 
-        write_mpc_concentration_map_pgm(time_map_path, snapshot, space)
-        write_mpc_high_concentration_map_pgm(high_map_path, snapshot, space)
-        push!(time_map_paths, time_map_path)
-        push!(time_high_map_paths, high_map_path)
+        write_mpc_concentration_map_pgm(
+            representative_time_map_path,
+            representative_snapshot,
+            space,
+            concentration.high_concentration_threshold;
+            aggregation = "representative_realization",
+        )
+        write_mpc_concentration_map_pgm(
+            mean_time_map_path,
+            mean_snapshot,
+            space,
+            concentration.high_concentration_threshold;
+            aggregation = "mean_across_realizations",
+        )
+        write_mpc_high_concentration_map_pgm(mean_high_map_path, mean_snapshot, space)
+        push!(representative_time_map_paths, representative_time_map_path)
+        push!(mean_time_map_paths, mean_time_map_path)
+        push!(mean_time_high_map_paths, mean_high_map_path)
     end
 
-    initial_snapshot = first(concentration.snapshots)
-    final_snapshot = last(concentration.snapshots)
-    write_mpc_concentration_map_pgm(initial_map_path, initial_snapshot, space)
-    write_mpc_concentration_map_pgm(final_map_path, final_snapshot, space)
-    write_mpc_high_concentration_map_pgm(initial_high_map_path, initial_snapshot, space)
-    write_mpc_high_concentration_map_pgm(final_high_map_path, final_snapshot, space)
+    mean_initial_snapshot = first(concentration.snapshots)
+    mean_final_snapshot = last(concentration.snapshots)
+    representative_initial_snapshot = first(concentration.representative_snapshots)
+    representative_final_snapshot = last(concentration.representative_snapshots)
+    write_mpc_concentration_map_pgm(representative_initial_map_path, representative_initial_snapshot, space, concentration.high_concentration_threshold; aggregation = "representative_realization")
+    write_mpc_concentration_map_pgm(representative_final_map_path, representative_final_snapshot, space, concentration.high_concentration_threshold; aggregation = "representative_realization")
+    write_mpc_concentration_map_pgm(mean_initial_map_path, mean_initial_snapshot, space, concentration.high_concentration_threshold; aggregation = "mean_across_realizations")
+    write_mpc_concentration_map_pgm(mean_final_map_path, mean_final_snapshot, space, concentration.high_concentration_threshold; aggregation = "mean_across_realizations")
+    write_mpc_high_concentration_map_pgm(mean_initial_high_map_path, mean_initial_snapshot, space)
+    write_mpc_high_concentration_map_pgm(mean_final_high_map_path, mean_final_snapshot, space)
 
     return (
         summary_path = summary_path,
         times_path = times_path,
-        initial_map_path = initial_map_path,
-        final_map_path = final_map_path,
-        initial_high_map_path = initial_high_map_path,
-        final_high_map_path = final_high_map_path,
-        time_map_paths = time_map_paths,
-        time_high_map_paths = time_high_map_paths,
+        representative_initial_map_path = representative_initial_map_path,
+        representative_final_map_path = representative_final_map_path,
+        mean_initial_map_path = mean_initial_map_path,
+        mean_final_map_path = mean_final_map_path,
+        mean_initial_high_map_path = mean_initial_high_map_path,
+        mean_final_high_map_path = mean_final_high_map_path,
+        representative_time_map_paths = representative_time_map_paths,
+        mean_time_map_paths = mean_time_map_paths,
+        mean_time_high_map_paths = mean_time_high_map_paths,
     )
 end
 
@@ -3730,6 +3771,9 @@ function write_mpc_concentration_summary(
     open(path, "w") do io
         println(io, "mpc_concentration_model=particles_per_cell_snapshot")
         println(io, "aggregation=mean_across_realizations")
+        println(io, "representative_aggregation=single_realization")
+        println(io, "representative_realization_index=$(concentration.representative_realization_index)")
+        println(io, "representative_seed=$(concentration.representative_seed)")
         println(io, "realizations=$(concentration.realization_count)")
         println(io, "realization_seeds=$(join(concentration.realization_seeds, ","))")
         println(io, "requested_output_times=$(join(concentration.requested_output_times, ","))")
@@ -3759,16 +3803,27 @@ function write_mpc_concentration_times_tsv(
     open(path, "w") do io
         println(
             io,
-            "time\tx\ty\tconcentration\tis_high_concentration\tis_domain\tobstacle_radius",
+            "aggregation\trealization\tseed\ttime\tx\ty\tconcentration\tis_high_concentration\tis_domain\tobstacle_radius",
         )
 
-        for snapshot in concentration.snapshots
-            for y_index in axes(snapshot.density_grid, 1)
-                for x_index in axes(snapshot.density_grid, 2)
+        datasets = (
+            ("mean_across_realizations", 0, 0, concentration.snapshots),
+            (
+                "representative_realization",
+                concentration.representative_realization_index,
+                concentration.representative_seed,
+                concentration.representative_snapshots,
+            ),
+        )
+        for (aggregation, realization, seed, snapshots) in datasets
+            for snapshot in snapshots
+                for y_index in axes(snapshot.density_grid, 1)
+                    for x_index in axes(snapshot.density_grid, 2)
                     println(
                         io,
-                        "$(snapshot.time)\t$(x_index - 1)\t$(y_index - 1)\t$(snapshot.density_grid[y_index, x_index])\t$(snapshot.high_concentration_mask[y_index, x_index])\t$(space.domain_mask[y_index, x_index])\t$(radius_grid[y_index, x_index])",
+                        "$(aggregation)\t$(realization)\t$(seed)\t$(snapshot.time)\t$(x_index - 1)\t$(y_index - 1)\t$(snapshot.density_grid[y_index, x_index])\t$(snapshot.high_concentration_mask[y_index, x_index])\t$(space.domain_mask[y_index, x_index])\t$(radius_grid[y_index, x_index])",
                     )
+                    end
                 end
             end
         end
@@ -3779,13 +3834,19 @@ function write_mpc_concentration_map_pgm(
     path::AbstractString,
     snapshot::MpcConcentrationSnapshot,
     space::SimulationSpace,
+    visual_scale_max::Float64;
+    aggregation::String,
 )
-    concentration_values = build_concentration_map_values(snapshot.density_grid, space.domain_mask)
+    concentration_values = build_concentration_map_values(
+        snapshot.density_grid,
+        space.domain_mask,
+        visual_scale_max,
+    )
     height, width = size(concentration_values)
 
     open(path, "w") do io
         println(io, "P2")
-        println(io, "# Mapa de concentracion MPC t=$(snapshot.time) generado por MammographySimulation")
+        println(io, "# Mapa de concentracion MPC t=$(snapshot.time) aggregation=$(aggregation) scale_max=$(visual_scale_max)")
         println(io, "$(width) $(height)")
         println(io, "255")
 
@@ -3824,19 +3885,20 @@ function write_mpc_high_concentration_map_pgm(
     end
 end
 
-function build_concentration_map_values(density_grid::AbstractMatrix{<:Real}, domain_mask::BitMatrix)
-    max_concentration = maximum(density_grid)
-    concentration_values = zeros(Int, size(density_grid))
-
-    if max_concentration == 0
-        concentration_values[domain_mask] .= 16
-        return concentration_values
+function build_concentration_map_values(
+    density_grid::AbstractMatrix{<:Real},
+    domain_mask::BitMatrix,
+    visual_scale_max::Real,
+)
+    if visual_scale_max <= 0
+        throw(ArgumentError("La escala maxima del mapa de concentracion debe ser positiva."))
     end
+    concentration_values = zeros(Int, size(density_grid))
 
     for index in eachindex(density_grid)
         if domain_mask[index]
-            scaled_value = round(Int, density_grid[index] / max_concentration * 255)
-            concentration_values[index] = max(16, scaled_value)
+            normalized_value = clamp(density_grid[index] / visual_scale_max, 0.0, 1.0)
+            concentration_values[index] = 16 + round(Int, normalized_value * 239)
         end
     end
 
@@ -4169,7 +4231,7 @@ end
 
 function write_simulation_summary(
     path::AbstractString,
-    result::SimulationResult,
+    run_config::SimulationRunConfig,
     space::SimulationSpace;
     mpc_initialization::Union{Nothing,MpcParticleInitialization} = nothing,
     mpc_streaming::Union{Nothing,MpcStreamingResult} = nothing,
@@ -4182,10 +4244,9 @@ function write_simulation_summary(
     free_cell_count = count_free_cells(space)
 
     open(path, "w") do io
-        println(io, "steps=$(result.steps)")
-        println(io, "seed=$(result.seed)")
-        println(io, "particle_density=$(result.particle_density)")
-        println(io, "particle_count=$(length(result.particles))")
+        println(io, "status=mpc_results_ready")
+        println(io, "steps=$(run_config.steps)")
+        println(io, "seed=$(run_config.seed)")
         println(io, "cylinder_obstacle_count=$(length(space.obstacles))")
         println(io, "preliminary_blocking_obstacle_count=$(count_preliminary_blocking_obstacles(space))")
         if mpc_initialization !== nothing
@@ -4233,6 +4294,9 @@ function write_simulation_summary(
             println(io, "mpc_concentration_high_threshold=$(mpc_concentration.high_concentration_threshold)")
             println(io, "mpc_concentration_particle_count=$(mpc_concentration.particle_count)")
             println(io, "mpc_concentration_snapshot_count=$(length(mpc_concentration.snapshots))")
+            println(io, "mpc_concentration_representative_realization_index=$(mpc_concentration.representative_realization_index)")
+            println(io, "mpc_concentration_representative_seed=$(mpc_concentration.representative_seed)")
+            println(io, "mpc_concentration_visual_scale_max=$(mpc_concentration.high_concentration_threshold)")
         end
         if mpc_velocity_autocorrelation !== nothing
             println(io, "velocity_autocorrelation_model=green_kubo_xy")
@@ -4265,12 +4329,8 @@ function write_simulation_summary(
             println(io, "diffusion_metric_purpose_note=$(mpc_diffusion_metrics.purpose_note)")
         end
         println(io, "free_cell_count=$(free_cell_count)")
-        println(io, "attempted_moves=$(result.attempted_moves)")
-        println(io, "collision_count=$(result.collision_count)")
-        println(io, "visited_cell_count=$(count(>(0), result.visit_counts))")
-        println(io, "visit_count_total=$(sum(result.visit_counts))")
         println(io, "configuration_model=$(MPC_CONFIGURATION_MODEL)")
-        println(io, "execution_engine=$(SIMULATION_ENGINE_PRELIMINARY)")
+        println(io, "execution_engine=$(SIMULATION_ENGINE_MPC)")
     end
 end
 

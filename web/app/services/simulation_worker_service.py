@@ -29,9 +29,9 @@ class SimulationWorkerResult:
     command: list[str]
     return_code: int
     output_dir: Path
-    metrics_path: Path
+    diffusion_metrics_path: Path
     domain_mask_path: Path
-    density_map_path: Path
+    concentration_map_path: Path
     mpc_config_path: Path
     obstacle_radius_matrix_path: Path
     obstacle_radius_map_path: Path
@@ -45,10 +45,12 @@ class SimulationWorkerResult:
     mpc_cell_collisions_path: Path
     mpc_concentration_summary_path: Path
     mpc_concentration_times_path: Path
-    mpc_concentration_initial_map_path: Path
-    mpc_concentration_final_map_path: Path
-    mpc_high_concentration_initial_map_path: Path
-    mpc_high_concentration_final_map_path: Path
+    mpc_concentration_representative_initial_map_path: Path
+    mpc_concentration_representative_final_map_path: Path
+    mpc_concentration_mean_initial_map_path: Path
+    mpc_concentration_mean_final_map_path: Path
+    mpc_high_concentration_mean_initial_map_path: Path
+    mpc_high_concentration_mean_final_map_path: Path
     velocity_autocorrelation_path: Path
     velocity_autocorrelation_summary_path: Path
     velocity_autocorrelation_realizations_path: Path
@@ -67,7 +69,6 @@ def process_case_simulation(
     *,
     seed=None,
     steps=None,
-    density=None,
 ):
     upload_folder = app_config["UPLOAD_FOLDER"]
     output_dir = get_case_simulation_results_directory(case.id, upload_folder)
@@ -80,7 +81,6 @@ def process_case_simulation(
         _ensure_runtime_configuration(
             app_config,
             steps=steps,
-            density=density,
         )
         command = _build_julia_command(
             app_config,
@@ -88,7 +88,6 @@ def process_case_simulation(
             output_dir,
             seed=seed,
             steps=steps,
-            density=density,
         )
     except SimulationWorkerError as exc:
         _write_worker_logs(
@@ -189,6 +188,7 @@ def process_case_simulation(
     result_paths = _get_expected_result_paths(output_dir)
     try:
         _ensure_result_files_exist(result_paths)
+        _validate_mpc_result_files(result_paths)
     except SimulationWorkerError as exc:
         _append_worker_log_error(worker_log_path, exc.category, exc.technical_message)
         _append_worker_log_error(
@@ -210,9 +210,11 @@ def process_case_simulation(
         command=command,
         return_code=completed_process.returncode,
         output_dir=output_dir,
-        metrics_path=result_paths["metrics"],
+        diffusion_metrics_path=result_paths["diffusion_metrics_json"],
         domain_mask_path=result_paths["domain_mask"],
-        density_map_path=result_paths["density_map"],
+        concentration_map_path=result_paths[
+            "mpc_concentration_representative_final_map"
+        ],
         mpc_config_path=result_paths["mpc_config"],
         obstacle_radius_matrix_path=result_paths["obstacle_radius_matrix"],
         obstacle_radius_map_path=result_paths["obstacle_radius_map"],
@@ -226,13 +228,23 @@ def process_case_simulation(
         mpc_cell_collisions_path=result_paths["mpc_cell_collisions"],
         mpc_concentration_summary_path=result_paths["mpc_concentration_summary"],
         mpc_concentration_times_path=result_paths["mpc_concentration_times"],
-        mpc_concentration_initial_map_path=result_paths["mpc_concentration_initial_map"],
-        mpc_concentration_final_map_path=result_paths["mpc_concentration_final_map"],
-        mpc_high_concentration_initial_map_path=result_paths[
-            "mpc_high_concentration_initial_map"
+        mpc_concentration_representative_initial_map_path=result_paths[
+            "mpc_concentration_representative_initial_map"
         ],
-        mpc_high_concentration_final_map_path=result_paths[
-            "mpc_high_concentration_final_map"
+        mpc_concentration_representative_final_map_path=result_paths[
+            "mpc_concentration_representative_final_map"
+        ],
+        mpc_concentration_mean_initial_map_path=result_paths[
+            "mpc_concentration_mean_initial_map"
+        ],
+        mpc_concentration_mean_final_map_path=result_paths[
+            "mpc_concentration_mean_final_map"
+        ],
+        mpc_high_concentration_mean_initial_map_path=result_paths[
+            "mpc_high_concentration_mean_initial_map"
+        ],
+        mpc_high_concentration_mean_final_map_path=result_paths[
+            "mpc_high_concentration_mean_final_map"
         ],
         velocity_autocorrelation_path=result_paths["velocity_autocorrelation"],
         velocity_autocorrelation_summary_path=result_paths[
@@ -256,13 +268,9 @@ def _build_worker_log_paths(output_dir):
     return output_dir / f"worker_execution_{run_id}.log", output_dir / "worker_execution.log"
 
 
-def _build_julia_command(app_config, input_path, output_dir, *, seed, steps, density):
+def _build_julia_command(app_config, input_path, output_dir, *, seed, steps):
     simulation_seed = app_config["SIMULATION_DEFAULT_SEED"] if seed is None else seed
     simulation_steps = app_config["SIMULATION_DEFAULT_STEPS"] if steps is None else steps
-    simulation_density = (
-        app_config["SIMULATION_DEFAULT_DENSITY"] if density is None else density
-    )
-
     return [
         app_config["JULIA_EXECUTABLE"],
         f"--threads={app_config['SIMULATION_CPU_THREADS']}",
@@ -276,8 +284,6 @@ def _build_julia_command(app_config, input_path, output_dir, *, seed, steps, den
         str(simulation_seed),
         "--steps",
         str(simulation_steps),
-        "--density",
-        str(simulation_density),
         "--n0",
         str(app_config["SIMULATION_DEFAULT_N0"]),
         "--mass",
@@ -495,7 +501,7 @@ def _ensure_case_can_be_processed(case):
         )
 
 
-def _ensure_runtime_configuration(app_config, *, steps, density):
+def _ensure_runtime_configuration(app_config, *, steps):
     simulator_project_path = Path(app_config["SIMULATOR_PROJECT_PATH"])
     simulator_run_script_path = Path(app_config["SIMULATOR_RUN_SCRIPT_PATH"])
 
@@ -514,12 +520,7 @@ def _ensure_runtime_configuration(app_config, *, steps, density):
         )
 
     simulation_steps = app_config["SIMULATION_DEFAULT_STEPS"] if steps is None else steps
-    simulation_density = (
-        app_config["SIMULATION_DEFAULT_DENSITY"] if density is None else density
-    )
-
     _ensure_positive_int("SIMULATION_DEFAULT_STEPS", simulation_steps)
-    _ensure_positive_float("SIMULATION_DEFAULT_DENSITY", simulation_density)
     _ensure_positive_float("SIMULATION_DEFAULT_N0", app_config["SIMULATION_DEFAULT_N0"])
     _ensure_positive_float("SIMULATION_DEFAULT_MASS", app_config["SIMULATION_DEFAULT_MASS"])
     _ensure_positive_float("SIMULATION_DEFAULT_KBT", app_config["SIMULATION_DEFAULT_KBT"])
@@ -615,9 +616,11 @@ def _update_case_simulation_results(case, output_dir, result_paths):
     case.status = CaseStatus.COMPLETED
     case.error_message = None
     case.simulation_results_path = to_relative_storage_path(output_dir)
-    case.simulation_metrics_file_path = to_relative_storage_path(result_paths["metrics"])
+    case.simulation_metrics_file_path = to_relative_storage_path(
+        result_paths["diffusion_metrics_json"],
+    )
     case.simulation_density_map_file_path = to_relative_storage_path(
-        result_paths["density_map"],
+        result_paths["mpc_concentration_representative_final_map"],
     )
     case.simulation_log_file_path = to_relative_storage_path(
         result_paths["simulation_log"],
@@ -672,9 +675,7 @@ def _metric_to_float(value):
 
 def _get_expected_result_paths(output_dir):
     return {
-        "metrics": output_dir / "metrics.json",
         "domain_mask": output_dir / "domain_mask.pgm",
-        "density_map": output_dir / "density_map.pgm",
         "mpc_config": output_dir / "mpc_config.json",
         "obstacle_radius_matrix": output_dir / "obstacle_radius_matrix.tsv",
         "obstacle_radius_map": output_dir / "obstacle_radius_map.pgm",
@@ -688,12 +689,18 @@ def _get_expected_result_paths(output_dir):
         "mpc_cell_collisions": output_dir / "mpc_cell_collisions.tsv",
         "mpc_concentration_summary": output_dir / "mpc_concentration_summary.txt",
         "mpc_concentration_times": output_dir / "mpc_concentration_times.tsv",
-        "mpc_concentration_initial_map": output_dir / "mpc_concentration_initial.pgm",
-        "mpc_concentration_final_map": output_dir / "mpc_concentration_final.pgm",
-        "mpc_high_concentration_initial_map": output_dir
-        / "mpc_high_concentration_initial.pgm",
-        "mpc_high_concentration_final_map": output_dir
-        / "mpc_high_concentration_final.pgm",
+        "mpc_concentration_representative_initial_map": output_dir
+        / "mpc_concentration_representative_initial.pgm",
+        "mpc_concentration_representative_final_map": output_dir
+        / "mpc_concentration_representative_final.pgm",
+        "mpc_concentration_mean_initial_map": output_dir
+        / "mpc_concentration_mean_initial.pgm",
+        "mpc_concentration_mean_final_map": output_dir
+        / "mpc_concentration_mean_final.pgm",
+        "mpc_high_concentration_mean_initial_map": output_dir
+        / "mpc_high_concentration_mean_initial.pgm",
+        "mpc_high_concentration_mean_final_map": output_dir
+        / "mpc_high_concentration_mean_final.pgm",
         "velocity_autocorrelation": output_dir / "velocity_autocorrelation.tsv",
         "velocity_autocorrelation_summary": output_dir
         / "velocity_autocorrelation_summary.txt",
@@ -718,6 +725,51 @@ def _ensure_result_files_exist(result_paths):
             + ", ".join(missing_files),
             category="missing_results",
             technical_message="missing_files=" + ",".join(missing_files),
+        )
+
+
+def _validate_mpc_result_files(result_paths):
+    diffusion = _read_diffusion_metrics(result_paths.get("diffusion_metrics_json"))
+    required_metrics = {"mdc", "mdc0", "mdc_star"}
+    if diffusion is None or not required_metrics.issubset(diffusion):
+        raise SimulationWorkerError(
+            "La simulacion finalizo, pero sus metricas MPC no son validas.",
+            category="invalid_results",
+            technical_message="invalid_diffusion_metrics",
+        )
+
+    try:
+        concentration_summary = result_paths["mpc_concentration_summary"].read_text(
+            encoding="utf-8",
+        )
+        map_headers = [
+            result_paths[key].read_text(encoding="ascii", errors="strict")[:2]
+            for key in (
+                "mpc_concentration_representative_initial_map",
+                "mpc_concentration_representative_final_map",
+                "mpc_concentration_mean_initial_map",
+                "mpc_concentration_mean_final_map",
+            )
+        ]
+    except (OSError, UnicodeError) as exc:
+        raise SimulationWorkerError(
+            "La simulacion finalizo, pero sus mapas MPC no se pueden leer.",
+            category="invalid_results",
+            technical_message=str(exc),
+        ) from exc
+
+    required_summary_fields = (
+        "aggregation=mean_across_realizations",
+        "representative_aggregation=single_realization",
+        "domain_mask_applied=true",
+    )
+    if not all(field in concentration_summary for field in required_summary_fields) or any(
+        header != "P2" for header in map_headers
+    ):
+        raise SimulationWorkerError(
+            "La simulacion finalizo, pero sus mapas MPC estan incompletos.",
+            category="invalid_results",
+            technical_message="invalid_mpc_concentration_outputs",
         )
 
 
@@ -840,7 +892,6 @@ def _build_log_config_summary(app_config):
         "simulator_version": _read_simulator_version(app_config),
         "simulation_default_seed": app_config["SIMULATION_DEFAULT_SEED"],
         "simulation_default_steps": app_config["SIMULATION_DEFAULT_STEPS"],
-        "simulation_default_density": app_config["SIMULATION_DEFAULT_DENSITY"],
         "simulation_default_n0": app_config["SIMULATION_DEFAULT_N0"],
         "simulation_default_mass": app_config["SIMULATION_DEFAULT_MASS"],
         "simulation_default_kbt": app_config["SIMULATION_DEFAULT_KBT"],

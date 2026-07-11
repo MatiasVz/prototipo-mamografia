@@ -21,7 +21,6 @@ julia --project=simulator simulator/scripts/run_case.jl `
   --output storage/uploads/case_1/results `
   --seed 1234 `
   --steps 500 `
-  --density 0.25 `
   --n0 10 `
   --mass 1 `
   --kbt 1 `
@@ -60,10 +59,7 @@ worker_execution.log
 simulation_config.txt
 input_summary.txt
 space_summary.txt
-metrics.json
 domain_mask.pgm
-density_map.pgm
-density_matrix.tsv
 obstacles.tsv
 obstacle_radius_matrix.tsv
 obstacle_radius_map.pgm
@@ -78,11 +74,9 @@ mpc_collision_summary.txt
 mpc_cell_collisions.tsv
 mpc_concentration_summary.txt
 mpc_concentration_times.tsv
-mpc_concentration_initial.pgm
-mpc_concentration_final.pgm
-mpc_concentration_t_<tiempo>.pgm
-mpc_high_concentration_initial.pgm
-mpc_high_concentration_final.pgm
+mpc_concentration_representative_t_<tiempo>.pgm
+mpc_concentration_mean_t_<tiempo>.pgm
+mpc_high_concentration_mean_t_<tiempo>.pgm
 velocity_autocorrelation.tsv
 velocity_autocorrelation_summary.txt
 velocity_autocorrelation_realizations.tsv
@@ -99,8 +93,8 @@ Cuando el caso termina en estado `completado`, la app web puede presentar:
 - region mamaria valida;
 - caja de simulacion mesoscopica en pseudo-3D;
 - mapa de radios de obstaculos;
-- mapa de densidad;
-- mapas de concentracion MPC por tiempos disponibles;
+- mapas MPC de una realizacion representativa por tiempos disponibles;
+- mapas MPC promedio y zonas que superan `2 x n0`;
 - tabla resumida de autocorrelacion `Cv`;
 - metricas `MDC`, `MDC0` y `MDC*`;
 - parametros principales de la corrida;
@@ -151,6 +145,7 @@ Cuando `realizations` es mayor que `1`, el simulador ejecuta corridas independie
 - `Cv` promedio en `velocity_autocorrelation.tsv`;
 - MDC promedio y dispersion entre realizaciones en `diffusion_metrics.json`;
 - detalle por realizacion en `velocity_autocorrelation_realizations.tsv`;
-- mapas de concentracion promedio en los archivos `mpc_concentration_*.pgm`;
+- mapas de una realizacion real en `mpc_concentration_representative_*.pgm`;
+- mapas promedio en `mpc_concentration_mean_*.pgm`;
 - visualizacion pseudo-3D de la caja de simulacion en `simulation_box_3d.png`;
 - semillas usadas en `mpc_config.json` y resumenes tecnicos.

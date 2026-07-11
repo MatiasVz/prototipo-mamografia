@@ -43,9 +43,9 @@ COMMON_MAPS = (
         "Compara cómo se transformó la ROI en obstáculos del modelo.",
     ),
     (
-        "density_map",
-        "Mapa de visitas de partículas",
-        "Compara por dónde pasaron o se acumularon más partículas.",
+        "mpc_concentration_mean_final",
+        "Concentración MPC promedio final",
+        "Compara el promedio final de partículas con una escala visual común.",
     ),
 )
 
@@ -96,7 +96,7 @@ def _build_case_result(case, results_dir):
     else:
         diffusion = _read_json(results_dir / "diffusion_metrics.json")
         config = _read_json(results_dir / "mpc_config.json")
-        metrics = _read_json(results_dir / "metrics.json")
+        metrics = {}
         results_path = str(results_dir)
         diffusion_path = str(results_dir / "diffusion_metrics.json")
 
@@ -198,14 +198,17 @@ def _select_common_concentration_key(results_dir_a, results_dir_b):
     common_times = sorted(set(times_a).intersection(times_b))
 
     for time_value in reversed(common_times):
-        key = f"mpc_concentration_t_{time_value}"
+        key = f"mpc_concentration_mean_t_{time_value}"
         if _result_image_exists(results_dir_a, key) and _result_image_exists(
             results_dir_b,
             key,
         ):
             return key
 
-    for fallback_key in ("mpc_concentration_final", "mpc_concentration_initial"):
+    for fallback_key in (
+        "mpc_concentration_mean_final",
+        "mpc_concentration_mean_initial",
+    ):
         if _result_image_exists(results_dir_a, fallback_key) and _result_image_exists(
             results_dir_b,
             fallback_key,
@@ -324,15 +327,14 @@ def _read_captured_times(results_dir):
 
 
 def _result_image_exists(results_dir, key):
-    if key.startswith("mpc_concentration_t_"):
+    if key.startswith("mpc_concentration_mean_t_"):
         filename = f"{key}.pgm"
     else:
         filename = {
             "domain_mask": "domain_mask.pgm",
             "obstacle_radius_map": "obstacle_radius_map.pgm",
-            "density_map": "density_map.pgm",
-            "mpc_concentration_initial": "mpc_concentration_initial.pgm",
-            "mpc_concentration_final": "mpc_concentration_final.pgm",
+            "mpc_concentration_mean_initial": "mpc_concentration_mean_initial.pgm",
+            "mpc_concentration_mean_final": "mpc_concentration_mean_final.pgm",
         }.get(key)
 
     return bool(filename and (results_dir / filename).exists())

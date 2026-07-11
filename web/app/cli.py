@@ -82,8 +82,7 @@ def register_cli_commands(app):
     @click.argument("case_id", type=int)
     @click.option("--seed", type=int, default=None, help="Semilla reproducible.")
     @click.option("--steps", type=int, default=None, help="Numero de pasos.")
-    @click.option("--density", type=float, default=None, help="Densidad de particulas.")
-    def case_run_simulation(case_id, seed, steps, density):
+    def case_run_simulation(case_id, seed, steps):
         """Run the Julia simulator for one prepared case."""
         case = db.session.get(Case, case_id)
 
@@ -96,7 +95,6 @@ def register_cli_commands(app):
                 app.config,
                 seed=seed,
                 steps=steps,
-                density=density,
             )
         except SimulationWorkerError as exc:
             raise click.ClickException(str(exc)) from exc
@@ -109,9 +107,9 @@ def register_cli_commands(app):
         click.echo(f"Caso {result.case_id} procesado correctamente.")
         click.echo(f"status={result.status}")
         click.echo(f"output_dir={result.output_dir}")
-        click.echo(f"metrics_path={result.metrics_path}")
+        click.echo(f"diffusion_metrics_path={result.diffusion_metrics_path}")
         click.echo(f"domain_mask_path={result.domain_mask_path}")
-        click.echo(f"density_map_path={result.density_map_path}")
+        click.echo(f"concentration_map_path={result.concentration_map_path}")
         click.echo(f"mpc_config_path={result.mpc_config_path}")
         click.echo(f"obstacle_radius_matrix_path={result.obstacle_radius_matrix_path}")
         click.echo(f"obstacle_radius_map_path={result.obstacle_radius_map_path}")
@@ -129,20 +127,28 @@ def register_cli_commands(app):
         click.echo(f"mpc_concentration_summary_path={result.mpc_concentration_summary_path}")
         click.echo(f"mpc_concentration_times_path={result.mpc_concentration_times_path}")
         click.echo(
-            "mpc_concentration_initial_map_path="
-            f"{result.mpc_concentration_initial_map_path}"
+            "mpc_concentration_representative_initial_map_path="
+            f"{result.mpc_concentration_representative_initial_map_path}"
         )
         click.echo(
-            "mpc_concentration_final_map_path="
-            f"{result.mpc_concentration_final_map_path}"
+            "mpc_concentration_representative_final_map_path="
+            f"{result.mpc_concentration_representative_final_map_path}"
         )
         click.echo(
-            "mpc_high_concentration_initial_map_path="
-            f"{result.mpc_high_concentration_initial_map_path}"
+            "mpc_concentration_mean_initial_map_path="
+            f"{result.mpc_concentration_mean_initial_map_path}"
         )
         click.echo(
-            "mpc_high_concentration_final_map_path="
-            f"{result.mpc_high_concentration_final_map_path}"
+            "mpc_concentration_mean_final_map_path="
+            f"{result.mpc_concentration_mean_final_map_path}"
+        )
+        click.echo(
+            "mpc_high_concentration_mean_initial_map_path="
+            f"{result.mpc_high_concentration_mean_initial_map_path}"
+        )
+        click.echo(
+            "mpc_high_concentration_mean_final_map_path="
+            f"{result.mpc_high_concentration_mean_final_map_path}"
         )
         click.echo(f"velocity_autocorrelation_path={result.velocity_autocorrelation_path}")
         click.echo(

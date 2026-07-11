@@ -120,11 +120,9 @@ Los mapas de concentracion muestran cuantas particulas caen en cada celda en dis
 Evidencia generada:
 
 ```text
-mpc_concentration_initial.pgm
-mpc_concentration_final.pgm
-mpc_concentration_t_<tiempo>.pgm
-mpc_high_concentration_initial.pgm
-mpc_high_concentration_final.pgm
+mpc_concentration_representative_t_<tiempo>.pgm
+mpc_concentration_mean_t_<tiempo>.pgm
+mpc_high_concentration_mean_t_<tiempo>.pgm
 mpc_concentration_times.tsv
 mpc_concentration_summary.txt
 ```
@@ -191,9 +189,7 @@ storage/uploads/case_<id>/
 ├── roi/...
 ├── simulation_input.pgm
 └── results/
-    ├── metrics.json
     ├── domain_mask.pgm
-    ├── density_map.pgm
     ├── obstacle_radius_map.pgm
     ├── obstacle_radius_matrix.tsv
     ├── obstacle_radius_histogram.tsv
@@ -202,7 +198,9 @@ storage/uploads/case_<id>/
     ├── mpc_streamed_particles.tsv
     ├── mpc_collided_particles.tsv
     ├── mpc_cell_collisions.tsv
-    ├── mpc_concentration_t_<tiempo>.pgm
+    ├── mpc_concentration_representative_t_<tiempo>.pgm
+    ├── mpc_concentration_mean_t_<tiempo>.pgm
+    ├── mpc_high_concentration_mean_t_<tiempo>.pgm
     ├── mpc_concentration_times.tsv
     ├── velocity_autocorrelation.tsv
     ├── diffusion_metrics.json

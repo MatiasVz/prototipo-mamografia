@@ -8,9 +8,7 @@ from .preview_service import ensure_preview_for_path
 
 
 RESULT_FILE_DESCRIPTIONS = {
-    "metrics.json": "Metricas preliminares de la ejecucion.",
     "domain_mask.pgm": "Mapa de la region mamaria valida usada por el simulador.",
-    "density_map.pgm": "Mapa que muestra donde hubo mas visitas de particulas.",
     "mpc_config.json": "Parametros usados por el modelo MPC.",
     "space_summary.txt": "Resumen de la caja plana y obstaculos construidos desde la ROI.",
     "obstacle_radius_matrix.tsv": "Matriz de radios de obstaculos por celda.",
@@ -25,10 +23,12 @@ RESULT_FILE_DESCRIPTIONS = {
     "mpc_cell_collisions.tsv": "Detalle de colisiones agrupadas por celda.",
     "mpc_concentration_summary.txt": "Resumen de mapas que muestran distribucion de particulas.",
     "mpc_concentration_times.tsv": "Concentracion de particulas por tiempos capturados.",
-    "mpc_concentration_initial.pgm": "Distribucion de particulas al inicio.",
-    "mpc_concentration_final.pgm": "Distribucion de particulas al final.",
-    "mpc_high_concentration_initial.pgm": "Zonas con mas particulas al inicio.",
-    "mpc_high_concentration_final.pgm": "Zonas con mas particulas al final.",
+    "mpc_concentration_representative_initial.pgm": "Conteo inicial de particulas en la realizacion representativa.",
+    "mpc_concentration_representative_final.pgm": "Conteo final de particulas en la realizacion representativa.",
+    "mpc_concentration_mean_initial.pgm": "Concentracion inicial promedio entre realizaciones.",
+    "mpc_concentration_mean_final.pgm": "Concentracion final promedio entre realizaciones.",
+    "mpc_high_concentration_mean_initial.pgm": "Celdas iniciales cuyo promedio supera 2 x n0.",
+    "mpc_high_concentration_mean_final.pgm": "Celdas finales cuyo promedio supera 2 x n0.",
     "velocity_autocorrelation.tsv": "Serie Cv que resume memoria del movimiento.",
     "velocity_autocorrelation_summary.txt": "Resumen legible del calculo de Cv.",
     "velocity_autocorrelation_realizations.tsv": "Detalle por realizacion de Cv.",
@@ -336,7 +336,7 @@ def _read_result_data(results_dir):
         }
 
     return {
-        "metrics": _read_json(results_dir / "metrics.json"),
+        "metrics": {},
         "config": _read_json(results_dir / "mpc_config.json"),
         "diffusion": _read_json(results_dir / "diffusion_metrics.json"),
         "concentration_summary": _read_key_value_file(
@@ -531,7 +531,7 @@ def _build_report_markdown(case, export_files, missing_items, metrics):
                     ),
                     ("Metricas", case.simulation_metrics_file_path or "No registrada"),
                     (
-                        "Mapa de densidad",
+                        "Concentracion MPC representativa final",
                         case.simulation_density_map_file_path or "No registrada",
                     ),
                     ("Log de simulacion", case.simulation_log_file_path or "No registrada"),
@@ -770,15 +770,21 @@ def _filename(path, fallback):
 
 
 def _result_file_label(filename):
-    if filename.startswith("mpc_concentration_t_") and filename.endswith(".pgm"):
-        time_value = filename.removeprefix("mpc_concentration_t_").removesuffix(".pgm")
-        return f"Concentracion en t={time_value}"
-
-    if filename.startswith("mpc_high_concentration_t_") and filename.endswith(".pgm"):
+    if filename.startswith("mpc_concentration_representative_t_") and filename.endswith(".pgm"):
         time_value = filename.removeprefix(
-            "mpc_high_concentration_t_",
+            "mpc_concentration_representative_t_",
         ).removesuffix(".pgm")
-        return f"Zonas altas en t={time_value}"
+        return f"Realizacion representativa en t={time_value}"
+
+    if filename.startswith("mpc_concentration_mean_t_") and filename.endswith(".pgm"):
+        time_value = filename.removeprefix("mpc_concentration_mean_t_").removesuffix(".pgm")
+        return f"Concentracion promedio en t={time_value}"
+
+    if filename.startswith("mpc_high_concentration_mean_t_") and filename.endswith(".pgm"):
+        time_value = filename.removeprefix(
+            "mpc_high_concentration_mean_t_",
+        ).removesuffix(".pgm")
+        return f"Zonas altas promedio en t={time_value}"
 
     if filename.startswith("worker_execution_") and filename.endswith(".log"):
         return "Log historico del worker"
@@ -790,11 +796,14 @@ def _result_file_description(filename):
     if filename in RESULT_FILE_DESCRIPTIONS:
         return RESULT_FILE_DESCRIPTIONS[filename]
 
-    if filename.startswith("mpc_concentration_t_") and filename.endswith(".pgm"):
-        return "Mapa que muestra la distribucion de particulas en un tiempo de simulacion."
+    if filename.startswith("mpc_concentration_representative_t_") and filename.endswith(".pgm"):
+        return "Mapa de una corrida MPC real, construido desde posiciones de particulas."
 
-    if filename.startswith("mpc_high_concentration_t_") and filename.endswith(".pgm"):
-        return "Mapa de celdas con mas particulas que el umbral en un tiempo de simulacion."
+    if filename.startswith("mpc_concentration_mean_t_") and filename.endswith(".pgm"):
+        return "Mapa promedio de concentracion MPC entre realizaciones."
+
+    if filename.startswith("mpc_high_concentration_mean_t_") and filename.endswith(".pgm"):
+        return "Celdas cuyo promedio de particulas supera el umbral 2 x n0."
 
     if filename.startswith("worker_execution_") and filename.endswith(".log"):
         return "Log historico de una corrida del worker Python."
