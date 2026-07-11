@@ -205,6 +205,16 @@
                         >
                       </div>
                       <p>{{ result_map.description }}</p>
+                      {% if result_map.sampling_note %}
+                        <p class="result-map-card__sampling">{{ result_map.sampling_note }}</p>
+                      {% endif %}
+                      {% if result_map.legend %}
+                        <ul class="result-map-card__legend" aria-label="Leyenda de la caja MPC">
+                          {% for legend_item in result_map.legend %}
+                            <li>{{ legend_item }}</li>
+                          {% endfor %}
+                        </ul>
+                      {% endif %}
                       <details class="result-map-card__help">
                         <summary>Ayuda para interpretar</summary>
                         <p>{{ result_map.reading }}</p>

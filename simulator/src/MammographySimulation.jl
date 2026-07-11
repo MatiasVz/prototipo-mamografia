@@ -291,9 +291,12 @@ const DEFAULT_MPC_OUTPUT_TIMES = (0, 100)
 const DEFAULT_MPC_GRID_SHIFT_ENABLED = false
 const DEFAULT_MPC_GRID_SHIFT_DECISION = "disabled_initially_to_match_article_conditions"
 const SIMULATION_BOX_VISUALIZATION_FILENAME = "simulation_box_3d.png"
-const SIMULATION_BOX_VISUALIZATION_MODEL = "static_pseudo_3d_box_with_cylindrical_obstacles"
-const SIMULATION_BOX_VISUALIZATION_MAX_CYLINDERS = 240
-const SIMULATION_BOX_VISUALIZATION_MAX_PARTICLES = 180
+const SIMULATION_BOX_VISUALIZATION_MODEL = "reproducible_cell_section_with_cylinders_particles_and_directions"
+const SIMULATION_BOX_VISUALIZATION_MAX_COLUMNS = 12
+const SIMULATION_BOX_VISUALIZATION_MAX_ROWS = 8
+const SIMULATION_BOX_VISUALIZATION_MAX_CYLINDERS = 96
+const SIMULATION_BOX_VISUALIZATION_MAX_PARTICLES = 80
+const SIMULATION_BOX_VISUALIZATION_MAX_DIRECTIONS = 40
 const DEFAULT_SYNTHETIC_VALIDATION_CASES = (
     "free_field",
     "central_obstacle",
@@ -496,6 +499,10 @@ function run_case(config::SimulationRunConfig)
     obstacle_radius_map_path = joinpath(output_dir, "obstacle_radius_map.pgm")
     obstacle_radius_histogram_path = joinpath(output_dir, "obstacle_radius_histogram.tsv")
     simulation_box_visualization_path = joinpath(output_dir, SIMULATION_BOX_VISUALIZATION_FILENAME)
+    simulation_box_visualization_metadata_path = joinpath(
+        output_dir,
+        "simulation_box_visualization.txt",
+    )
     mpc_initial_particles_path = joinpath(output_dir, "mpc_initial_particles.tsv")
     mpc_streamed_particles_path = joinpath(output_dir, "mpc_streamed_particles.tsv")
     mpc_streaming_summary_path = joinpath(output_dir, "mpc_streaming_summary.txt")
@@ -646,6 +653,7 @@ function run_case(config::SimulationRunConfig)
         simulation_box_visualization_path,
         simulation_space,
         mpc_initialization,
+        metadata_path = simulation_box_visualization_metadata_path,
     )
     write_mpc_initial_particles_tsv(mpc_initial_particles_path, mpc_initialization)
     write_mpc_streamed_particles_tsv(mpc_streamed_particles_path, mpc_streaming)
@@ -677,6 +685,7 @@ function run_case(config::SimulationRunConfig)
         mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
         mpc_diffusion_metrics = mpc_diffusion_metrics,
         simulation_box_visualization_path = simulation_box_visualization_path,
+        simulation_box_visualization_metadata_path = simulation_box_visualization_metadata_path,
     )
 
     return (
@@ -690,6 +699,7 @@ function run_case(config::SimulationRunConfig)
         obstacle_radius_map_path = obstacle_radius_map_path,
         obstacle_radius_histogram_path = obstacle_radius_histogram_path,
         simulation_box_visualization_path = simulation_box_visualization_path,
+        simulation_box_visualization_metadata_path = simulation_box_visualization_metadata_path,
         mpc_initial_particles_path = mpc_initial_particles_path,
         mpc_streamed_particles_path = mpc_streamed_particles_path,
         mpc_streaming_summary_path = mpc_streaming_summary_path,
@@ -747,6 +757,7 @@ function cli_main(args::Vector{String} = ARGS)
         println("obstacle_radius_map_path=$(result.obstacle_radius_map_path)")
         println("obstacle_radius_histogram_path=$(result.obstacle_radius_histogram_path)")
         println("simulation_box_visualization_path=$(result.simulation_box_visualization_path)")
+        println("simulation_box_visualization_metadata_path=$(result.simulation_box_visualization_metadata_path)")
         println("mpc_initial_particles_path=$(result.mpc_initial_particles_path)")
         println("mpc_streamed_particles_path=$(result.mpc_streamed_particles_path)")
         println("mpc_streaming_summary_path=$(result.mpc_streaming_summary_path)")
@@ -2760,6 +2771,7 @@ function write_mpc_config_json(
     mpc_velocity_autocorrelation::Union{Nothing,MpcVelocityAutocorrelationResult} = nothing,
     mpc_diffusion_metrics::Union{Nothing,MpcComparableDiffusionMetrics} = nothing,
     simulation_box_visualization_path::Union{Nothing,String} = nothing,
+    simulation_box_visualization_metadata_path::Union{Nothing,String} = nothing,
 )
     config = run_config.mpc_config
     fields = Any[
@@ -2826,6 +2838,10 @@ function write_mpc_config_json(
                 ("simulation_box_visualization_note", "Representacion pseudo-3D del dominio mesoscopico; no es una reconstruccion anatomica 3D real."),
                 ("simulation_box_visualization_max_cylinders", SIMULATION_BOX_VISUALIZATION_MAX_CYLINDERS),
                 ("simulation_box_visualization_max_particles", SIMULATION_BOX_VISUALIZATION_MAX_PARTICLES),
+                ("simulation_box_visualization_max_columns", SIMULATION_BOX_VISUALIZATION_MAX_COLUMNS),
+                ("simulation_box_visualization_max_rows", SIMULATION_BOX_VISUALIZATION_MAX_ROWS),
+                ("simulation_box_visualization_max_directions", SIMULATION_BOX_VISUALIZATION_MAX_DIRECTIONS),
+                ("simulation_box_visualization_metadata_file", "simulation_box_visualization.txt"),
             ],
         )
     end
@@ -3083,32 +3099,63 @@ function write_simulation_box_visualization_png(
     height::Int = 820,
     max_cylinders::Int = SIMULATION_BOX_VISUALIZATION_MAX_CYLINDERS,
     max_particles::Int = SIMULATION_BOX_VISUALIZATION_MAX_PARTICLES,
+    max_directions::Int = SIMULATION_BOX_VISUALIZATION_MAX_DIRECTIONS,
+    metadata_path::Union{Nothing,String} = nothing,
 )
+    section = select_visualization_section(space)
     canvas = RgbCanvas(width, height, rgb(248, 250, 252))
-    projection = visualization_projection(space, width, height)
+    projection = visualization_projection(section, space.lz, width, height)
+    selected_obstacles = sample_visualization_obstacles(
+        obstacles_in_visualization_section(space.obstacles, section),
+        max_cylinders,
+    )
+    selected_particles = sample_visualization_particles(
+        particles_in_visualization_section(initialization.particles, section, space.cell_length),
+        max_particles,
+    )
 
     draw_visualization_background!(canvas)
-    draw_simulation_box_frame!(canvas, space, projection)
+    draw_simulation_box_frame!(canvas, section, space, projection)
 
-    for obstacle in sample_visualization_obstacles(space.obstacles, max_cylinders)
-        draw_obstacle_cylinder!(canvas, obstacle, projection, space.lz)
+    for obstacle in selected_obstacles
+        draw_obstacle_cylinder!(canvas, obstacle, projection, space.lz, section)
     end
 
-    for particle in sample_visualization_particles(initialization.particles, max_particles)
-        draw_visualization_particle!(canvas, particle, projection)
+    for (index, particle) in enumerate(selected_particles)
+        draw_visualization_particle!(
+            canvas,
+            particle,
+            projection,
+            section,
+            space.cell_length;
+            draw_direction = index <= max_directions,
+        )
     end
 
     write_png_rgb(path, canvas)
+
+    if metadata_path !== nothing
+        write_simulation_box_visualization_metadata(
+            metadata_path,
+            space,
+            section,
+            selected_obstacles,
+            selected_particles,
+            max_directions,
+        )
+    end
+
+    return section
 end
 
-function visualization_projection(space::SimulationSpace, width::Int, height::Int)
-    box_extent = max(space.width + space.height, 1)
+function visualization_projection(section, lz::Int, width::Int, height::Int)
+    box_extent = max(section.width + section.height, 1)
     unit_x = (width - 160) / box_extent
-    unit_y = (height - 190) / (box_extent * 0.46 + 3.0)
+    unit_y = (height - 190) / (box_extent * 0.46 + max(lz, 1) * 1.6)
     unit = min(unit_x, unit_y)
-    origin_x = 80 + space.height * unit
-    origin_y = 112.0
-    z_scale = clamp(unit * 3.0, 28.0, 95.0)
+    origin_x = 80 + section.height * unit
+    origin_y = 150.0
+    z_scale = clamp(unit * 1.25, 24.0, 82.0)
 
     return (
         unit = unit,
@@ -3134,22 +3181,22 @@ function draw_visualization_background!(canvas::RgbCanvas)
     end
 end
 
-function draw_simulation_box_frame!(canvas::RgbCanvas, space::SimulationSpace, projection)
+function draw_simulation_box_frame!(canvas::RgbCanvas, section, space::SimulationSpace, projection)
     bottom = [
         project_visualization_point(0, 0, 0, projection),
-        project_visualization_point(space.width, 0, 0, projection),
-        project_visualization_point(space.width, space.height, 0, projection),
-        project_visualization_point(0, space.height, 0, projection),
+        project_visualization_point(section.width, 0, 0, projection),
+        project_visualization_point(section.width, section.height, 0, projection),
+        project_visualization_point(0, section.height, 0, projection),
     ]
     top = [
         project_visualization_point(0, 0, space.lz, projection),
-        project_visualization_point(space.width, 0, space.lz, projection),
-        project_visualization_point(space.width, space.height, space.lz, projection),
-        project_visualization_point(0, space.height, space.lz, projection),
+        project_visualization_point(section.width, 0, space.lz, projection),
+        project_visualization_point(section.width, section.height, space.lz, projection),
+        project_visualization_point(0, section.height, space.lz, projection),
     ]
 
     draw_filled_polygon!(canvas, bottom, rgb(236, 240, 246))
-    draw_grid_lines!(canvas, space, projection)
+    draw_grid_lines!(canvas, section, projection)
 
     edge_color = rgb(28, 67, 96)
     light_edge = rgb(119, 145, 166)
@@ -3170,26 +3217,108 @@ function draw_simulation_box_frame!(canvas::RgbCanvas, space::SimulationSpace, p
     end
 end
 
-function draw_grid_lines!(canvas::RgbCanvas, space::SimulationSpace, projection)
-    grid_color = rgb(207, 216, 226)
-    step = max(1, ceil(Int, max(space.width, space.height) / 12))
+function draw_grid_lines!(canvas::RgbCanvas, section, projection)
+    grid_color = rgb(186, 199, 214)
 
-    for x in 0:step:space.width
+    for x in range(0.0, section.width; length = section.column_count + 1)
         x1, y1 = project_visualization_point(x, 0, 0, projection)
-        x2, y2 = project_visualization_point(x, space.height, 0, projection)
+        x2, y2 = project_visualization_point(x, section.height, 0, projection)
         draw_line!(canvas, x1, y1, x2, y2, grid_color)
     end
 
-    for y in 0:step:space.height
+    for y in range(0.0, section.height; length = section.row_count + 1)
         x1, y1 = project_visualization_point(0, y, 0, projection)
-        x2, y2 = project_visualization_point(space.width, y, 0, projection)
+        x2, y2 = project_visualization_point(section.width, y, 0, projection)
         draw_line!(canvas, x1, y1, x2, y2, grid_color)
     end
 end
 
+function select_visualization_section(
+    space::SimulationSpace;
+    max_columns::Int = SIMULATION_BOX_VISUALIZATION_MAX_COLUMNS,
+    max_rows::Int = SIMULATION_BOX_VISUALIZATION_MAX_ROWS,
+)
+    if max_columns <= 0 || max_rows <= 0
+        throw(ArgumentError("La seccion visual debe contener al menos una celda."))
+    end
+
+    if isempty(space.obstacles)
+        column_count = min(space.width, max_columns)
+        row_count = min(space.height, max_rows)
+        return build_visualization_section(space, 0, 0, column_count, row_count)
+    end
+
+    min_x, max_x = extrema(obstacle.x for obstacle in space.obstacles)
+    min_y, max_y = extrema(obstacle.y for obstacle in space.obstacles)
+    column_count = min(max_x - min_x + 1, max_columns)
+    row_count = min(max_y - min_y + 1, max_rows)
+    center_x = round(Int, (min_x + max_x) / 2)
+    center_y = round(Int, (min_y + max_y) / 2)
+    x_start = clamp(center_x - div(column_count, 2), min_x, max_x - column_count + 1)
+    y_start = clamp(center_y - div(row_count, 2), min_y, max_y - row_count + 1)
+
+    return build_visualization_section(
+        space,
+        x_start,
+        y_start,
+        column_count,
+        row_count,
+    )
+end
+
+function build_visualization_section(
+    space::SimulationSpace,
+    x_start::Int,
+    y_start::Int,
+    column_count::Int,
+    row_count::Int,
+)
+    return (
+        x_start = x_start,
+        x_end = x_start + column_count,
+        y_start = y_start,
+        y_end = y_start + row_count,
+        column_count = column_count,
+        row_count = row_count,
+        width = column_count * space.cell_length,
+        height = row_count * space.cell_length,
+        x_offset = x_start * space.cell_length,
+        y_offset = y_start * space.cell_length,
+    )
+end
+
+function obstacles_in_visualization_section(
+    obstacles::Vector{SimulationObstacle},
+    section,
+)
+    return [
+        obstacle
+        for obstacle in obstacles
+        if section.x_start <= obstacle.x < section.x_end &&
+           section.y_start <= obstacle.y < section.y_end
+    ]
+end
+
+function particles_in_visualization_section(
+    particles::Vector{MpcParticle},
+    section,
+    cell_length::Float64,
+)
+    x_min = section.x_start * cell_length
+    x_max = section.x_end * cell_length
+    y_min = section.y_start * cell_length
+    y_max = section.y_end * cell_length
+
+    return [
+        particle
+        for particle in particles
+        if x_min <= particle.x < x_max && y_min <= particle.y < y_max
+    ]
+end
+
 function sample_visualization_obstacles(obstacles::Vector{SimulationObstacle}, max_cylinders::Int)
     if length(obstacles) <= max_cylinders
-        return sort(obstacles, by = obstacle -> obstacle.x + obstacle.y)
+        return sort(obstacles, by = obstacle -> (obstacle.x + obstacle.y, obstacle.y, obstacle.x))
     end
 
     stride = max(1, ceil(Int, sqrt(length(obstacles) / max_cylinders)))
@@ -3203,7 +3332,7 @@ function sample_visualization_obstacles(obstacles::Vector{SimulationObstacle}, m
         selected = selected[1:max_cylinders]
     end
 
-    return sort(selected, by = obstacle -> obstacle.x + obstacle.y)
+    return sort(selected, by = obstacle -> (obstacle.x + obstacle.y, obstacle.y, obstacle.x))
 end
 
 function sample_visualization_particles(particles::Vector{MpcParticle}, max_particles::Int)
@@ -3226,21 +3355,24 @@ function draw_obstacle_cylinder!(
     obstacle::SimulationObstacle,
     projection,
     lz::Int,
+    section,
 )
+    local_center_x = obstacle.center_x - section.x_offset
+    local_center_y = obstacle.center_y - section.y_offset
     top_x, top_y = project_visualization_point(
-        obstacle.center_x,
-        obstacle.center_y,
+        local_center_x,
+        local_center_y,
         lz,
         projection,
     )
     bottom_x, bottom_y = project_visualization_point(
-        obstacle.center_x,
-        obstacle.center_y,
+        local_center_x,
+        local_center_y,
         0,
         projection,
     )
     display_radius = max(0.08, obstacle.radius)
-    rx = max(2, round(Int, display_radius * projection.unit * 1.9))
+    rx = max(2, round(Int, display_radius * projection.unit))
     ry = max(1, round(Int, rx * 0.42))
     shade = clamp(round(Int, 82 + obstacle.normalized_intensity * 110), 70, 210)
     side_color = rgb(shade, shade, shade)
@@ -3268,10 +3400,75 @@ function draw_obstacle_cylinder!(
     draw_line!(canvas, top_x + rx, top_y, bottom_x + rx, bottom_y, outline_color)
 end
 
-function draw_visualization_particle!(canvas::RgbCanvas, particle::MpcParticle, projection)
-    x, y = project_visualization_point(particle.x, particle.y, particle.z, projection)
+function draw_visualization_particle!(
+    canvas::RgbCanvas,
+    particle::MpcParticle,
+    projection,
+    section,
+    cell_length::Float64;
+    draw_direction::Bool = true,
+)
+    local_x = particle.x - section.x_offset
+    local_y = particle.y - section.y_offset
+    x, y = project_visualization_point(local_x, local_y, particle.z, projection)
+
+    speed_xy = hypot(particle.vx, particle.vy)
+    if draw_direction && speed_xy > eps(Float64)
+        direction_length = 0.38 * cell_length
+        end_x = local_x + particle.vx / speed_xy * direction_length
+        end_y = local_y + particle.vy / speed_xy * direction_length
+        arrow_x, arrow_y = project_visualization_point(end_x, end_y, particle.z, projection)
+        draw_line!(canvas, x, y, arrow_x, arrow_y, rgb(16, 122, 92); thickness = 2)
+        draw_filled_circle!(canvas, arrow_x, arrow_y, 2, rgb(16, 122, 92))
+    end
+
     draw_filled_circle!(canvas, x, y, 3, rgb(11, 18, 32))
     draw_filled_circle!(canvas, x - 1, y - 1, 1, rgb(238, 242, 246))
+end
+
+function write_simulation_box_visualization_metadata(
+    path::AbstractString,
+    space::SimulationSpace,
+    section,
+    obstacles::Vector{SimulationObstacle},
+    particles::Vector{MpcParticle},
+    max_directions::Int,
+)
+    full_domain_visualized = length(obstacles) == length(space.obstacles) && all(
+        obstacle ->
+            section.x_start <= obstacle.x < section.x_end &&
+            section.y_start <= obstacle.y < section.y_end,
+        space.obstacles,
+    )
+
+    open(path, "w") do io
+        println(io, "visualization_model=$(SIMULATION_BOX_VISUALIZATION_MODEL)")
+        println(io, "selection_policy=centered_domain_bounding_box_deterministic")
+        println(io, "visualization_only=true")
+        println(io, "simulated_domain_unchanged=true")
+        println(io, "full_domain_visualized=$(full_domain_visualized)")
+        println(io, "full_domain_width=$(space.width)")
+        println(io, "full_domain_height=$(space.height)")
+        println(io, "section_x_start=$(section.x_start)")
+        println(io, "section_x_end_exclusive=$(section.x_end)")
+        println(io, "section_y_start=$(section.y_start)")
+        println(io, "section_y_end_exclusive=$(section.y_end)")
+        println(io, "section_columns=$(section.column_count)")
+        println(io, "section_rows=$(section.row_count)")
+        println(io, "section_cell_count=$(section.column_count * section.row_count)")
+        println(io, "visualized_cylinder_count=$(length(obstacles))")
+        println(io, "visualized_particle_count=$(length(particles))")
+        println(io, "visualized_direction_count=$(min(length(particles), max_directions))")
+        println(io, "cell_length=$(space.cell_length)")
+        println(io, "cylinder_radius_source=simulation_obstacle_radius_matrix")
+        println(io, "dark_intensity_policy=larger_radius")
+        println(io, "light_intensity_policy=smaller_radius")
+        println(io, "background_cells_excluded=true")
+        println(io, "legend_cells=projected_grid_lines")
+        println(io, "legend_cylinders=gray_obstacles")
+        println(io, "legend_particles=black_points")
+        println(io, "legend_directions=green_lines")
+    end
 end
 
 function rgb(red::Integer, green::Integer, blue::Integer)
@@ -4240,6 +4437,7 @@ function write_simulation_summary(
     mpc_velocity_autocorrelation::Union{Nothing,MpcVelocityAutocorrelationResult} = nothing,
     mpc_diffusion_metrics::Union{Nothing,MpcComparableDiffusionMetrics} = nothing,
     simulation_box_visualization_path::Union{Nothing,String} = nothing,
+    simulation_box_visualization_metadata_path::Union{Nothing,String} = nothing,
 )
     free_cell_count = count_free_cells(space)
 
@@ -4263,6 +4461,12 @@ function write_simulation_summary(
             println(io, "simulation_box_visualization_note=Representacion pseudo-3D del dominio mesoscopico; no es una reconstruccion anatomica 3D real.")
             println(io, "simulation_box_visualization_max_cylinders=$(SIMULATION_BOX_VISUALIZATION_MAX_CYLINDERS)")
             println(io, "simulation_box_visualization_max_particles=$(SIMULATION_BOX_VISUALIZATION_MAX_PARTICLES)")
+            println(io, "simulation_box_visualization_max_columns=$(SIMULATION_BOX_VISUALIZATION_MAX_COLUMNS)")
+            println(io, "simulation_box_visualization_max_rows=$(SIMULATION_BOX_VISUALIZATION_MAX_ROWS)")
+            println(io, "simulation_box_visualization_max_directions=$(SIMULATION_BOX_VISUALIZATION_MAX_DIRECTIONS)")
+            if simulation_box_visualization_metadata_path !== nothing
+                println(io, "simulation_box_visualization_metadata_file=$(basename(simulation_box_visualization_metadata_path))")
+            end
         end
         if mpc_streaming !== nothing
             println(io, "mpc_streaming_model=free_translation_periodic_boundaries_bounce_back")

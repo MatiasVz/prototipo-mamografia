@@ -15,6 +15,7 @@ RESULT_FILE_DESCRIPTIONS = {
     "obstacle_radius_map.pgm": "Visualizacion de cilindros derivados de tonos de gris de la ROI.",
     "obstacle_radius_histogram.tsv": "Distribucion de radios de obstaculos.",
     "simulation_box_3d.png": "Visualizacion pseudo-3D de la caja de simulacion con cilindros y particulas.",
+    "simulation_box_visualization.txt": "Coordenadas y politica reproducible de la seccion mostrada en la caja.",
     "mpc_initial_particles.tsv": "Estado inicial de particulas MPC.",
     "mpc_streamed_particles.tsv": "Particulas despues de traslacion libre y rebotes.",
     "mpc_streaming_summary.txt": "Resumen de traslacion y rebotes.",
@@ -557,7 +558,7 @@ def _build_report_markdown(case, export_files, missing_items, metrics):
 def _build_metric_rows(metrics):
     diffusion = metrics["diffusion"]
     config = metrics["config"]
-    preliminary = metrics["metrics"]
+    legacy_metrics = metrics["metrics"]
 
     candidates = (
         (
@@ -576,18 +577,38 @@ def _build_metric_rows(metrics):
             "MDC dividido para MDC0; permite comparar corridas en una escala comun.",
         ),
         (
-            "Variacion MDC",
+            "Desviacion estandar de MDC",
             diffusion.get("mdc_standard_deviation"),
-            "Diferencia entre corridas cuando se ejecutan varias realizaciones.",
+            "Dispersion de MDC entre realizaciones.",
+        ),
+        (
+            "Error estandar de MDC",
+            diffusion.get("mdc_standard_error"),
+            "Incertidumbre del MDC promedio.",
+        ),
+        (
+            "Desviacion estandar de MDC*",
+            diffusion.get("mdc_star_standard_deviation"),
+            "Dispersion de la difusion normalizada entre realizaciones.",
+        ),
+        (
+            "Error estandar de MDC*",
+            diffusion.get("mdc_star_standard_error"),
+            "Incertidumbre del promedio de difusion normalizada.",
+        ),
+        (
+            "Tiempo caracteristico tauC",
+            diffusion.get("characteristic_time"),
+            "Tiempo estimado en que Cv pierde memoria de la direccion inicial.",
         ),
         (
             "Particulas MPC",
-            _first_value(config, preliminary, "mpc_particle_count", "particle_count"),
+            _first_value(config, legacy_metrics, "mpc_particle_count", "particle_count"),
             "Puntos matematicos usados para representar movimiento en la caja.",
         ),
         (
             "Pasos",
-            _first_value(config, preliminary, "steps"),
+            _first_value(config, legacy_metrics, "steps"),
             "Iteraciones ejecutadas.",
         ),
         (
@@ -599,11 +620,6 @@ def _build_metric_rows(metrics):
             "Rebotes con borde de ROI",
             config.get("mpc_streaming_domain_boundary_collision_count"),
             "Intentos de salida del dominio mamario contenidos por la mascara.",
-        ),
-        (
-            "Tasa de colision",
-            preliminary.get("collision_rate"),
-            "Proporcion preliminar de choques detectados.",
         ),
     )
 

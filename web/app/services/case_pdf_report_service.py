@@ -291,8 +291,15 @@ def _build_map_sections(results_dir, results_view, styles):
             Paragraph(result_map["title"], styles["subsection"]),
             Paragraph(result_map["description"], styles["body"]),
             Paragraph(result_map["reading"], styles["muted"]),
-            Spacer(1, 6),
         ]
+        if result_map.get("sampling_note"):
+            block.append(Paragraph(result_map["sampling_note"], styles["muted"]))
+        if result_map.get("legend"):
+            legend_text = "<br/>".join(
+                f"- {_safe_text(item)}" for item in result_map["legend"]
+            )
+            block.append(Paragraph(legend_text, styles["muted"]))
+        block.append(Spacer(1, 6))
 
         if image_flowable is not None:
             block.append(image_flowable)

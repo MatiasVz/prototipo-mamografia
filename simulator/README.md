@@ -65,6 +65,7 @@ obstacle_radius_matrix.tsv
 obstacle_radius_map.pgm
 obstacle_radius_histogram.tsv
 simulation_box_3d.png
+simulation_box_visualization.txt
 mpc_config.json
 mpc_initial_particles.tsv
 mpc_streamed_particles.tsv
@@ -91,7 +92,7 @@ Cuando el caso termina en estado `completado`, la app web puede presentar:
 
 - ROI usada como entrada;
 - region mamaria valida;
-- caja de simulacion mesoscopica en pseudo-3D;
+- seccion reproducible de la caja mesoscopica con celdas, cilindros, particulas y direcciones;
 - mapa de radios de obstaculos;
 - mapas MPC de una realizacion representativa por tiempos disponibles;
 - mapas MPC promedio y zonas que superan `2 x n0`;
@@ -147,5 +148,5 @@ Cuando `realizations` es mayor que `1`, el simulador ejecuta corridas independie
 - detalle por realizacion en `velocity_autocorrelation_realizations.tsv`;
 - mapas de una realizacion real en `mpc_concentration_representative_*.pgm`;
 - mapas promedio en `mpc_concentration_mean_*.pgm`;
-- visualizacion pseudo-3D de la caja de simulacion en `simulation_box_3d.png`;
+- visualizacion pseudo-3D en `simulation_box_3d.png` y coordenadas de la seccion en `simulation_box_visualization.txt`;
 - semillas usadas en `mpc_config.json` y resumenes tecnicos.
