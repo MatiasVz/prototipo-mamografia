@@ -636,12 +636,17 @@ def _read_autocorrelation_rows(path, limit=8):
             rows = []
 
             for row in reader:
+                cv_value = (
+                    row.get("cv_normalized")
+                    or row.get("cv")
+                    or row.get("cv_raw")
+                )
                 rows.append(
                     {
                         "lag": _format_value(row.get("lag"), "integer"),
                         "time": _format_value(row.get("time"), "decimal"),
-                        "cv": _format_value(row.get("cv"), "decimal"),
-                        "meaning": _interpret_cv(row.get("cv")),
+                        "cv": _format_value(cv_value, "decimal"),
+                        "meaning": _interpret_cv(cv_value),
                     }
                 )
 

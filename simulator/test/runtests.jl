@@ -320,6 +320,11 @@ end
         ])
 
         @test default_config.mpc_config.labeled_particles == 500
+        @test default_config.steps == 100
+        @test default_config.mpc_config.realizations == 3
+        @test default_config.mpc_config.correlation_initial_times == 50
+        @test default_config.mpc_config.output_times == [0, 100]
+        @test default_config.mpc_config.rotation_policy == "random_axis_xyz_and_random_sign_plus_minus_angle"
 
         @test_throws ArgumentError parse_cli_args([
             "--input",
@@ -619,16 +624,37 @@ end
     @test isapprox(collision_cell.center_vx_after, 0.0; atol = 1.0e-12)
     @test isapprox(collision_cell.center_vy_after, 0.0; atol = 1.0e-12)
     @test isapprox(abs(collision_cell.rotation_angle), pi / 2)
+    @test collision_cell.rotation_axis in ("x", "y", "z")
     @test singleton_cell.rotation_angle == 0.0
+    @test singleton_cell.rotation_axis == "none"
     @test isapprox(collision_a.particles[3].vx, 2.0)
     @test isapprox(collision_a.particles[3].vy, 3.0)
     @test all(particle -> particle.mass == 1.0, collision_a.particles)
 
-    rotated_speed_1 = hypot(collision_a.particles[1].vx, collision_a.particles[1].vy)
-    rotated_speed_2 = hypot(collision_a.particles[2].vx, collision_a.particles[2].vy)
+    rotated_speed_1 = sqrt(
+        collision_a.particles[1].vx^2 +
+        collision_a.particles[1].vy^2 +
+        collision_a.particles[1].vz^2
+    )
+    rotated_speed_2 = sqrt(
+        collision_a.particles[2].vx^2 +
+        collision_a.particles[2].vy^2 +
+        collision_a.particles[2].vz^2
+    )
 
     @test isapprox(rotated_speed_1, 1.0; atol = 1.0e-12)
     @test isapprox(rotated_speed_2, 1.0; atol = 1.0e-12)
+
+    original_velocity = (1.0, 2.0, 3.0)
+    for axis in (:x, :y, :z)
+        rotated_velocity = MammographySimulation.rotate_velocity_about_axis(
+            original_velocity...,
+            0.0,
+            1.0,
+            axis,
+        )
+        @test isapprox(sum(abs2, rotated_velocity), sum(abs2, original_velocity); atol = 1.0e-12)
+    end
 end
 
 @testset "MPC concentration maps by simulation time" begin
@@ -789,6 +815,7 @@ end
     )
 
     @test autocorrelation.steps == 2
+    @test autocorrelation.trajectory_steps == 2
     @test autocorrelation.dimension == 2
     @test autocorrelation.realization_count == 1
     @test autocorrelation.labeled_particle_count == 2
@@ -798,6 +825,7 @@ end
     @test isapprox(autocorrelation.cv_values[1], 2.5)
     @test isapprox(autocorrelation.cv_values[2], 1.25)
     @test isapprox(autocorrelation.cv_values[3], 0.0)
+    @test autocorrelation.normalized_cv_values == [1.0, 0.5, 0.0]
     @test isapprox(autocorrelation.mdc, 1.25)
     @test isapprox(autocorrelation.characteristic_time, 1 / log(2); atol = 1.0e-12)
 
@@ -817,6 +845,7 @@ end
     @test capped_autocorrelation.requested_labeled_particles == 500
     @test capped_autocorrelation.labeled_particle_count == 9
     @test length(capped_autocorrelation.cv_values) == 3
+    @test capped_autocorrelation.trajectory_steps == 2
 
     multi_config = MpcModelConfig(
         n0 = 1.0,
@@ -839,6 +868,59 @@ end
     @test length(multi_autocorrelation.realization_sample_counts) == 3
     @test all(isfinite, multi_autocorrelation.realization_mdc_values)
 
+    complete_window_config = MpcModelConfig(
+        n0 = 1.0,
+        labeled_particles = 9,
+        realizations = 3,
+        correlation_initial_times = 3,
+    )
+    complete_window_autocorrelation = calculate_mpc_velocity_autocorrelation(
+        small_space,
+        complete_window_config;
+        steps = 2,
+        seed = 45,
+    )
+
+    @test complete_window_autocorrelation.steps == 2
+    @test complete_window_autocorrelation.trajectory_steps == 4
+    @test complete_window_autocorrelation.initial_times == [0, 1, 2]
+    @test complete_window_autocorrelation.sample_counts == [81, 81, 81]
+    @test first(complete_window_autocorrelation.normalized_cv_values) == 1.0
+    @test_throws ArgumentError calculate_velocity_autocorrelation(
+        [history],
+        [1, 2],
+        [1];
+        max_lag = 2,
+    )
+    @test isapprox(
+        MammographySimulation.estimate_characteristic_decay_time(
+            [1.0, 0.2, -0.1, 0.15],
+            1.0,
+        ),
+        1 / log(5);
+        atol = 1.0e-12,
+    )
+
+    article_sampling_config = MpcModelConfig(
+        n0 = 1.0,
+        labeled_particles = 500,
+        realizations = 3,
+        correlation_initial_times = 50,
+    )
+    article_sampling_autocorrelation = calculate_mpc_velocity_autocorrelation(
+        small_space,
+        article_sampling_config;
+        steps = 100,
+        seed = 46,
+    )
+
+    @test article_sampling_autocorrelation.steps == 100
+    @test article_sampling_autocorrelation.trajectory_steps == 149
+    @test length(article_sampling_autocorrelation.initial_times) == 50
+    @test article_sampling_autocorrelation.initial_times == collect(0:49)
+    @test article_sampling_autocorrelation.labeled_particle_count == 9
+    @test all(==(3 * 50 * 9), article_sampling_autocorrelation.sample_counts)
+
     mktempdir() do dir
         outputs = MammographySimulation.write_velocity_autocorrelation_outputs(
             dir,
@@ -848,7 +930,7 @@ end
         @test isfile(outputs.autocorrelation_path)
         @test isfile(outputs.summary_path)
         @test isfile(outputs.realizations_path)
-        @test occursin("lag\ttime\tcv\tcv_average_xy", read(outputs.autocorrelation_path, String))
+        @test occursin("lag\ttime\tcv_raw\tcv_normalized", read(outputs.autocorrelation_path, String))
         @test occursin("aggregation=mean_across_realizations", read(outputs.summary_path, String))
         @test occursin("realizations=3", read(outputs.summary_path, String))
         @test occursin("realization_seeds=44,10051,20058", read(outputs.summary_path, String))
@@ -856,6 +938,8 @@ end
         @test occursin("labeled_particle_count=9", read(outputs.summary_path, String))
         @test occursin("realization_mdc_values=", read(outputs.summary_path, String))
         @test occursin("mdc_standard_deviation=", read(outputs.summary_path, String))
+        @test occursin("mdc_standard_error=", read(outputs.summary_path, String))
+        @test occursin("trajectory_steps=", read(outputs.summary_path, String))
         @test occursin("realization\tseed\tlabeled_particle_count\tinitial_times\tsample_count\tcv0\tcv_final\tmdc", read(outputs.realizations_path, String))
         @test occursin("3\t20058", read(outputs.realizations_path, String))
     end
@@ -877,6 +961,7 @@ end
 
     autocorrelation = MpcVelocityAutocorrelationResult(
         2,
+        2,
         1.0,
         2,
         1,
@@ -886,6 +971,7 @@ end
         [0],
         [101],
         [2.5, 1.25, 0.0],
+        [1.0, 0.5, 0.0],
         [2, 2, 2],
         1.25,
         1 / log(2),
@@ -906,7 +992,11 @@ end
     @test isapprox(metrics.mdc0, mdc0)
     @test isapprox(metrics.mdc_star, 1.25 / mdc0)
     @test metrics.mdc_standard_deviation == 0.0
+    @test metrics.mdc_standard_error == 0.0
     @test metrics.realization_mdc_values == [1.25]
+    @test metrics.realization_mdc_star_values == [1.25 / mdc0]
+    @test metrics.mdc_star_standard_deviation == 0.0
+    @test metrics.mdc_star_standard_error == 0.0
     @test occursin("academico", metrics.purpose_note)
 
     mktempdir() do dir
@@ -921,6 +1011,7 @@ end
         @test occursin("\"mdc_star\"", read(outputs.json_path, String))
         @test occursin("metric_model\treference_origin", read(outputs.tsv_path, String))
         @test occursin("formula_mdc_star=MDC* = MDC / MDC0", read(outputs.summary_path, String))
+        @test occursin("mdc_star_standard_error=", read(outputs.summary_path, String))
         @test occursin("no constituye diagnostico clinico", read(outputs.summary_path, String))
     end
 end
@@ -1148,10 +1239,15 @@ end
         @test occursin("velocity_autocorrelation_requested_labeled_particles=15", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_labeled_particle_count=15", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_requested_initial_time_count=2", read(result.simulation_summary_path, String))
+        @test occursin("velocity_autocorrelation_max_lag=3", read(result.simulation_summary_path, String))
+        @test occursin("velocity_autocorrelation_trajectory_steps=4", read(result.simulation_summary_path, String))
         @test occursin("velocity_autocorrelation_realization_mdc_values=", read(result.simulation_summary_path, String))
         @test occursin("diffusion_metric_model=mdc_normalized_against_theoretical_reference", read(result.simulation_summary_path, String))
         @test occursin("diffusion_metric_mdc_star=", read(result.simulation_summary_path, String))
         @test occursin("diffusion_metric_mdc_standard_deviation=", read(result.simulation_summary_path, String))
+        @test occursin("diffusion_metric_mdc_standard_error=", read(result.simulation_summary_path, String))
+        @test occursin("diffusion_metric_mdc_star_standard_deviation=", read(result.simulation_summary_path, String))
+        @test occursin("diffusion_metric_mdc_star_standard_error=", read(result.simulation_summary_path, String))
         @test occursin("attempted_moves=3", read(result.simulation_summary_path, String))
         @test occursin("preliminary_blocking_obstacle_count=8", read(result.simulation_summary_path, String))
         @test occursin("\"input_role\": \"confirmed_roi_pgm\"", read(result.mpc_config_path, String))
@@ -1178,10 +1274,15 @@ end
         @test occursin("\"velocity_autocorrelation_requested_labeled_particles\": 15", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_labeled_particle_count\": 15", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_requested_initial_time_count\": 2", read(result.mpc_config_path, String))
+        @test occursin("\"velocity_autocorrelation_max_lag\": 3", read(result.mpc_config_path, String))
+        @test occursin("\"velocity_autocorrelation_trajectory_steps\": 4", read(result.mpc_config_path, String))
         @test occursin("\"velocity_autocorrelation_realization_mdc_values\"", read(result.mpc_config_path, String))
         @test occursin("\"diffusion_metric_model\": \"mdc_normalized_against_theoretical_reference\"", read(result.mpc_config_path, String))
         @test occursin("\"diffusion_metric_mdc0\"", read(result.mpc_config_path, String))
         @test occursin("\"diffusion_metric_mdc_standard_deviation\"", read(result.mpc_config_path, String))
+        @test occursin("\"diffusion_metric_mdc_standard_error\"", read(result.mpc_config_path, String))
+        @test occursin("\"diffusion_metric_mdc_star_standard_deviation\"", read(result.mpc_config_path, String))
+        @test occursin("\"diffusion_metric_mdc_star_standard_error\"", read(result.mpc_config_path, String))
         @test occursin("\"obstacle_count\": 9", read(result.mpc_config_path, String))
         @test occursin("\"radius_model\": \"cylindrical_obstacles_from_pgm_intensity\"", read(result.mpc_config_path, String))
         @test occursin("\"output_times\": [0, 3]", read(result.mpc_config_path, String))
@@ -1199,6 +1300,8 @@ end
         @test occursin("domain_boundary_collision_count=", read(result.mpc_streaming_summary_path, String))
         @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_collided_particles_path, String))
         @test occursin("mpc_collision_model=multiparticle_collision_by_cell", read(result.mpc_collision_summary_path, String))
+        @test occursin("rotation_policy=random_axis_xyz_and_random_sign_plus_minus_angle", read(result.mpc_collision_summary_path, String))
+        @test occursin("rotation_axis", read(result.mpc_cell_collisions_path, String))
         @test occursin("cell_x\tcell_y\tparticle_count", read(result.mpc_cell_collisions_path, String))
         @test occursin("captured_output_times=0,3", read(result.mpc_concentration_summary_path, String))
         @test occursin("snapshot_t_0_particle_sum=90", read(result.mpc_concentration_summary_path, String))

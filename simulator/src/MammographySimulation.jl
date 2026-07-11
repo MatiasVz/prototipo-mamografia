@@ -152,6 +152,7 @@ end
 
 struct MpcVelocityAutocorrelationResult
     steps::Int
+    trajectory_steps::Int
     tau::Float64
     dimension::Int
     realization_count::Int
@@ -161,6 +162,7 @@ struct MpcVelocityAutocorrelationResult
     initial_times::Vector{Int}
     realization_seeds::Vector{Int}
     cv_values::Vector{Float64}
+    normalized_cv_values::Vector{Float64}
     sample_counts::Vector{Int}
     mdc::Float64
     characteristic_time::Union{Nothing,Float64}
@@ -179,7 +181,11 @@ struct MpcComparableDiffusionMetrics
     mdc0::Float64
     mdc_star::Float64
     mdc_standard_deviation::Float64
+    mdc_standard_error::Float64
     realization_mdc_values::Vector{Float64}
+    realization_mdc_star_values::Vector{Float64}
+    mdc_star_standard_deviation::Float64
+    mdc_star_standard_error::Float64
     n0::Float64
     mass::Float64
     kbt::Float64
@@ -264,7 +270,7 @@ const DEFAULT_OBSTACLE_THRESHOLD_RATIO = 0.85
 const DOMAIN_MASK_MODEL = "largest_connected_tissue_component_with_internal_hole_fill"
 const SIMULATION_ENGINE_PRELIMINARY = "sequential_minimal_random_walk"
 const MPC_CONFIGURATION_MODEL = "mpc_base_configuration"
-const DEFAULT_SIMULATION_STEPS = 500
+const DEFAULT_SIMULATION_STEPS = 100
 const DEFAULT_MPC_INPUT_ROLE = "confirmed_roi_pgm"
 const DEFAULT_MPC_CELL_LENGTH = 1.0
 const DEFAULT_MPC_LZ = 1
@@ -273,11 +279,11 @@ const DEFAULT_MPC_MASS = 1.0
 const DEFAULT_MPC_KBT = 1.0
 const DEFAULT_MPC_TAU = 1.0
 const DEFAULT_MPC_ROTATION_ANGLE = pi / 2
-const DEFAULT_MPC_ROTATION_POLICY = "random_sign_plus_minus_angle"
+const DEFAULT_MPC_ROTATION_POLICY = "random_axis_xyz_and_random_sign_plus_minus_angle"
 const DEFAULT_MPC_REALIZATIONS = 3
 const DEFAULT_MPC_LABELED_PARTICLES = 500
 const DEFAULT_MPC_CORRELATION_INITIAL_TIMES = 50
-const DEFAULT_MPC_OUTPUT_TIMES = (0, 100, 500)
+const DEFAULT_MPC_OUTPUT_TIMES = (0, 100)
 const DEFAULT_MPC_GRID_SHIFT_ENABLED = false
 const DEFAULT_MPC_GRID_SHIFT_DECISION = "disabled_initially_to_match_article_conditions"
 const SIMULATION_BOX_VISUALIZATION_FILENAME = "simulation_box_3d.png"
@@ -327,7 +333,7 @@ Opciones:
   --input              Ruta de la ROI confirmada convertida a PGM.
   --output             Directorio donde se escribiran los resultados.
   --seed               Semilla reproducible. Por defecto: 1234.
-  --steps              Numero de pasos de simulacion. Por defecto: 500.
+  --steps              Horizonte de correlacion y pasos de salida. Por defecto: 100.
   --density            Densidad preliminar usada por el motor secuencial actual. Por defecto: 0.25.
   --n0                 Densidad media MPC de particulas por celda. Por defecto: 10.
   --mass               Masa reducida de particula MPC. Por defecto: 1.
@@ -337,7 +343,7 @@ Opciones:
   --realizations       Numero de realizaciones estadisticas. Por defecto: 3.
   --labeled-particles  Particulas etiquetadas para autocorrelacion. Por defecto: 500.
   --correlation-initial-times  Numero de tiempos iniciales para Cv(t). Por defecto: 50.
-  --output-times       Tiempos de salida separados por coma. Por defecto: 0,100,500.
+  --output-times       Tiempos de salida separados por coma. Por defecto: 0,100.
   --grid-shift         true/false. Por defecto: false.
   --help               Muestra esta ayuda.
 """
@@ -1520,6 +1526,7 @@ function collide_mpc_particles(
 
         center_vx, center_vy, center_vz = center_of_mass_velocity(particles, particle_indices)
         signed_rotation_angle = cell_particle_count > 1 ? random_rotation_angle(rng, config) : 0.0
+        rotation_axis = cell_particle_count > 1 ? random_rotation_axis(rng) : :none
 
         if cell_particle_count > 1
             rotate_relative_velocities!(
@@ -1529,6 +1536,7 @@ function collide_mpc_particles(
                 center_vy,
                 center_vz,
                 signed_rotation_angle,
+                rotation_axis,
             )
         end
 
@@ -1550,6 +1558,7 @@ function collide_mpc_particles(
                 center_vy_after = center_vy_after,
                 center_vz_after = center_vz_after,
                 rotation_angle = signed_rotation_angle,
+                rotation_axis = String(rotation_axis),
             ),
         )
     end
@@ -1608,6 +1617,10 @@ function random_rotation_angle(rng::Random.AbstractRNG, config::MpcModelConfig)
     return (rand(rng, Bool) ? 1.0 : -1.0) * config.rotation_angle
 end
 
+function random_rotation_axis(rng::Random.AbstractRNG)
+    return rand(rng, (:x, :y, :z))
+end
+
 function rotate_relative_velocities!(
     particles::Vector{MpcParticle},
     particle_indices::Vector{Int},
@@ -1615,6 +1628,7 @@ function rotate_relative_velocities!(
     center_vy::Float64,
     center_vz::Float64,
     signed_rotation_angle::Float64,
+    rotation_axis::Symbol,
 )
     cos_angle = cos(signed_rotation_angle)
     sin_angle = sin(signed_rotation_angle)
@@ -1625,10 +1639,38 @@ function rotate_relative_velocities!(
         relative_vy = particle.vy - center_vy
         relative_vz = particle.vz - center_vz
 
-        particle.vx = center_vx + cos_angle * relative_vx - sin_angle * relative_vy
-        particle.vy = center_vy + sin_angle * relative_vx + cos_angle * relative_vy
-        particle.vz = center_vz + relative_vz
+        rotated_vx, rotated_vy, rotated_vz = rotate_velocity_about_axis(
+            relative_vx,
+            relative_vy,
+            relative_vz,
+            cos_angle,
+            sin_angle,
+            rotation_axis,
+        )
+
+        particle.vx = center_vx + rotated_vx
+        particle.vy = center_vy + rotated_vy
+        particle.vz = center_vz + rotated_vz
     end
+end
+
+function rotate_velocity_about_axis(
+    vx::Float64,
+    vy::Float64,
+    vz::Float64,
+    cos_angle::Float64,
+    sin_angle::Float64,
+    axis::Symbol,
+)
+    if axis == :x
+        return vx, cos_angle * vy - sin_angle * vz, sin_angle * vy + cos_angle * vz
+    elseif axis == :y
+        return cos_angle * vx + sin_angle * vz, vy, -sin_angle * vx + cos_angle * vz
+    elseif axis == :z
+        return cos_angle * vx - sin_angle * vy, sin_angle * vx + cos_angle * vy, vz
+    end
+
+    throw(ArgumentError("El eje de rotacion MPC debe ser x, y o z."))
 end
 
 function generate_mpc_concentration_maps(
@@ -1808,6 +1850,7 @@ function calculate_mpc_velocity_autocorrelation(
     histories = Vector{Vector{Matrix{Float64}}}()
     realization_seeds = Int[]
     selected_labeled_ids = Int[]
+    trajectory_steps = steps + config.correlation_initial_times - 1
 
     for realization_index in 1:config.realizations
         realization_seed = seed + (realization_index - 1) * 10007
@@ -1823,21 +1866,27 @@ function calculate_mpc_velocity_autocorrelation(
                 initialization,
                 space,
                 config;
-                steps = steps,
+                steps = trajectory_steps,
                 seed = realization_seed,
+                particle_ids = selected_labeled_ids,
             ),
         )
         push!(realization_seeds, realization_seed)
     end
 
-    initial_times = select_correlation_initial_times(steps, config.correlation_initial_times)
+    initial_times = select_correlation_initial_times(
+        trajectory_steps,
+        steps,
+        config.correlation_initial_times,
+    )
 
     return calculate_velocity_autocorrelation(
         histories,
-        selected_labeled_ids,
+        collect(1:length(selected_labeled_ids)),
         initial_times;
         tau = config.tau,
         dimension = 2,
+        max_lag = steps,
         realization_seeds = realization_seeds,
         requested_labeled_particles = config.labeled_particles,
         requested_initial_time_count = config.correlation_initial_times,
@@ -1850,6 +1899,7 @@ function calculate_velocity_autocorrelation(
     initial_times::Vector{Int};
     tau::Float64 = 1.0,
     dimension::Int = 2,
+    max_lag::Union{Nothing,Int} = nothing,
     realization_seeds::Vector{Int} = collect(1:length(velocity_histories)),
     requested_labeled_particles::Int = length(labeled_particle_ids),
     requested_initial_time_count::Int = length(initial_times),
@@ -1874,9 +1924,17 @@ function calculate_velocity_autocorrelation(
         throw(ArgumentError("La dimension efectiva para MDC debe ser mayor que cero."))
     end
 
-    max_lag = minimum(length(history) - 1 for history in velocity_histories)
-    cv_sums = zeros(Float64, max_lag + 1)
-    sample_counts = zeros(Int, max_lag + 1)
+    trajectory_steps = minimum(length(history) - 1 for history in velocity_histories)
+    latest_initial_time = maximum(initial_times)
+    available_max_lag = trajectory_steps - latest_initial_time
+    resolved_max_lag = max_lag === nothing ? available_max_lag : max_lag
+
+    if resolved_max_lag < 0 || resolved_max_lag > available_max_lag
+        throw(ArgumentError("Todos los tiempos iniciales deben tener una ventana completa de autocorrelacion."))
+    end
+
+    cv_sums = zeros(Float64, resolved_max_lag + 1)
+    sample_counts = zeros(Int, resolved_max_lag + 1)
     realization_mdc_values = Float64[]
     realization_cv0_values = Float64[]
     realization_cv_final_values = Float64[]
@@ -1884,8 +1942,8 @@ function calculate_velocity_autocorrelation(
 
     for history in velocity_histories
         particle_count = size(first(history), 1)
-        realization_cv_sums = zeros(Float64, max_lag + 1)
-        realization_counts = zeros(Int, max_lag + 1)
+        realization_cv_sums = zeros(Float64, resolved_max_lag + 1)
+        realization_counts = zeros(Int, resolved_max_lag + 1)
 
         for particle_id in labeled_particle_ids
             if !(1 <= particle_id <= particle_count)
@@ -1898,16 +1956,12 @@ function calculate_velocity_autocorrelation(
                 throw(ArgumentError("Los tiempos iniciales de autocorrelacion no pueden ser negativos."))
             end
 
-            if initial_time > length(history) - 1
-                continue
+            if initial_time + resolved_max_lag > length(history) - 1
+                throw(ArgumentError("Un tiempo inicial no dispone de la ventana completa solicitada."))
             end
 
-            for lag in 0:max_lag
+            for lag in 0:resolved_max_lag
                 target_time = initial_time + lag
-
-                if target_time > length(history) - 1
-                    continue
-                end
 
                 for particle_id in labeled_particle_ids
                     initial_velocity = history[initial_time + 1][particle_id, :]
@@ -1943,11 +1997,13 @@ function calculate_velocity_autocorrelation(
         sample_count == 0 ? 0.0 : cv_sum / sample_count
         for (cv_sum, sample_count) in zip(cv_sums, sample_counts)
     ]
-    mdc = integrate_velocity_autocorrelation(cv_values, tau, dimension)
-    characteristic_time = estimate_characteristic_decay_time(cv_values, tau)
+    normalized_cv_values = normalize_velocity_autocorrelation(cv_values)
+    mdc = sum(realization_mdc_values) / length(realization_mdc_values)
+    characteristic_time = estimate_characteristic_decay_time(normalized_cv_values, tau)
 
     return MpcVelocityAutocorrelationResult(
-        max_lag,
+        resolved_max_lag,
+        trajectory_steps,
         tau,
         dimension,
         length(velocity_histories),
@@ -1957,6 +2013,7 @@ function calculate_velocity_autocorrelation(
         sort(unique(initial_times)),
         realization_seeds,
         cv_values,
+        normalized_cv_values,
         sample_counts,
         mdc,
         characteristic_time,
@@ -1973,9 +2030,11 @@ function simulate_mpc_velocity_history(
     config::MpcModelConfig;
     steps::Int = 1,
     seed::Int = 1234,
+    particle_ids::Union{Nothing,Vector{Int}} = nothing,
 )
     particles = copy_mpc_particles(initialization.particles)
-    history = Matrix{Float64}[mpc_velocity_matrix(particles)]
+    selected_particle_ids = particle_ids === nothing ? collect(eachindex(particles)) : particle_ids
+    history = Matrix{Float64}[mpc_velocity_matrix(particles, selected_particle_ids)]
 
     for step in 1:steps
         step_initialization = MpcParticleInitialization(
@@ -1999,18 +2058,26 @@ function simulate_mpc_velocity_history(
             seed = seed + step,
         )
         particles = copy_mpc_particles(step_collision.particles)
-        push!(history, mpc_velocity_matrix(particles))
+        push!(history, mpc_velocity_matrix(particles, selected_particle_ids))
     end
 
     return history
 end
 
-function mpc_velocity_matrix(particles::Vector{MpcParticle})
-    velocities = zeros(Float64, length(particles), 2)
+function mpc_velocity_matrix(
+    particles::Vector{MpcParticle},
+    particle_ids::Vector{Int} = collect(eachindex(particles)),
+)
+    velocities = zeros(Float64, length(particle_ids), 2)
 
-    for particle in particles
-        velocities[particle.id, 1] = particle.vx
-        velocities[particle.id, 2] = particle.vy
+    for (row_index, particle_id) in enumerate(particle_ids)
+        if !(1 <= particle_id <= length(particles))
+            throw(ArgumentError("Una particula seleccionada no existe para guardar su velocidad."))
+        end
+
+        particle = particles[particle_id]
+        velocities[row_index, 1] = particle.vx
+        velocities[row_index, 2] = particle.vy
     end
 
     return velocities
@@ -2039,16 +2106,20 @@ function select_labeled_particle_ids(
     return collect(1:fallback_count)
 end
 
-function select_correlation_initial_times(steps::Int, requested_count::Int)
+function select_correlation_initial_times(
+    trajectory_steps::Int,
+    max_lag::Int,
+    requested_count::Int,
+)
     if requested_count < 1
         throw(ArgumentError("Debe existir al menos un tiempo inicial para la autocorrelacion."))
     end
 
-    if steps <= 0
-        return [0]
+    if trajectory_steps < 0 || max_lag < 0 || max_lag > trajectory_steps
+        throw(ArgumentError("La trayectoria no permite el horizonte de autocorrelacion solicitado."))
     end
 
-    available_times = collect(0:(steps - 1))
+    available_times = collect(0:(trajectory_steps - max_lag))
 
     if requested_count >= length(available_times)
         return available_times
@@ -2061,6 +2132,14 @@ function select_correlation_initial_times(steps::Int, requested_count::Int)
     positions = round.(Int, range(1, length(available_times), length = requested_count))
 
     return sort(unique(available_times[positions]))
+end
+
+function normalize_velocity_autocorrelation(cv_values::Vector{Float64})
+    if isempty(cv_values) || !isfinite(cv_values[1]) || cv_values[1] <= 0
+        throw(ArgumentError("Cv(0) debe ser finito y mayor que cero para normalizar."))
+    end
+
+    return cv_values ./ cv_values[1]
 end
 
 function integrate_velocity_autocorrelation(
@@ -2088,18 +2167,17 @@ function estimate_characteristic_decay_time(cv_values::Vector{Float64}, tau::Flo
 
     numerator = 0.0
     denominator = 0.0
-    initial_cv = cv_values[1]
+    normalized_cv = normalize_velocity_autocorrelation(cv_values)
 
-    for lag in 1:(length(cv_values) - 1)
-        current_cv = cv_values[lag + 1]
+    for lag in 1:(length(normalized_cv) - 1)
+        current_cv = normalized_cv[lag + 1]
 
-        if !(0 < current_cv < initial_cv)
-            continue
+        if !isfinite(current_cv) || !(0 < current_cv < 1.0)
+            break
         end
 
         time = lag * tau
-        log_ratio = log(current_cv / initial_cv)
-        numerator += time * log_ratio
+        numerator += time * log(current_cv)
         denominator += time^2
     end
 
@@ -2149,6 +2227,13 @@ function build_comparable_diffusion_metrics(
     mdc0 = calculate_theoretical_mdc0(config)
     mdc_star = calculate_mdc_star(autocorrelation.mdc, mdc0)
     mdc_standard_deviation = standard_deviation(autocorrelation.realization_mdc_values)
+    mdc_standard_error = standard_error(autocorrelation.realization_mdc_values)
+    realization_mdc_star_values = [
+        calculate_mdc_star(realization_mdc, mdc0)
+        for realization_mdc in autocorrelation.realization_mdc_values
+    ]
+    mdc_star_standard_deviation = standard_deviation(realization_mdc_star_values)
+    mdc_star_standard_error = standard_error(realization_mdc_star_values)
 
     return MpcComparableDiffusionMetrics(
         "mdc_normalized_against_theoretical_reference",
@@ -2159,7 +2244,11 @@ function build_comparable_diffusion_metrics(
         mdc0,
         mdc_star,
         mdc_standard_deviation,
+        mdc_standard_error,
         autocorrelation.realization_mdc_values,
+        realization_mdc_star_values,
+        mdc_star_standard_deviation,
+        mdc_star_standard_error,
         config.n0,
         config.mass,
         config.kbt,
@@ -2180,6 +2269,14 @@ function standard_deviation(values::Vector{Float64})
     variance = sum((value - average)^2 for value in values) / (length(values) - 1)
 
     return sqrt(variance)
+end
+
+function standard_error(values::Vector{Float64})
+    if isempty(values)
+        return 0.0
+    end
+
+    return standard_deviation(values) / sqrt(length(values))
 end
 
 function synthetic_validation_case_names()
@@ -2783,6 +2880,8 @@ function write_mpc_config_json(
                 ("velocity_autocorrelation_aggregation", "mean_across_realizations"),
                 ("velocity_autocorrelation_dimension", mpc_velocity_autocorrelation.dimension),
                 ("velocity_autocorrelation_tau", mpc_velocity_autocorrelation.tau),
+                ("velocity_autocorrelation_max_lag", mpc_velocity_autocorrelation.steps),
+                ("velocity_autocorrelation_trajectory_steps", mpc_velocity_autocorrelation.trajectory_steps),
                 ("velocity_autocorrelation_realizations", mpc_velocity_autocorrelation.realization_count),
                 (
                     "velocity_autocorrelation_requested_labeled_particles",
@@ -2796,6 +2895,8 @@ function write_mpc_config_json(
                 ("velocity_autocorrelation_initial_times", mpc_velocity_autocorrelation.initial_times),
                 ("velocity_autocorrelation_realization_mdc_values", mpc_velocity_autocorrelation.realization_mdc_values),
                 ("velocity_autocorrelation_mdc", mpc_velocity_autocorrelation.mdc),
+                ("velocity_autocorrelation_mdc_standard_deviation", standard_deviation(mpc_velocity_autocorrelation.realization_mdc_values)),
+                ("velocity_autocorrelation_mdc_standard_error", standard_error(mpc_velocity_autocorrelation.realization_mdc_values)),
                 ("velocity_autocorrelation_characteristic_time", mpc_velocity_autocorrelation.characteristic_time),
             ],
         )
@@ -2812,6 +2913,10 @@ function write_mpc_config_json(
                 ("diffusion_metric_mdc0", mpc_diffusion_metrics.mdc0),
                 ("diffusion_metric_mdc_star", mpc_diffusion_metrics.mdc_star),
                 ("diffusion_metric_mdc_standard_deviation", mpc_diffusion_metrics.mdc_standard_deviation),
+                ("diffusion_metric_mdc_standard_error", mpc_diffusion_metrics.mdc_standard_error),
+                ("diffusion_metric_realization_mdc_star_values", mpc_diffusion_metrics.realization_mdc_star_values),
+                ("diffusion_metric_mdc_star_standard_deviation", mpc_diffusion_metrics.mdc_star_standard_deviation),
+                ("diffusion_metric_mdc_star_standard_error", mpc_diffusion_metrics.mdc_star_standard_error),
                 ("diffusion_metric_purpose_note", mpc_diffusion_metrics.purpose_note),
             ],
         )
@@ -3542,6 +3647,7 @@ function write_mpc_collision_summary(path::AbstractString, collision::MpcCollisi
         println(io, "mpc_collision_model=multiparticle_collision_by_cell")
         println(io, "seed=$(collision.seed)")
         println(io, "rotation_angle=$(collision.rotation_angle)")
+        println(io, "rotation_policy=$(DEFAULT_MPC_ROTATION_POLICY)")
         println(io, "active_cell_count=$(collision.active_cell_count)")
         println(io, "collision_cell_count=$(collision.collision_cell_count)")
         println(io, "singleton_cell_count=$(collision.singleton_cell_count)")
@@ -3554,13 +3660,13 @@ function write_mpc_cell_collisions_tsv(path::AbstractString, collision::MpcColli
     open(path, "w") do io
         println(
             io,
-            "cell_x\tcell_y\tparticle_count\tcenter_vx_before\tcenter_vy_before\tcenter_vz_before\tcenter_vx_after\tcenter_vy_after\tcenter_vz_after\trotation_angle",
+            "cell_x\tcell_y\tparticle_count\tcenter_vx_before\tcenter_vy_before\tcenter_vz_before\tcenter_vx_after\tcenter_vy_after\tcenter_vz_after\trotation_angle\trotation_axis",
         )
 
         for cell in collision.cell_statistics
             println(
                 io,
-                "$(cell.cell_x)\t$(cell.cell_y)\t$(cell.particle_count)\t$(cell.center_vx_before)\t$(cell.center_vy_before)\t$(cell.center_vz_before)\t$(cell.center_vx_after)\t$(cell.center_vy_after)\t$(cell.center_vz_after)\t$(cell.rotation_angle)",
+                "$(cell.cell_x)\t$(cell.cell_y)\t$(cell.particle_count)\t$(cell.center_vx_before)\t$(cell.center_vy_before)\t$(cell.center_vz_before)\t$(cell.center_vx_after)\t$(cell.center_vy_after)\t$(cell.center_vz_after)\t$(cell.rotation_angle)\t$(cell.rotation_axis)",
             )
         end
     end
@@ -3761,7 +3867,7 @@ function write_velocity_autocorrelation_tsv(
     autocorrelation::MpcVelocityAutocorrelationResult,
 )
     open(path, "w") do io
-        println(io, "lag\ttime\tcv\tcv_average_xy\tsample_count\tmdc_cumulative")
+        println(io, "lag\ttime\tcv_raw\tcv_normalized\tsample_count\tmdc_cumulative")
 
         for lag in 0:autocorrelation.steps
             partial_cv = autocorrelation.cv_values[1:(lag + 1)]
@@ -3773,7 +3879,7 @@ function write_velocity_autocorrelation_tsv(
 
             println(
                 io,
-                "$(lag)\t$(lag * autocorrelation.tau)\t$(autocorrelation.cv_values[lag + 1])\t$(autocorrelation.cv_values[lag + 1])\t$(autocorrelation.sample_counts[lag + 1])\t$(cumulative_mdc)",
+                "$(lag)\t$(lag * autocorrelation.tau)\t$(autocorrelation.cv_values[lag + 1])\t$(autocorrelation.normalized_cv_values[lag + 1])\t$(autocorrelation.sample_counts[lag + 1])\t$(cumulative_mdc)",
             )
         end
     end
@@ -3791,7 +3897,8 @@ function write_velocity_autocorrelation_summary(
         println(io, "aggregation=mean_across_realizations")
         println(io, "dimension=$(autocorrelation.dimension)")
         println(io, "tau=$(autocorrelation.tau)")
-        println(io, "steps=$(autocorrelation.steps)")
+        println(io, "integration_max_lag=$(autocorrelation.steps)")
+        println(io, "trajectory_steps=$(autocorrelation.trajectory_steps)")
         println(io, "realizations=$(autocorrelation.realization_count)")
         println(io, "realization_seeds=$(join(autocorrelation.realization_seeds, ","))")
         println(io, "requested_labeled_particles=$(autocorrelation.requested_labeled_particles)")
@@ -3801,9 +3908,13 @@ function write_velocity_autocorrelation_summary(
         println(io, "mdc=$(autocorrelation.mdc)")
         println(io, "realization_mdc_values=$(join(autocorrelation.realization_mdc_values, ","))")
         println(io, "mdc_standard_deviation=$(standard_deviation(autocorrelation.realization_mdc_values))")
+        println(io, "mdc_standard_error=$(standard_error(autocorrelation.realization_mdc_values))")
         println(io, "characteristic_time=$(optional_value(autocorrelation.characteristic_time))")
         println(io, "cv0=$(first(autocorrelation.cv_values))")
         println(io, "cv_final=$(last(autocorrelation.cv_values))")
+        println(io, "cv_normalized_initial=$(first(autocorrelation.normalized_cv_values))")
+        println(io, "cv_normalized_final=$(last(autocorrelation.normalized_cv_values))")
+        println(io, "characteristic_time_fit=initial_contiguous_positive_decay")
     end
 end
 
@@ -3880,7 +3991,11 @@ function write_comparable_diffusion_metrics_summary(
         println(io, "mdc0=$(metrics.mdc0)")
         println(io, "mdc_star=$(metrics.mdc_star)")
         println(io, "mdc_standard_deviation=$(metrics.mdc_standard_deviation)")
+        println(io, "mdc_standard_error=$(metrics.mdc_standard_error)")
         println(io, "realization_mdc_values=$(join(metrics.realization_mdc_values, ","))")
+        println(io, "realization_mdc_star_values=$(join(metrics.realization_mdc_star_values, ","))")
+        println(io, "mdc_star_standard_deviation=$(metrics.mdc_star_standard_deviation)")
+        println(io, "mdc_star_standard_error=$(metrics.mdc_star_standard_error)")
         println(io, "n0=$(metrics.n0)")
         println(io, "mass=$(metrics.mass)")
         println(io, "kbt=$(metrics.kbt)")
@@ -4036,7 +4151,11 @@ function comparable_diffusion_metric_fields(metrics::MpcComparableDiffusionMetri
         ("mdc0", metrics.mdc0),
         ("mdc_star", metrics.mdc_star),
         ("mdc_standard_deviation", metrics.mdc_standard_deviation),
+        ("mdc_standard_error", metrics.mdc_standard_error),
         ("realization_mdc_values", metrics.realization_mdc_values),
+        ("realization_mdc_star_values", metrics.realization_mdc_star_values),
+        ("mdc_star_standard_deviation", metrics.mdc_star_standard_deviation),
+        ("mdc_star_standard_error", metrics.mdc_star_standard_error),
         ("n0", metrics.n0),
         ("mass", metrics.mass),
         ("kbt", metrics.kbt),
@@ -4119,6 +4238,8 @@ function write_simulation_summary(
             println(io, "velocity_autocorrelation_model=green_kubo_xy")
             println(io, "velocity_autocorrelation_aggregation=mean_across_realizations")
             println(io, "velocity_autocorrelation_dimension=$(mpc_velocity_autocorrelation.dimension)")
+            println(io, "velocity_autocorrelation_max_lag=$(mpc_velocity_autocorrelation.steps)")
+            println(io, "velocity_autocorrelation_trajectory_steps=$(mpc_velocity_autocorrelation.trajectory_steps)")
             println(io, "velocity_autocorrelation_realizations=$(mpc_velocity_autocorrelation.realization_count)")
             println(io, "velocity_autocorrelation_requested_labeled_particles=$(mpc_velocity_autocorrelation.requested_labeled_particles)")
             println(io, "velocity_autocorrelation_labeled_particle_count=$(mpc_velocity_autocorrelation.labeled_particle_count)")
@@ -4127,6 +4248,7 @@ function write_simulation_summary(
             println(io, "velocity_autocorrelation_mdc=$(mpc_velocity_autocorrelation.mdc)")
             println(io, "velocity_autocorrelation_realization_mdc_values=$(join(mpc_velocity_autocorrelation.realization_mdc_values, ","))")
             println(io, "velocity_autocorrelation_mdc_standard_deviation=$(standard_deviation(mpc_velocity_autocorrelation.realization_mdc_values))")
+            println(io, "velocity_autocorrelation_mdc_standard_error=$(standard_error(mpc_velocity_autocorrelation.realization_mdc_values))")
             println(io, "velocity_autocorrelation_characteristic_time=$(optional_value(mpc_velocity_autocorrelation.characteristic_time))")
         end
         if mpc_diffusion_metrics !== nothing
@@ -4137,6 +4259,9 @@ function write_simulation_summary(
             println(io, "diffusion_metric_mdc0=$(mpc_diffusion_metrics.mdc0)")
             println(io, "diffusion_metric_mdc_star=$(mpc_diffusion_metrics.mdc_star)")
             println(io, "diffusion_metric_mdc_standard_deviation=$(mpc_diffusion_metrics.mdc_standard_deviation)")
+            println(io, "diffusion_metric_mdc_standard_error=$(mpc_diffusion_metrics.mdc_standard_error)")
+            println(io, "diffusion_metric_mdc_star_standard_deviation=$(mpc_diffusion_metrics.mdc_star_standard_deviation)")
+            println(io, "diffusion_metric_mdc_star_standard_error=$(mpc_diffusion_metrics.mdc_star_standard_error)")
             println(io, "diffusion_metric_purpose_note=$(mpc_diffusion_metrics.purpose_note)")
         end
         println(io, "free_cell_count=$(free_cell_count)")
