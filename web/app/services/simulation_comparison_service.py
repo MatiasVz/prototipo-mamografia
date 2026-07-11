@@ -1,4 +1,5 @@
 import json
+import math
 from pathlib import Path
 
 
@@ -18,7 +19,34 @@ COMPARABLE_METRICS = (
         "mdc_star",
         "Relación entre la difusión calculada y la referencia libre.",
     ),
+    (
+        "Tiempo característico (tauC)",
+        "characteristic_time",
+        "Tiempo estimado en que Cv pierde memoria de la dirección inicial.",
+    ),
+    (
+        "Desviación estándar de MDC",
+        "mdc_standard_deviation",
+        "Dispersión de MDC entre realizaciones independientes.",
+    ),
+    (
+        "Error estándar de MDC",
+        "mdc_standard_error",
+        "Incertidumbre del MDC promedio entre realizaciones.",
+    ),
+    (
+        "Desviación estándar de MDC*",
+        "mdc_star_standard_deviation",
+        "Dispersión de la difusión normalizada entre realizaciones.",
+    ),
+    (
+        "Error estándar de MDC*",
+        "mdc_star_standard_error",
+        "Incertidumbre del promedio de difusión normalizada.",
+    ),
 )
+
+REQUIRED_METRIC_KEYS = tuple(metric[1] for metric in COMPARABLE_METRICS)
 
 COMPARABLE_PARAMETERS = (
     ("Pasos ejecutados", "steps"),
@@ -28,10 +56,19 @@ COMPARABLE_PARAMETERS = (
     ("Masa por partícula", "mass"),
     ("Número de corridas", "realizations"),
     ("Partículas seguidas para Cv", "velocity_autocorrelation_labeled_particle_count"),
+    ("Tiempos iniciales de Cv", "correlation_initial_times"),
     ("Ángulo de rotación MPC", "rotation_angle"),
+    ("Política de rotación", "rotation_policy"),
+    ("Tiempos de salida", "output_times"),
+    ("Desplazamiento de grilla", "grid_shift_enabled"),
 )
 
 COMMON_MAPS = (
+    (
+        "simulation_box_3d",
+        "Caja MPC y sección visualizada",
+        "Compara la geometría reproducible usada para presentar celdas y obstáculos.",
+    ),
     (
         "domain_mask",
         "Región usada por la simulación",
@@ -42,11 +79,6 @@ COMMON_MAPS = (
         "Obstáculos derivados del tejido",
         "Compara cómo se transformó la ROI en obstáculos del modelo.",
     ),
-    (
-        "mpc_concentration_mean_final",
-        "Concentración MPC promedio final",
-        "Compara el promedio final de partículas con una escala visual común.",
-    ),
 )
 
 
@@ -56,7 +88,7 @@ def is_case_mpc_comparable(results_dir: Path | None):
 
     diffusion = _read_json(results_dir / "diffusion_metrics.json")
 
-    return all(key in diffusion for key in ("mdc", "mdc_star"))
+    return all(key in diffusion for key in REQUIRED_METRIC_KEYS)
 
 
 def build_case_comparison(case_a, case_b, results_dir_a: Path | None, results_dir_b: Path | None):
@@ -73,6 +105,9 @@ def build_case_comparison(case_a, case_b, results_dir_a: Path | None, results_di
     if case_a.id == case_b.id:
         errors.append("Selecciona dos casos diferentes para comparar.")
 
+    compatibility_errors = _build_compatibility_errors(result_a, result_b)
+    errors.extend(compatibility_errors)
+
     return {
         "available": not errors,
         "errors": tuple(errors),
@@ -81,7 +116,8 @@ def build_case_comparison(case_a, case_b, results_dir_a: Path | None, results_di
         "metric_rows": _build_metric_rows(result_a, result_b),
         "parameter_rows": _build_parameter_rows(result_a, result_b),
         "map_pairs": _build_map_pairs(results_dir_a, results_dir_b),
-        "compatibility_warnings": _build_compatibility_warnings(result_a, result_b),
+        "compatible": not compatibility_errors,
+        "compatibility_warnings": (),
         "trace_rows": _build_trace_rows(case_a, case_b, results_dir_a, results_dir_b),
     }
 
@@ -106,7 +142,7 @@ def _build_case_result(case, results_dir):
         "created_at": case.created_at,
         "results_path": results_path,
         "metrics_path": diffusion_path,
-        "comparable": all(key in diffusion for key in ("mdc", "mdc_star")),
+        "comparable": all(key in diffusion for key in REQUIRED_METRIC_KEYS),
         "diffusion": diffusion,
         "config": config,
         "metrics": metrics,
@@ -139,8 +175,8 @@ def _build_parameter_rows(result_a, result_b):
     rows = []
 
     for label, key in COMPARABLE_PARAMETERS:
-        value_a = result_a["config"].get(key) or result_a["metrics"].get(key)
-        value_b = result_b["config"].get(key) or result_b["metrics"].get(key)
+        value_a = _first_present(result_a["config"], result_a["diffusion"], key)
+        value_b = _first_present(result_b["config"], result_b["diffusion"], key)
 
         if value_a in (None, "") and value_b in (None, ""):
             continue
@@ -218,25 +254,31 @@ def _select_common_concentration_key(results_dir_a, results_dir_b):
     return None
 
 
-def _build_compatibility_warnings(result_a, result_b):
-    warnings = []
-    sensitive_parameter_labels = {
-        "Densidad media de partículas (n0)",
-        "Paso temporal (tau)",
-        "Energía térmica (kBT)",
-        "Masa por partícula",
-        "Ángulo de rotación MPC",
-    }
+def _build_compatibility_errors(result_a, result_b):
+    missing = []
+    different = []
 
-    for row in _build_parameter_rows(result_a, result_b):
-        if row["label"] in sensitive_parameter_labels and not row["matches"]:
-            warnings.append(
-                "Los casos se procesaron con configuraciones distintas. "
-                "Interpreta la comparación con cautela."
-            )
-            break
+    for label, key in COMPARABLE_PARAMETERS:
+        value_a = _first_present(result_a["config"], result_a["diffusion"], key)
+        value_b = _first_present(result_b["config"], result_b["diffusion"], key)
+        if value_a in (None, "") or value_b in (None, ""):
+            missing.append(label)
+        elif not _values_match(value_a, value_b):
+            different.append(label)
 
-    return tuple(warnings)
+    errors = []
+    if missing:
+        errors.append(
+            "No se puede garantizar una comparación reproducible porque faltan "
+            "parámetros en uno de los casos: " + ", ".join(missing) + "."
+        )
+    if different:
+        errors.append(
+            "Los casos no son compatibles: deben procesarse con la misma "
+            "configuración. Parámetros diferentes: " + ", ".join(different) + "."
+        )
+
+    return tuple(errors)
 
 
 def _build_trace_rows(case_a, case_b, results_dir_a, results_dir_b):
@@ -331,6 +373,7 @@ def _result_image_exists(results_dir, key):
         filename = f"{key}.pgm"
     else:
         filename = {
+            "simulation_box_3d": "simulation_box_3d.png",
             "domain_mask": "domain_mask.pgm",
             "obstacle_radius_map": "obstacle_radius_map.pgm",
             "mpc_concentration_mean_initial": "mpc_concentration_mean_initial.pgm",
@@ -338,6 +381,32 @@ def _result_image_exists(results_dir, key):
         }.get(key)
 
     return bool(filename and (results_dir / filename).exists())
+
+
+def _first_present(primary, secondary, key):
+    value = primary.get(key)
+    if value not in (None, ""):
+        return value
+
+    value = secondary.get(key)
+    if value not in (None, ""):
+        return value
+
+    return None
+
+
+def _values_match(value_a, value_b):
+    if isinstance(value_a, (list, tuple)) or isinstance(value_b, (list, tuple)):
+        if not isinstance(value_a, (list, tuple)) or not isinstance(value_b, (list, tuple)):
+            return False
+        return tuple(value_a) == tuple(value_b)
+
+    numeric_a = _numeric_value(value_a)
+    numeric_b = _numeric_value(value_b)
+    if numeric_a is not None and numeric_b is not None:
+        return math.isclose(numeric_a, numeric_b, rel_tol=1.0e-12, abs_tol=1.0e-12)
+
+    return str(value_a).strip().lower() == str(value_b).strip().lower()
 
 
 def _calculate_delta(value_a, value_b):

@@ -1169,6 +1169,48 @@ end
     end
 end
 
+@testset "Reproducible MPC box visualization section" begin
+    image = PgmImage(20, 15, 255, fill(100, 15, 20))
+    config = MpcModelConfig(n0 = 0.2, realizations = 1, output_times = [0])
+    space = build_simulation_space(image; mpc_config = config)
+    initialization = initialize_mpc_particles(space, config; seed = 77)
+    section_a = MammographySimulation.select_visualization_section(space)
+    section_b = MammographySimulation.select_visualization_section(space)
+    selected_obstacles = MammographySimulation.obstacles_in_visualization_section(
+        space.obstacles,
+        section_a,
+    )
+
+    @test section_a == section_b
+    @test section_a.column_count == 12
+    @test section_a.row_count == 8
+    @test length(selected_obstacles) == 96
+    @test all(
+        obstacle.center_x == (obstacle.x + 0.5) * space.cell_length &&
+        obstacle.center_y == (obstacle.y + 0.5) * space.cell_length
+        for obstacle in selected_obstacles
+    )
+
+    mktempdir() do dir
+        image_path = joinpath(dir, "simulation_box_3d.png")
+        metadata_path = joinpath(dir, "simulation_box_visualization.txt")
+        MammographySimulation.write_simulation_box_visualization_png(
+            image_path,
+            space,
+            initialization;
+            metadata_path = metadata_path,
+        )
+        metadata = read(metadata_path, String)
+
+        @test isfile(image_path)
+        @test occursin("full_domain_visualized=false", metadata)
+        @test occursin("section_columns=12", metadata)
+        @test occursin("section_rows=8", metadata)
+        @test occursin("visualized_cylinder_count=96", metadata)
+        @test occursin("visualization_only=true", metadata)
+    end
+end
+
 @testset "MammographySimulation CLI base" begin
     mktempdir() do dir
         input_path = joinpath(dir, "simulation_input.pgm")
@@ -1209,6 +1251,7 @@ end
         @test isfile(result.obstacle_radius_map_path)
         @test isfile(result.obstacle_radius_histogram_path)
         @test isfile(result.simulation_box_visualization_path)
+        @test isfile(result.simulation_box_visualization_metadata_path)
         @test isfile(result.mpc_initial_particles_path)
         @test isfile(result.mpc_streamed_particles_path)
         @test isfile(result.mpc_streaming_summary_path)
@@ -1249,8 +1292,9 @@ end
         @test occursin("mpc_particle_model=continuous_position_maxwellian_velocity", read(result.simulation_summary_path, String))
         @test occursin("mpc_particle_count=90", read(result.simulation_summary_path, String))
         @test occursin("mpc_velocity_sigma=1.0", read(result.simulation_summary_path, String))
-        @test occursin("simulation_box_visualization_model=static_pseudo_3d_box_with_cylindrical_obstacles", read(result.simulation_summary_path, String))
+        @test occursin("simulation_box_visualization_model=reproducible_cell_section_with_cylinders_particles_and_directions", read(result.simulation_summary_path, String))
         @test occursin("simulation_box_visualization_file=simulation_box_3d.png", read(result.simulation_summary_path, String))
+        @test occursin("simulation_box_visualization_metadata_file=simulation_box_visualization.txt", read(result.simulation_summary_path, String))
         @test occursin("mpc_streaming_model=free_translation_periodic_boundaries_bounce_back", read(result.simulation_summary_path, String))
         @test occursin("mpc_streaming_steps=3", read(result.simulation_summary_path, String))
         @test occursin("mpc_collision_model=multiparticle_collision_by_cell", read(result.simulation_summary_path, String))
@@ -1284,8 +1328,9 @@ end
         @test occursin("\"n0\": 10.0", read(result.mpc_config_path, String))
         @test occursin("\"mpc_particle_model\": \"continuous_position_maxwellian_velocity\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_particle_count\": 90", read(result.mpc_config_path, String))
-        @test occursin("\"simulation_box_visualization_model\": \"static_pseudo_3d_box_with_cylindrical_obstacles\"", read(result.mpc_config_path, String))
+        @test occursin("\"simulation_box_visualization_model\": \"reproducible_cell_section_with_cylinders_particles_and_directions\"", read(result.mpc_config_path, String))
         @test occursin("\"simulation_box_visualization_file\": \"simulation_box_3d.png\"", read(result.mpc_config_path, String))
+        @test occursin("\"simulation_box_visualization_max_columns\": 12", read(result.mpc_config_path, String))
         @test occursin("\"mpc_streaming_model\": \"free_translation_periodic_boundaries_bounce_back\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_collision_model\": \"multiparticle_collision_by_cell\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_collision_particle_count\": 90", read(result.mpc_config_path, String))
@@ -1318,6 +1363,14 @@ end
         @test startswith(read(result.obstacle_radius_map_path, String), "P2")
         @test occursin("bucket\tcount", read(result.obstacle_radius_histogram_path, String))
         @test read(result.simulation_box_visualization_path)[1:8] == UInt8[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+        visualization_metadata = read(result.simulation_box_visualization_metadata_path, String)
+        @test occursin("selection_policy=centered_domain_bounding_box_deterministic", visualization_metadata)
+        @test occursin("full_domain_visualized=true", visualization_metadata)
+        @test occursin("section_columns=3", visualization_metadata)
+        @test occursin("section_rows=3", visualization_metadata)
+        @test occursin("visualized_cylinder_count=9", visualization_metadata)
+        @test occursin("cylinder_radius_source=simulation_obstacle_radius_matrix", visualization_metadata)
+        @test occursin("simulated_domain_unchanged=true", visualization_metadata)
         @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_initial_particles_path, String))
         @test occursin("# target_particle_count=90", read(result.mpc_initial_particles_path, String))
         @test occursin("id\tx\ty\tz\tvx\tvy\tvz\tmass\tspecies\tlabeled", read(result.mpc_streamed_particles_path, String))

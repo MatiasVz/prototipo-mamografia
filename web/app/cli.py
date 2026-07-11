@@ -118,6 +118,10 @@ def register_cli_commands(app):
             "simulation_box_visualization_path="
             f"{result.simulation_box_visualization_path}"
         )
+        click.echo(
+            "simulation_box_visualization_metadata_path="
+            f"{result.simulation_box_visualization_metadata_path}"
+        )
         click.echo(f"mpc_initial_particles_path={result.mpc_initial_particles_path}")
         click.echo(f"mpc_streamed_particles_path={result.mpc_streamed_particles_path}")
         click.echo(f"mpc_streaming_summary_path={result.mpc_streaming_summary_path}")

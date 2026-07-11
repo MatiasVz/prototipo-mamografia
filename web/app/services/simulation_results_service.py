@@ -9,14 +9,20 @@ STATIC_RESULT_IMAGES = {
         "filename": "simulation_box_3d.png",
         "title": "Caja de simulacion mesoscopica",
         "description": (
-            "Representacion pseudo-3D de la caja plana construida desde la ROI, "
-            "con cilindros derivados de intensidades y una muestra de particulas."
+            "Seccion reproducible de la caja MPC con celdas, radios reales de "
+            "obstaculos y una muestra de particulas con sus direcciones."
         ),
         "reading": (
             "Esta imagen no es una reconstruccion anatomica 3D real; muestra el "
-            "dominio artificial que usa el simulador: la ROI se vuelve una caja "
-            "de celdas, los tonos de gris se vuelven cilindros y las particulas "
-            "se mueven dentro de ese espacio."
+            "dominio artificial del simulador. Cuando la ROI es grande se presenta "
+            "una seccion central para evitar oclusion; el calculo siempre utiliza "
+            "el dominio mamario completo."
+        ),
+        "legend": (
+            "Lineas azules: celdas",
+            "Cilindros grises: obstaculos; oscuro mayor, claro menor",
+            "Puntos negros: particulas MPC",
+            "Lineas verdes: direccion de movimiento",
         ),
     },
     "domain_mask": {
@@ -102,6 +108,20 @@ RESULT_CONCEPTS = (
             "Autocorrelacion de velocidades. En palabras sencillas, observa si "
             "las particulas siguen moviendose parecido a como empezaron o si "
             "los choques hicieron que perdieran esa direccion inicial."
+        ),
+    },
+    {
+        "term": "tauC",
+        "meaning": (
+            "Tiempo caracteristico estimado desde la caida inicial de Cv. Resume "
+            "cuanto tarda el movimiento en perder memoria de su direccion inicial."
+        ),
+    },
+    {
+        "term": "Incertidumbre entre realizaciones",
+        "meaning": (
+            "La desviacion estandar describe cuanto variaron las corridas; el "
+            "error estandar expresa la incertidumbre del promedio calculado."
         ),
     },
     {
@@ -326,12 +346,24 @@ def _build_concentration_maps(results_dir, concentration_summary):
 
 def _build_image_card(results_dir, key):
     definition = STATIC_RESULT_IMAGES[key]
-    return {
+    card = {
         "key": key,
         "title": definition["title"],
         "description": definition["description"],
         "reading": definition["reading"],
+        "legend": definition.get("legend", ()),
     }
+    if key == "simulation_box_3d":
+        metadata = _read_key_value_file(results_dir / "simulation_box_visualization.txt")
+        if metadata:
+            card["sampling_note"] = (
+                f"Seccion mostrada: {metadata.get('section_columns', '?')} x "
+                f"{metadata.get('section_rows', '?')} celdas, desde "
+                f"x={metadata.get('section_x_start', '?')} y "
+                f"y={metadata.get('section_y_start', '?')}."
+            )
+
+    return card
 
 
 def _build_interpretation_items(metrics, config, diffusion):
@@ -453,9 +485,29 @@ def _build_primary_metrics(metrics, config, diffusion):
                 "MDC dividido para MDC0; permite comparar corridas en una escala comun.",
             ),
             _metric(
-                "Variacion entre corridas",
+                "Desviacion estandar de MDC",
                 diffusion.get("mdc_standard_deviation"),
-                "Muestra cuanto cambiaron los MDC al repetir la simulacion.",
+                "Dispersion de los valores MDC obtenidos entre realizaciones.",
+            ),
+            _metric(
+                "Error estandar de MDC",
+                diffusion.get("mdc_standard_error"),
+                "Incertidumbre del MDC promedio calculado entre realizaciones.",
+            ),
+            _metric(
+                "Desviacion estandar de MDC*",
+                diffusion.get("mdc_star_standard_deviation"),
+                "Dispersion de la difusion normalizada entre realizaciones.",
+            ),
+            _metric(
+                "Error estandar de MDC*",
+                diffusion.get("mdc_star_standard_error"),
+                "Incertidumbre del promedio de difusion normalizada.",
+            ),
+            _metric(
+                "Tiempo caracteristico (tauC)",
+                diffusion.get("characteristic_time"),
+                "Tiempo estimado en que Cv pierde memoria de la direccion inicial.",
             ),
             _metric(
                 "Particulas simuladas",

@@ -125,8 +125,32 @@
           </div>
         {% endif %}
 
+        {% if comparison.parameter_rows %}
+          <section class="comparison-section" aria-labelledby="comparison-config-title">
+            <div class="comparison-section__heading">
+              <div>
+                <p class="eyebrow">Configuraci&oacute;n compatible</p>
+                <h3 id="comparison-config-title">Condiciones compartidas</h3>
+              </div>
+              <span class="comparison-compatible">Misma configuraci&oacute;n</span>
+            </div>
+            <dl class="comparison-config-grid">
+              {% for row in comparison.parameter_rows %}
+                <div>
+                  <dt>{{ row.label }}</dt>
+                  <dd>{{ row.case_a }}</dd>
+                </div>
+              {% endfor %}
+            </dl>
+          </section>
+        {% endif %}
+
         <section class="comparison-section" aria-labelledby="metric-comparison-title">
-          <h3 id="metric-comparison-title">M&eacute;tricas de difusi&oacute;n</h3>
+            <h3 id="metric-comparison-title">M&eacute;tricas de difusi&oacute;n</h3>
+            <p class="comparison-section__note">
+              La desviaci&oacute;n est&aacute;ndar describe la variaci&oacute;n entre corridas; el
+              error est&aacute;ndar expresa la incertidumbre del promedio.
+            </p>
           <div class="comparison-table-wrap">
             <table class="comparison-table comparison-table--metrics">
               <thead>
