@@ -119,6 +119,10 @@ def register_cli_commands(app):
             f"{result.simulation_box_visualization_path}"
         )
         click.echo(
+            "simulation_radius_top_view_path="
+            f"{result.simulation_radius_top_view_path}"
+        )
+        click.echo(
             "simulation_box_visualization_metadata_path="
             f"{result.simulation_box_visualization_metadata_path}"
         )

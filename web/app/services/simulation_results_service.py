@@ -15,14 +15,32 @@ STATIC_RESULT_IMAGES = {
         "reading": (
             "Esta imagen no es una reconstruccion anatomica 3D real; muestra el "
             "dominio artificial del simulador. Cuando la ROI es grande se presenta "
-            "una seccion central para evitar oclusion; el calculo siempre utiliza "
-            "el dominio mamario completo."
+            "una seccion reproducible con diversidad de radios para evitar oclusion; "
+            "el calculo siempre utiliza el dominio mamario completo."
         ),
         "legend": (
             "Lineas azules: celdas",
             "Cilindros grises: obstaculos; oscuro mayor, claro menor",
             "Puntos negros: particulas MPC",
             "Lineas verdes: direccion de movimiento",
+        ),
+    },
+    "simulation_radius_top_view": {
+        "filename": "simulation_radius_top_view.png",
+        "title": "Radios por celda",
+        "description": (
+            "Vista superior de la misma seccion de la caja. El diametro de cada "
+            "circulo corresponde al radio calculado para ese obstaculo."
+        ),
+        "reading": (
+            "Esta vista complementa la perspectiva pseudo-3D para que las diferencias "
+            "de tamano sean comparables sin modificar la geometria simulada."
+        ),
+        "legend": (
+            "Cuadricula clara: celdas del dominio",
+            "Circulos grandes y oscuros: intensidades menores",
+            "Circulos pequenos y claros: intensidades mayores",
+            "Celdas oscuras: fondo fuera del dominio",
         ),
     },
     "domain_mask": {
@@ -214,7 +232,11 @@ def build_mpc_results_view(results_dir: Path | None):
     )
 
     domain_maps = _build_domain_maps(results_dir)
-    concentration_maps = _build_concentration_maps(results_dir, concentration_summary)
+    concentration_maps = _build_concentration_maps(
+        results_dir,
+        concentration_summary,
+        config,
+    )
     primary_metrics = _build_primary_metrics(metrics, config, diffusion)
     parameter_items = _build_parameter_items(metrics, config, diffusion)
     autocorrelation_rows = _read_autocorrelation_rows(
@@ -293,13 +315,27 @@ def _empty_results_view():
 def _build_domain_maps(results_dir):
     return tuple(
         _build_image_card(results_dir, key)
-        for key in ("simulation_box_3d", "domain_mask", "obstacle_radius_map")
+        for key in (
+            "simulation_box_3d",
+            "simulation_radius_top_view",
+            "domain_mask",
+            "obstacle_radius_map",
+        )
         if get_result_image_path(results_dir, key).exists()
     )
 
 
-def _build_concentration_maps(results_dir, concentration_summary):
+def _build_concentration_maps(results_dir, concentration_summary, config):
     captured_times = _parse_int_csv(concentration_summary.get("captured_output_times"))
+    domain_cell_count = _int_or_none(config.get("domain_cell_count"))
+    threshold = _float_or_none(
+        concentration_summary.get("high_concentration_threshold")
+        or config.get("mpc_concentration_high_threshold")
+    )
+    realization_count = _int_or_none(
+        concentration_summary.get("realizations")
+        or config.get("mpc_concentration_realizations")
+    )
     maps = []
 
     for time_value in captured_times:
@@ -329,14 +365,56 @@ def _build_concentration_maps(results_dir, concentration_summary):
         high_key = f"mpc_high_concentration_mean_t_{time_value}"
         high_path = get_result_image_path(results_dir, high_key)
         if high_path is not None and high_path.exists():
+            high_cell_count = _int_or_none(
+                concentration_summary.get(
+                    f"snapshot_t_{time_value}_high_concentration_cell_count"
+                )
+            )
+            high_fraction = (
+                high_cell_count / domain_cell_count
+                if high_cell_count is not None and domain_cell_count
+                else None
+            )
+            count_label = (
+                f"{_format_value(high_cell_count, 'integer')} de "
+                f"{_format_value(domain_cell_count, 'integer')} celdas"
+                if high_cell_count is not None and domain_cell_count is not None
+                else "Conteo no disponible"
+            )
+            percentage_label = (
+                _format_percent_value(high_fraction)
+                if high_fraction is not None
+                else "Porcentaje no disponible"
+            )
             maps.append(
                 {
                     "key": high_key,
-                    "title": f"Zonas altas promedio en t={time_value}",
-                    "description": "Celdas cuyo promedio supera el umbral 2 x n0.",
+                    "title": f"Zonas sobre el umbral en t={time_value}",
+                    "description": (
+                        f"Promedio de {realization_count or '?'} realizaciones; "
+                        f"umbral de concentracion {threshold:g}."
+                        if threshold is not None
+                        else "Celdas cuyo promedio supera el umbral 2 x n0."
+                    ),
+                    "stat": {
+                        "value": count_label,
+                        "detail": percentage_label,
+                        "empty": high_cell_count == 0,
+                        "label": (
+                            "Ninguna celda supero el umbral"
+                            if high_cell_count == 0
+                            else "Celdas que superaron el umbral"
+                        ),
+                    },
+                    "legend": (
+                        "Negro: fondo fuera del dominio",
+                        "Gris: dominio valido bajo el umbral",
+                        "Blanco: celdas por encima del umbral",
+                    ),
                     "reading": (
-                        "Las celdas claras superaron el umbral de concentracion del "
-                        "modelo; no representan una clasificacion clinica."
+                        "Que el mapa tenga pocas o ninguna celda blanca es un resultado "
+                        "valido. El umbral no se ajusta para aclarar la imagen y no "
+                        "representa una clasificacion clinica."
                     ),
                 }
             )
@@ -353,14 +431,15 @@ def _build_image_card(results_dir, key):
         "reading": definition["reading"],
         "legend": definition.get("legend", ()),
     }
-    if key == "simulation_box_3d":
+    if key in {"simulation_box_3d", "simulation_radius_top_view"}:
         metadata = _read_key_value_file(results_dir / "simulation_box_visualization.txt")
         if metadata:
             card["sampling_note"] = (
                 f"Seccion mostrada: {metadata.get('section_columns', '?')} x "
                 f"{metadata.get('section_rows', '?')} celdas, desde "
                 f"x={metadata.get('section_x_start', '?')} y "
-                f"y={metadata.get('section_y_start', '?')}."
+                f"y={metadata.get('section_y_start', '?')}; "
+                f"{metadata.get('visualized_cylinder_count', '?')} cilindros visibles."
             )
 
     return card
@@ -733,6 +812,13 @@ def _metric(label, value, hint, value_type="decimal"):
 def _float_or_none(value):
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(value):
+    try:
+        return int(float(value))
     except (TypeError, ValueError):
         return None
 

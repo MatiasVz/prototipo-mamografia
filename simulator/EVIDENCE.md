@@ -127,6 +127,11 @@ mpc_concentration_times.tsv
 mpc_concentration_summary.txt
 ```
 
+En los mapas de zonas sobre el umbral, el fondo externo se representa en negro,
+el dominio mamario valido bajo el umbral en gris y las celdas que superan el
+umbral en blanco. Un mapa con pocas celdas blancas puede ser un resultado valido;
+el umbral no debe modificarse solamente para aclarar la imagen.
+
 ### Autocorrelacion Cv
 
 La autocorrelacion de velocidades `Cv` mide que tanto se conserva la direccion/velocidad de particulas etiquetadas a lo largo del tiempo.

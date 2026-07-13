@@ -37,6 +37,7 @@ class SimulationWorkerResult:
     obstacle_radius_map_path: Path
     obstacle_radius_histogram_path: Path
     simulation_box_visualization_path: Path
+    simulation_radius_top_view_path: Path
     simulation_box_visualization_metadata_path: Path
     mpc_initial_particles_path: Path
     mpc_streamed_particles_path: Path
@@ -221,6 +222,7 @@ def process_case_simulation(
         obstacle_radius_map_path=result_paths["obstacle_radius_map"],
         obstacle_radius_histogram_path=result_paths["obstacle_radius_histogram"],
         simulation_box_visualization_path=result_paths["simulation_box_visualization"],
+        simulation_radius_top_view_path=result_paths["simulation_radius_top_view"],
         simulation_box_visualization_metadata_path=result_paths[
             "simulation_box_visualization_metadata"
         ],
@@ -685,6 +687,7 @@ def _get_expected_result_paths(output_dir):
         "obstacle_radius_map": output_dir / "obstacle_radius_map.pgm",
         "obstacle_radius_histogram": output_dir / "obstacle_radius_histogram.tsv",
         "simulation_box_visualization": output_dir / "simulation_box_3d.png",
+        "simulation_radius_top_view": output_dir / "simulation_radius_top_view.png",
         "simulation_box_visualization_metadata": output_dir
         / "simulation_box_visualization.txt",
         "mpc_initial_particles": output_dir / "mpc_initial_particles.tsv",

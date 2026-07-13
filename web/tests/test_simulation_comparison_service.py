@@ -40,6 +40,7 @@ class SimulationComparisonTests(unittest.TestCase):
                 map_keys,
                 {
                     "simulation_box_3d",
+                    "simulation_radius_top_view",
                     "domain_mask",
                     "obstacle_radius_map",
                     "mpc_concentration_mean_t_100",
@@ -118,6 +119,7 @@ def _write_case_results(directory, *, mdc, tau_c, steps=100):
     )
     for filename in (
         "simulation_box_3d.png",
+        "simulation_radius_top_view.png",
         "domain_mask.pgm",
         "obstacle_radius_map.pgm",
         "mpc_concentration_mean_t_100.pgm",

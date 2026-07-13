@@ -205,15 +205,15 @@
                         >
                       </div>
                       <p>{{ result_map.description }}</p>
-                      {% if result_map.sampling_note %}
-                        <p class="result-map-card__sampling">{{ result_map.sampling_note }}</p>
-                      {% endif %}
                       {% if result_map.legend %}
-                        <ul class="result-map-card__legend" aria-label="Leyenda de la caja MPC">
+                        <ul class="result-map-card__legend" aria-label="Leyenda del mapa">
                           {% for legend_item in result_map.legend %}
                             <li>{{ legend_item }}</li>
                           {% endfor %}
                         </ul>
+                      {% endif %}
+                      {% if result_map.sampling_note %}
+                        <p class="result-map-card__sampling">{{ result_map.sampling_note }}</p>
                       {% endif %}
                       <details class="result-map-card__help">
                         <summary>Ayuda para interpretar</summary>
@@ -235,6 +235,13 @@
                   {% for result_map in mpc_results.concentration_maps %}
                     <article class="result-map-card">
                       <h5>{{ result_map.title }}</h5>
+                      {% if result_map.stat %}
+                        <div class="result-map-card__stat{% if result_map.stat.empty %} result-map-card__stat--empty{% endif %}">
+                          <span>{{ result_map.stat.label }}</span>
+                          <strong>{{ result_map.stat.value }}</strong>
+                          <small>{{ result_map.stat.detail }}</small>
+                        </div>
+                      {% endif %}
                       <div class="result-map-card__frame">
                         <img
                           src="{{ result_map.url }}"
@@ -242,6 +249,13 @@
                         >
                       </div>
                       <p>{{ result_map.description }}</p>
+                      {% if result_map.legend %}
+                        <ul class="result-map-card__legend" aria-label="Leyenda del mapa">
+                          {% for legend_item in result_map.legend %}
+                            <li>{{ legend_item }}</li>
+                          {% endfor %}
+                        </ul>
+                      {% endif %}
                       <details class="result-map-card__help">
                         <summary>Ayuda para interpretar</summary>
                         <p>{{ result_map.reading }}</p>
@@ -345,47 +359,60 @@
         {% endif %}
       </section>
 
-      <aside class="case-next-step" aria-labelledby="roi-title">
+      <aside class="case-next-step case-action-panel" aria-labelledby="roi-title">
+        <div class="case-action-panel__header">
+          <div>
+            <p class="eyebrow">
+              {% if case_has_completed_results %}Caso finalizado{% else %}Siguiente paso{% endif %}
+            </p>
+            <h2 id="roi-title">
+              {% if case_has_completed_results %}Resultados disponibles{% else %}{{ roi_status_title }}{% endif %}
+            </h2>
+          </div>
+          <span class="case-action-panel__step" aria-hidden="true">
+            {% if case_has_completed_results %}4{% elif can_confirm_roi %}2{% elif case.simulation_input_file_path %}3{% else %}1{% endif %}
+          </span>
+        </div>
+
         {% if case_has_completed_results %}
-          <p class="eyebrow">Caso finalizado</p>
-          <h2 id="roi-title">Resultados disponibles</h2>
-          <p>
-            El procesamiento termin&oacute;. Revisa los resultados principales o descarga el
-            reporte visual del caso.
+          <p class="case-action-panel__message">
+            El procesamiento termin&oacute;. Los resultados y el reporte visual ya est&aacute;n listos.
           </p>
+          <div class="case-action-panel__complete">
+            <span aria-hidden="true">&#10003;</span>
+            <div>
+              <strong>Procesamiento completado</strong>
+              <p>Consulta las m&eacute;tricas y mapas en esta misma pantalla.</p>
+            </div>
+          </div>
         {% else %}
-          <p class="eyebrow">Siguiente paso</p>
-          <h2 id="roi-title">{{ roi_status_title }}</h2>
-          <p>{{ roi_status_message }}</p>
-          {% if can_crop_roi %}
-            <a
-              class="button button--primary"
-              href="{{ url_for('upload.crop_case_roi', case_id=case.id) }}"
-            >
-              Recortar ROI
-            </a>
-          {% endif %}
-          {% if can_confirm_roi %}
-            <form
-              action="{{ url_for('upload.confirm_case_roi', case_id=case.id) }}"
-              method="post"
-            >
-              <button class="button button--primary" type="submit">
-                Confirmar ROI y preparar simulaci&oacute;n
-              </button>
-            </form>
-          {% endif %}
-          <div class="case-preparation-step">
-            <p class="eyebrow">Preparaci&oacute;n autom&aacute;tica</p>
-            <h3>{{ simulation_status_title }}</h3>
-            <p>{{ simulation_status_message }}</p>
+          <p class="case-action-panel__message">{{ roi_status_message }}</p>
+          <div class="case-action-panel__actions">
+            {% if can_confirm_roi %}
+              <form
+                action="{{ url_for('upload.confirm_case_roi', case_id=case.id) }}"
+                method="post"
+              >
+                <button class="button button--primary" type="submit">
+                  Confirmar y procesar
+                </button>
+              </form>
+            {% endif %}
+            {% if can_crop_roi %}
+              <a
+                class="button {% if can_confirm_roi %}button--secondary{% else %}button--primary{% endif %}"
+                href="{{ url_for('upload.crop_case_roi', case_id=case.id) }}"
+              >
+                {% if case.roi_file_path %}Ajustar recorte{% else %}Recortar ROI{% endif %}
+              </a>
+            {% endif %}
             {% if can_retry_pgm %}
               <form
                 action="{{ url_for('upload.prepare_case_simulation_input', case_id=case.id) }}"
                 method="post"
               >
                 <button class="button button--secondary" type="submit">
-                  Reintentar preparaci&oacute;n PGM
+                  Reintentar preparaci&oacute;n
                 </button>
               </form>
             {% endif %}
@@ -395,38 +422,47 @@
                 method="post"
               >
                 <button class="button button--primary" type="submit">
-                  Encolar simulaci&oacute;n
+                  Procesar nuevamente
                 </button>
               </form>
             {% endif %}
           </div>
+          <div class="case-preparation-step">
+            <span class="case-preparation-step__marker" aria-hidden="true"></span>
+            <div>
+              <p class="eyebrow">Estado de preparaci&oacute;n</p>
+              <h3>{{ simulation_status_title }}</h3>
+              <p>{{ simulation_status_message }}</p>
+            </div>
+          </div>
         {% endif %}
-        <a class="button button--secondary" href="{{ url_for('upload.upload_mammogram') }}">
+
+        <a class="case-action-panel__new" href="{{ url_for('upload.upload_mammogram') }}">
           Cargar otra imagen
         </a>
       </aside>
 
-      <section class="case-export-panel" aria-labelledby="case-export-title">
-        <p class="eyebrow">Exportacion</p>
-        <h2 id="case-export-title">Descargas del caso</h2>
-        <p>
-          Descarga un PDF visual o un paquete con los resultados generados.
-        </p>
-        <div class="case-export-actions">
-          <a
-            class="button button--primary"
-            href="{{ url_for('upload.export_case_report', case_id=case.id) }}"
-          >
-            Descargar PDF visual
-          </a>
-          <a
-            class="button button--secondary"
-            href="{{ url_for('upload.export_case_package', case_id=case.id) }}"
-          >
-            Descargar paquete de resultados
-          </a>
-        </div>
-      </section>
+      {% if case_has_completed_results %}
+        <section class="case-export-panel" aria-labelledby="case-export-title">
+          <p class="eyebrow">Exportaci&oacute;n</p>
+          <h2 id="case-export-title">Descargas del caso</h2>
+          <p>Obt&eacute;n el reporte visual o conserva todos los archivos de resultados.</p>
+          <div class="case-export-actions">
+            <a
+              class="button button--primary"
+              href="{{ url_for('upload.export_case_report', case_id=case.id) }}"
+            >
+              Descargar PDF visual
+            </a>
+            <a
+              class="button button--secondary"
+              href="{{ url_for('upload.export_case_package', case_id=case.id) }}"
+            >
+              Descargar resultados
+            </a>
+          </div>
+        </section>
+      {% endif %}
     </div>
   </section>
 {% endblock %}
