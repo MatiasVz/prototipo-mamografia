@@ -70,6 +70,11 @@ COMMON_MAPS = (
         "Compara la geometría reproducible usada para presentar celdas y obstáculos.",
     ),
     (
+        "simulation_radius_top_view",
+        "Radios por celda",
+        "Compara el tamaño relativo de los obstáculos en una vista superior legible.",
+    ),
+    (
         "domain_mask",
         "Región usada por la simulación",
         "Compara qué zona de cada ROI se tomó como tejido válido.",
@@ -374,6 +379,7 @@ def _result_image_exists(results_dir, key):
     else:
         filename = {
             "simulation_box_3d": "simulation_box_3d.png",
+            "simulation_radius_top_view": "simulation_radius_top_view.png",
             "domain_mask": "domain_mask.pgm",
             "obstacle_radius_map": "obstacle_radius_map.pgm",
             "mpc_concentration_mean_initial": "mpc_concentration_mean_initial.pgm",

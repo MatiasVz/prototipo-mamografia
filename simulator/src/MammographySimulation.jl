@@ -291,12 +291,16 @@ const DEFAULT_MPC_OUTPUT_TIMES = (0, 100)
 const DEFAULT_MPC_GRID_SHIFT_ENABLED = false
 const DEFAULT_MPC_GRID_SHIFT_DECISION = "disabled_initially_to_match_article_conditions"
 const SIMULATION_BOX_VISUALIZATION_FILENAME = "simulation_box_3d.png"
+const SIMULATION_RADIUS_TOP_VIEW_FILENAME = "simulation_radius_top_view.png"
 const SIMULATION_BOX_VISUALIZATION_MODEL = "reproducible_cell_section_with_cylinders_particles_and_directions"
 const SIMULATION_BOX_VISUALIZATION_MAX_COLUMNS = 12
 const SIMULATION_BOX_VISUALIZATION_MAX_ROWS = 8
 const SIMULATION_BOX_VISUALIZATION_MAX_CYLINDERS = 96
 const SIMULATION_BOX_VISUALIZATION_MAX_PARTICLES = 80
 const SIMULATION_BOX_VISUALIZATION_MAX_DIRECTIONS = 40
+const HIGH_CONCENTRATION_BACKGROUND_VALUE = 0
+const HIGH_CONCENTRATION_DOMAIN_VALUE = 72
+const HIGH_CONCENTRATION_ACTIVE_VALUE = 255
 const DEFAULT_SYNTHETIC_VALIDATION_CASES = (
     "free_field",
     "central_obstacle",
@@ -499,6 +503,7 @@ function run_case(config::SimulationRunConfig)
     obstacle_radius_map_path = joinpath(output_dir, "obstacle_radius_map.pgm")
     obstacle_radius_histogram_path = joinpath(output_dir, "obstacle_radius_histogram.tsv")
     simulation_box_visualization_path = joinpath(output_dir, SIMULATION_BOX_VISUALIZATION_FILENAME)
+    simulation_radius_top_view_path = joinpath(output_dir, SIMULATION_RADIUS_TOP_VIEW_FILENAME)
     simulation_box_visualization_metadata_path = joinpath(
         output_dir,
         "simulation_box_visualization.txt",
@@ -553,6 +558,7 @@ function run_case(config::SimulationRunConfig)
         println(io, "mpc_rejected_samples=$(mpc_initialization.rejected_samples)")
         println(io, "simulation_box_visualization_model=$(SIMULATION_BOX_VISUALIZATION_MODEL)")
         println(io, "simulation_box_visualization_file=$(SIMULATION_BOX_VISUALIZATION_FILENAME)")
+        println(io, "simulation_radius_top_view_file=$(SIMULATION_RADIUS_TOP_VIEW_FILENAME)")
         println(io, "mpc_streaming_obstacle_collision_count=$(mpc_streaming.obstacle_collision_count)")
         println(io, "mpc_streaming_domain_boundary_collision_count=$(mpc_streaming.domain_boundary_collision_count)")
         println(io, "mpc_streaming_boundary_crossing_count_x=$(mpc_streaming.boundary_crossing_count_x)")
@@ -633,6 +639,8 @@ function run_case(config::SimulationRunConfig)
         mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
         mpc_diffusion_metrics = mpc_diffusion_metrics,
         simulation_box_visualization_path = simulation_box_visualization_path,
+        simulation_radius_top_view_path = simulation_radius_top_view_path,
+        simulation_box_visualization_metadata_path = simulation_box_visualization_metadata_path,
     )
     open(summary_path, "w") do io
         println(io, "width=$(pgm_image.width)")
@@ -649,11 +657,16 @@ function run_case(config::SimulationRunConfig)
     write_obstacle_radius_matrix_tsv(obstacle_radius_matrix_path, simulation_space)
     write_obstacle_radius_map_pgm(obstacle_radius_map_path, simulation_space)
     write_obstacle_radius_histogram_tsv(obstacle_radius_histogram_path, simulation_space)
-    write_simulation_box_visualization_png(
+    visualization_section = write_simulation_box_visualization_png(
         simulation_box_visualization_path,
         simulation_space,
         mpc_initialization,
         metadata_path = simulation_box_visualization_metadata_path,
+    )
+    write_simulation_radius_top_view_png(
+        simulation_radius_top_view_path,
+        simulation_space,
+        visualization_section,
     )
     write_mpc_initial_particles_tsv(mpc_initial_particles_path, mpc_initialization)
     write_mpc_streamed_particles_tsv(mpc_streamed_particles_path, mpc_streaming)
@@ -685,6 +698,7 @@ function run_case(config::SimulationRunConfig)
         mpc_velocity_autocorrelation = mpc_velocity_autocorrelation,
         mpc_diffusion_metrics = mpc_diffusion_metrics,
         simulation_box_visualization_path = simulation_box_visualization_path,
+        simulation_radius_top_view_path = simulation_radius_top_view_path,
         simulation_box_visualization_metadata_path = simulation_box_visualization_metadata_path,
     )
 
@@ -699,6 +713,7 @@ function run_case(config::SimulationRunConfig)
         obstacle_radius_map_path = obstacle_radius_map_path,
         obstacle_radius_histogram_path = obstacle_radius_histogram_path,
         simulation_box_visualization_path = simulation_box_visualization_path,
+        simulation_radius_top_view_path = simulation_radius_top_view_path,
         simulation_box_visualization_metadata_path = simulation_box_visualization_metadata_path,
         mpc_initial_particles_path = mpc_initial_particles_path,
         mpc_streamed_particles_path = mpc_streamed_particles_path,
@@ -757,6 +772,7 @@ function cli_main(args::Vector{String} = ARGS)
         println("obstacle_radius_map_path=$(result.obstacle_radius_map_path)")
         println("obstacle_radius_histogram_path=$(result.obstacle_radius_histogram_path)")
         println("simulation_box_visualization_path=$(result.simulation_box_visualization_path)")
+        println("simulation_radius_top_view_path=$(result.simulation_radius_top_view_path)")
         println("simulation_box_visualization_metadata_path=$(result.simulation_box_visualization_metadata_path)")
         println("mpc_initial_particles_path=$(result.mpc_initial_particles_path)")
         println("mpc_streamed_particles_path=$(result.mpc_streamed_particles_path)")
@@ -2771,6 +2787,7 @@ function write_mpc_config_json(
     mpc_velocity_autocorrelation::Union{Nothing,MpcVelocityAutocorrelationResult} = nothing,
     mpc_diffusion_metrics::Union{Nothing,MpcComparableDiffusionMetrics} = nothing,
     simulation_box_visualization_path::Union{Nothing,String} = nothing,
+    simulation_radius_top_view_path::Union{Nothing,String} = nothing,
     simulation_box_visualization_metadata_path::Union{Nothing,String} = nothing,
 )
     config = run_config.mpc_config
@@ -2835,13 +2852,22 @@ function write_mpc_config_json(
             [
                 ("simulation_box_visualization_model", SIMULATION_BOX_VISUALIZATION_MODEL),
                 ("simulation_box_visualization_file", basename(simulation_box_visualization_path)),
+                (
+                    "simulation_radius_top_view_file",
+                    simulation_radius_top_view_path === nothing ? "" :
+                    basename(simulation_radius_top_view_path),
+                ),
                 ("simulation_box_visualization_note", "Representacion pseudo-3D del dominio mesoscopico; no es una reconstruccion anatomica 3D real."),
                 ("simulation_box_visualization_max_cylinders", SIMULATION_BOX_VISUALIZATION_MAX_CYLINDERS),
                 ("simulation_box_visualization_max_particles", SIMULATION_BOX_VISUALIZATION_MAX_PARTICLES),
                 ("simulation_box_visualization_max_columns", SIMULATION_BOX_VISUALIZATION_MAX_COLUMNS),
                 ("simulation_box_visualization_max_rows", SIMULATION_BOX_VISUALIZATION_MAX_ROWS),
                 ("simulation_box_visualization_max_directions", SIMULATION_BOX_VISUALIZATION_MAX_DIRECTIONS),
-                ("simulation_box_visualization_metadata_file", "simulation_box_visualization.txt"),
+                (
+                    "simulation_box_visualization_metadata_file",
+                    simulation_box_visualization_metadata_path === nothing ? "" :
+                    basename(simulation_box_visualization_metadata_path),
+                ),
             ],
         )
     end
@@ -3148,6 +3174,74 @@ function write_simulation_box_visualization_png(
     return section
 end
 
+function write_simulation_radius_top_view_png(
+    path::AbstractString,
+    space::SimulationSpace,
+    section;
+    width::Int = 1000,
+    height::Int = 720,
+)
+    canvas = RgbCanvas(width, height, rgb(248, 250, 252))
+    cell_size = min(
+        (width - 140) / max(section.column_count, 1),
+        (height - 120) / max(section.row_count, 1),
+    )
+    grid_width = section.column_count * cell_size
+    grid_height = section.row_count * cell_size
+    origin_x = (width - grid_width) / 2
+    origin_y = (height - grid_height) / 2
+    grid_color = rgb(155, 174, 192)
+
+    for local_y in 0:(section.row_count - 1)
+        for local_x in 0:(section.column_count - 1)
+            global_x = section.x_start + local_x
+            global_y = section.y_start + local_y
+            is_domain = space.domain_mask[global_y + 1, global_x + 1]
+            x0 = round(Int, origin_x + local_x * cell_size)
+            y0 = round(Int, origin_y + local_y * cell_size)
+            x1 = round(Int, origin_x + (local_x + 1) * cell_size)
+            y1 = round(Int, origin_y + (local_y + 1) * cell_size)
+            fill_color = is_domain ? rgb(241, 245, 249) : rgb(31, 41, 55)
+
+            draw_filled_polygon!(
+                canvas,
+                [(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
+                fill_color,
+            )
+            draw_polygon_outline!(
+                canvas,
+                [(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
+                grid_color,
+            )
+        end
+    end
+
+    for obstacle in obstacles_in_visualization_section(space.obstacles, section)
+        local_x = obstacle.x - section.x_start
+        local_y = obstacle.y - section.y_start
+        center_x = round(Int, origin_x + (local_x + 0.5) * cell_size)
+        center_y = round(Int, origin_y + (local_y + 0.5) * cell_size)
+        radius = max(
+            2,
+            round(Int, obstacle.radius / space.cell_length * cell_size),
+        )
+        shade = clamp(round(Int, 72 + obstacle.normalized_intensity * 150), 64, 224)
+
+        draw_filled_circle!(canvas, center_x, center_y, radius, rgb(shade, shade, shade))
+        draw_ellipse_outline!(
+            canvas,
+            center_x,
+            center_y,
+            radius,
+            radius,
+            rgb(36, 53, 68),
+        )
+    end
+
+    write_png_rgb(path, canvas)
+    return path
+end
+
 function visualization_projection(section, lz::Int, width::Int, height::Int)
     box_extent = max(section.width + section.height, 1)
     unit_x = (width - 160) / box_extent
@@ -3252,18 +3346,129 @@ function select_visualization_section(
     min_y, max_y = extrema(obstacle.y for obstacle in space.obstacles)
     column_count = min(max_x - min_x + 1, max_columns)
     row_count = min(max_y - min_y + 1, max_rows)
-    center_x = round(Int, (min_x + max_x) / 2)
-    center_y = round(Int, (min_y + max_y) / 2)
-    x_start = clamp(center_x - div(column_count, 2), min_x, max_x - column_count + 1)
-    y_start = clamp(center_y - div(row_count, 2), min_y, max_y - row_count + 1)
+    radius_values = zeros(Float64, space.height, space.width)
+    obstacle_presence = zeros(Float64, space.height, space.width)
+    for obstacle in space.obstacles
+        radius_values[obstacle.y + 1, obstacle.x + 1] = obstacle.radius
+        obstacle_presence[obstacle.y + 1, obstacle.x + 1] = 1.0
+    end
+
+    count_integral = build_visualization_integral(obstacle_presence)
+    radius_integral = build_visualization_integral(radius_values)
+    squared_radius_integral = build_visualization_integral(radius_values .^ 2)
+    domain_center_x = (min_x + max_x) / 2
+    domain_center_y = (min_y + max_y) / 2
+    best_x_start = min_x
+    best_y_start = min_y
+    best_count = -1
+    best_variance = -Inf
+    best_center_distance = Inf
+
+    for y_start in min_y:(max_y - row_count + 1)
+        for x_start in min_x:(max_x - column_count + 1)
+            x_end = x_start + column_count
+            y_end = y_start + row_count
+            obstacle_count = round(
+                Int,
+                visualization_rectangle_sum(
+                    count_integral,
+                    x_start,
+                    x_end,
+                    y_start,
+                    y_end,
+                ),
+            )
+            radius_sum = visualization_rectangle_sum(
+                radius_integral,
+                x_start,
+                x_end,
+                y_start,
+                y_end,
+            )
+            squared_radius_sum = visualization_rectangle_sum(
+                squared_radius_integral,
+                x_start,
+                x_end,
+                y_start,
+                y_end,
+            )
+            radius_variance = if obstacle_count > 0
+                max(
+                    0.0,
+                    squared_radius_sum / obstacle_count -
+                    (radius_sum / obstacle_count)^2,
+                )
+            else
+                0.0
+            end
+            section_center_x = x_start + (column_count - 1) / 2
+            section_center_y = y_start + (row_count - 1) / 2
+            center_distance = (section_center_x - domain_center_x)^2 +
+                              (section_center_y - domain_center_y)^2
+
+            better_candidate = obstacle_count > best_count ||
+                               (
+                obstacle_count == best_count &&
+                radius_variance > best_variance + 1.0e-14
+            ) ||
+                               (
+                obstacle_count == best_count &&
+                isapprox(radius_variance, best_variance; atol = 1.0e-14, rtol = 0.0) &&
+                center_distance < best_center_distance - 1.0e-12
+            ) ||
+                               (
+                obstacle_count == best_count &&
+                isapprox(radius_variance, best_variance; atol = 1.0e-14, rtol = 0.0) &&
+                isapprox(center_distance, best_center_distance; atol = 1.0e-12, rtol = 0.0) &&
+                isless((y_start, x_start), (best_y_start, best_x_start))
+            )
+
+            if better_candidate
+                best_x_start = x_start
+                best_y_start = y_start
+                best_count = obstacle_count
+                best_variance = radius_variance
+                best_center_distance = center_distance
+            end
+        end
+    end
 
     return build_visualization_section(
         space,
-        x_start,
-        y_start,
+        best_x_start,
+        best_y_start,
         column_count,
         row_count,
     )
+end
+
+function build_visualization_integral(values::AbstractMatrix{<:Real})
+    height, width = size(values)
+    integral = zeros(Float64, height + 1, width + 1)
+
+    for y_index in 1:height
+        row_sum = 0.0
+        for x_index in 1:width
+            row_sum += values[y_index, x_index]
+            integral[y_index + 1, x_index + 1] =
+                integral[y_index, x_index + 1] + row_sum
+        end
+    end
+
+    return integral
+end
+
+function visualization_rectangle_sum(
+    integral::Matrix{Float64},
+    x_start::Int,
+    x_end::Int,
+    y_start::Int,
+    y_end::Int,
+)
+    return integral[y_end + 1, x_end + 1] -
+           integral[y_start + 1, x_end + 1] -
+           integral[y_end + 1, x_start + 1] +
+           integral[y_start + 1, x_start + 1]
 end
 
 function build_visualization_section(
@@ -3443,7 +3648,7 @@ function write_simulation_box_visualization_metadata(
 
     open(path, "w") do io
         println(io, "visualization_model=$(SIMULATION_BOX_VISUALIZATION_MODEL)")
-        println(io, "selection_policy=centered_domain_bounding_box_deterministic")
+        println(io, "selection_policy=maximize_domain_cells_then_radius_variance_with_center_tiebreak")
         println(io, "visualization_only=true")
         println(io, "simulated_domain_unchanged=true")
         println(io, "full_domain_visualized=$(full_domain_visualized)")
@@ -3457,6 +3662,16 @@ function write_simulation_box_visualization_metadata(
         println(io, "section_rows=$(section.row_count)")
         println(io, "section_cell_count=$(section.column_count * section.row_count)")
         println(io, "visualized_cylinder_count=$(length(obstacles))")
+        if isempty(obstacles)
+            println(io, "visualized_radius_min=0")
+            println(io, "visualized_radius_max=0")
+            println(io, "visualized_radius_variance=0")
+        else
+            radii = [obstacle.radius for obstacle in obstacles]
+            println(io, "visualized_radius_min=$(minimum(radii))")
+            println(io, "visualized_radius_max=$(maximum(radii))")
+            println(io, "visualized_radius_variance=$(sum((radii .- sum(radii) / length(radii)) .^ 2) / length(radii))")
+        end
         println(io, "visualized_particle_count=$(length(particles))")
         println(io, "visualized_direction_count=$(min(length(particles), max_directions))")
         println(io, "cell_length=$(space.cell_length)")
@@ -4062,18 +4277,18 @@ function write_mpc_high_concentration_map_pgm(
 
     open(path, "w") do io
         println(io, "P2")
-        println(io, "# Celdas de alta concentracion MPC t=$(snapshot.time) generado por MammographySimulation")
+        println(io, "# Zonas sobre umbral MPC t=$(snapshot.time): fondo=0 dominio=72 sobre_umbral=255")
         println(io, "$(width) $(height)")
         println(io, "255")
 
         for y_index in 1:height
             row = [
                 if !space.domain_mask[y_index, x_index]
-                    0
+                    HIGH_CONCENTRATION_BACKGROUND_VALUE
                 elseif snapshot.high_concentration_mask[y_index, x_index]
-                    255
+                    HIGH_CONCENTRATION_ACTIVE_VALUE
                 else
-                    16
+                    HIGH_CONCENTRATION_DOMAIN_VALUE
                 end
                 for x_index in 1:width
             ]
@@ -4437,6 +4652,7 @@ function write_simulation_summary(
     mpc_velocity_autocorrelation::Union{Nothing,MpcVelocityAutocorrelationResult} = nothing,
     mpc_diffusion_metrics::Union{Nothing,MpcComparableDiffusionMetrics} = nothing,
     simulation_box_visualization_path::Union{Nothing,String} = nothing,
+    simulation_radius_top_view_path::Union{Nothing,String} = nothing,
     simulation_box_visualization_metadata_path::Union{Nothing,String} = nothing,
 )
     free_cell_count = count_free_cells(space)
@@ -4458,6 +4674,9 @@ function write_simulation_summary(
         if simulation_box_visualization_path !== nothing
             println(io, "simulation_box_visualization_model=$(SIMULATION_BOX_VISUALIZATION_MODEL)")
             println(io, "simulation_box_visualization_file=$(basename(simulation_box_visualization_path))")
+            if simulation_radius_top_view_path !== nothing
+                println(io, "simulation_radius_top_view_file=$(basename(simulation_radius_top_view_path))")
+            end
             println(io, "simulation_box_visualization_note=Representacion pseudo-3D del dominio mesoscopico; no es una reconstruccion anatomica 3D real.")
             println(io, "simulation_box_visualization_max_cylinders=$(SIMULATION_BOX_VISUALIZATION_MAX_CYLINDERS)")
             println(io, "simulation_box_visualization_max_particles=$(SIMULATION_BOX_VISUALIZATION_MAX_PARTICLES)")

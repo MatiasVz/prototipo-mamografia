@@ -34,7 +34,15 @@ class MpcConcentrationResultTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             results_dir = Path(temporary_directory)
             (results_dir / "mpc_concentration_summary.txt").write_text(
-                "captured_output_times=0,100\n",
+                "captured_output_times=0,100\n"
+                "realizations=3\n"
+                "high_concentration_threshold=20\n"
+                "snapshot_t_0_high_concentration_cell_count=0\n"
+                "snapshot_t_100_high_concentration_cell_count=2\n",
+                encoding="utf-8",
+            )
+            (results_dir / "mpc_config.json").write_text(
+                '{"domain_cell_count": 10}',
                 encoding="utf-8",
             )
             for time_value in (0, 100):
@@ -53,6 +61,35 @@ class MpcConcentrationResultTests(unittest.TestCase):
             self.assertIn("mpc_concentration_representative_t_100", keys)
             self.assertIn("mpc_concentration_mean_t_100", keys)
             self.assertIn("mpc_high_concentration_mean_t_100", keys)
+
+            maps = {result_map["key"]: result_map for result_map in view["concentration_maps"]}
+            initial_high = maps["mpc_high_concentration_mean_t_0"]
+            final_high = maps["mpc_high_concentration_mean_t_100"]
+            self.assertTrue(initial_high["stat"]["empty"])
+            self.assertEqual(initial_high["stat"]["value"], "0 de 10 celdas")
+            self.assertEqual(initial_high["stat"]["detail"], "0.0%")
+            self.assertFalse(final_high["stat"]["empty"])
+            self.assertEqual(final_high["stat"]["value"], "2 de 10 celdas")
+            self.assertEqual(final_high["stat"]["detail"], "20.0%")
+
+    def test_includes_radius_top_view_with_visualization_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            results_dir = Path(temporary_directory)
+            (results_dir / "simulation_radius_top_view.png").write_bytes(b"result")
+            (results_dir / "simulation_box_visualization.txt").write_text(
+                "section_columns=12\nsection_rows=8\nvisualized_cylinder_count=96\n",
+                encoding="utf-8",
+            )
+
+            view = build_mpc_results_view(results_dir)
+            top_view = next(
+                result_map
+                for result_map in view["domain_maps"]
+                if result_map["key"] == "simulation_radius_top_view"
+            )
+
+            self.assertIn("12 x 8", top_view["sampling_note"])
+            self.assertIn("96", top_view["sampling_note"])
 
     def test_does_not_present_legacy_random_walk_density_map(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

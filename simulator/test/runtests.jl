@@ -820,7 +820,12 @@ end
         @test all(mean_final_map.pixels[.!masked_space.domain_mask] .== 0)
         @test all(final_high_map.pixels[.!masked_space.domain_mask] .== 0)
         @test all(final_map.pixels[masked_space.domain_mask] .>= 16)
-        @test all(final_high_map.pixels[masked_space.domain_mask] .>= 16)
+        @test all(
+            value in (72, 255)
+            for value in final_high_map.pixels[masked_space.domain_mask]
+        )
+        @test count(==(255), final_high_map.pixels) ==
+              masked_concentration.snapshots[end].high_concentration_cell_count
     end
 end
 
@@ -1193,16 +1198,24 @@ end
 
     mktempdir() do dir
         image_path = joinpath(dir, "simulation_box_3d.png")
+        top_view_path = joinpath(dir, "simulation_radius_top_view.png")
         metadata_path = joinpath(dir, "simulation_box_visualization.txt")
-        MammographySimulation.write_simulation_box_visualization_png(
+        rendered_section = MammographySimulation.write_simulation_box_visualization_png(
             image_path,
             space,
             initialization;
             metadata_path = metadata_path,
         )
+        MammographySimulation.write_simulation_radius_top_view_png(
+            top_view_path,
+            space,
+            rendered_section,
+        )
         metadata = read(metadata_path, String)
 
         @test isfile(image_path)
+        @test isfile(top_view_path)
+        @test read(top_view_path)[1:8] == UInt8[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
         @test occursin("full_domain_visualized=false", metadata)
         @test occursin("section_columns=12", metadata)
         @test occursin("section_rows=8", metadata)
@@ -1251,6 +1264,7 @@ end
         @test isfile(result.obstacle_radius_map_path)
         @test isfile(result.obstacle_radius_histogram_path)
         @test isfile(result.simulation_box_visualization_path)
+        @test isfile(result.simulation_radius_top_view_path)
         @test isfile(result.simulation_box_visualization_metadata_path)
         @test isfile(result.mpc_initial_particles_path)
         @test isfile(result.mpc_streamed_particles_path)
@@ -1294,6 +1308,7 @@ end
         @test occursin("mpc_velocity_sigma=1.0", read(result.simulation_summary_path, String))
         @test occursin("simulation_box_visualization_model=reproducible_cell_section_with_cylinders_particles_and_directions", read(result.simulation_summary_path, String))
         @test occursin("simulation_box_visualization_file=simulation_box_3d.png", read(result.simulation_summary_path, String))
+        @test occursin("simulation_radius_top_view_file=simulation_radius_top_view.png", read(result.simulation_summary_path, String))
         @test occursin("simulation_box_visualization_metadata_file=simulation_box_visualization.txt", read(result.simulation_summary_path, String))
         @test occursin("mpc_streaming_model=free_translation_periodic_boundaries_bounce_back", read(result.simulation_summary_path, String))
         @test occursin("mpc_streaming_steps=3", read(result.simulation_summary_path, String))
@@ -1330,6 +1345,7 @@ end
         @test occursin("\"mpc_particle_count\": 90", read(result.mpc_config_path, String))
         @test occursin("\"simulation_box_visualization_model\": \"reproducible_cell_section_with_cylinders_particles_and_directions\"", read(result.mpc_config_path, String))
         @test occursin("\"simulation_box_visualization_file\": \"simulation_box_3d.png\"", read(result.mpc_config_path, String))
+        @test occursin("\"simulation_radius_top_view_file\": \"simulation_radius_top_view.png\"", read(result.mpc_config_path, String))
         @test occursin("\"simulation_box_visualization_max_columns\": 12", read(result.mpc_config_path, String))
         @test occursin("\"mpc_streaming_model\": \"free_translation_periodic_boundaries_bounce_back\"", read(result.mpc_config_path, String))
         @test occursin("\"mpc_collision_model\": \"multiparticle_collision_by_cell\"", read(result.mpc_config_path, String))
@@ -1363,8 +1379,9 @@ end
         @test startswith(read(result.obstacle_radius_map_path, String), "P2")
         @test occursin("bucket\tcount", read(result.obstacle_radius_histogram_path, String))
         @test read(result.simulation_box_visualization_path)[1:8] == UInt8[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+        @test read(result.simulation_radius_top_view_path)[1:8] == UInt8[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
         visualization_metadata = read(result.simulation_box_visualization_metadata_path, String)
-        @test occursin("selection_policy=centered_domain_bounding_box_deterministic", visualization_metadata)
+        @test occursin("selection_policy=maximize_domain_cells_then_radius_variance_with_center_tiebreak", visualization_metadata)
         @test occursin("full_domain_visualized=true", visualization_metadata)
         @test occursin("section_columns=3", visualization_metadata)
         @test occursin("section_rows=3", visualization_metadata)

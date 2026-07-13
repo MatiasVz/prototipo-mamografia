@@ -383,6 +383,13 @@ def export_case_report(case_id):
     if case is None:
         abort(404)
 
+    if not _has_completed_results(case):
+        flash(
+            "El reporte estara disponible cuando el caso termine de procesarse.",
+            "warning",
+        )
+        return redirect(url_for("upload.case_detail", case_id=case.id))
+
     pdf_report = build_case_pdf_report(case, current_app.config["UPLOAD_FOLDER"])
 
     return send_file(
@@ -399,6 +406,13 @@ def export_case_markdown_report(case_id):
 
     if case is None:
         abort(404)
+
+    if not _has_completed_results(case):
+        flash(
+            "Los archivos de resultados estaran disponibles al finalizar el procesamiento.",
+            "warning",
+        )
+        return redirect(url_for("upload.case_detail", case_id=case.id))
 
     bundle = build_case_export_bundle(case, current_app.config["UPLOAD_FOLDER"])
     report_buffer = BytesIO(bundle.report_markdown.encode("utf-8"))
@@ -417,6 +431,13 @@ def export_case_package(case_id):
 
     if case is None:
         abort(404)
+
+    if not _has_completed_results(case):
+        flash(
+            "El paquete estara disponible cuando el caso tenga resultados completos.",
+            "warning",
+        )
+        return redirect(url_for("upload.case_detail", case_id=case.id))
 
     bundle = build_case_export_bundle(case, current_app.config["UPLOAD_FOLDER"])
     package_buffer = build_case_results_package(bundle)

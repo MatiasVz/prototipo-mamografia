@@ -65,6 +65,7 @@ obstacle_radius_matrix.tsv
 obstacle_radius_map.pgm
 obstacle_radius_histogram.tsv
 simulation_box_3d.png
+simulation_radius_top_view.png
 simulation_box_visualization.txt
 mpc_config.json
 mpc_initial_particles.tsv
@@ -95,7 +96,9 @@ Cuando el caso termina en estado `completado`, la app web puede presentar:
 - seccion reproducible de la caja mesoscopica con celdas, cilindros, particulas y direcciones;
 - mapa de radios de obstaculos;
 - mapas MPC de una realizacion representativa por tiempos disponibles;
-- mapas MPC promedio y zonas que superan `2 x n0`;
+- mapas MPC promedio y zonas que superan `2 x n0`; en estos ultimos, negro
+  representa fondo externo, gris el dominio valido bajo el umbral y blanco las
+  celdas que lo superan;
 - tabla resumida de autocorrelacion `Cv`;
 - metricas `MDC`, `MDC0` y `MDC*`;
 - parametros principales de la corrida;
@@ -148,5 +151,7 @@ Cuando `realizations` es mayor que `1`, el simulador ejecuta corridas independie
 - detalle por realizacion en `velocity_autocorrelation_realizations.tsv`;
 - mapas de una realizacion real en `mpc_concentration_representative_*.pgm`;
 - mapas promedio en `mpc_concentration_mean_*.pgm`;
-- visualizacion pseudo-3D en `simulation_box_3d.png` y coordenadas de la seccion en `simulation_box_visualization.txt`;
+- visualizacion pseudo-3D en `simulation_box_3d.png`, vista superior de radios
+  por celda en `simulation_radius_top_view.png` y coordenadas reproducibles de
+  la seccion en `simulation_box_visualization.txt`;
 - semillas usadas en `mpc_config.json` y resumenes tecnicos.

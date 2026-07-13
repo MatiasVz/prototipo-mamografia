@@ -15,6 +15,7 @@ RESULT_FILE_DESCRIPTIONS = {
     "obstacle_radius_map.pgm": "Visualizacion de cilindros derivados de tonos de gris de la ROI.",
     "obstacle_radius_histogram.tsv": "Distribucion de radios de obstaculos.",
     "simulation_box_3d.png": "Visualizacion pseudo-3D de la caja de simulacion con cilindros y particulas.",
+    "simulation_radius_top_view.png": "Vista superior por celdas para comparar radios de obstaculos.",
     "simulation_box_visualization.txt": "Coordenadas y politica reproducible de la seccion mostrada en la caja.",
     "mpc_initial_particles.tsv": "Estado inicial de particulas MPC.",
     "mpc_streamed_particles.tsv": "Particulas despues de traslacion libre y rebotes.",

@@ -115,6 +115,10 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None):
         flush=True,
     )
     print(
+        f"simulation_radius_top_view_path={result.simulation_radius_top_view_path}",
+        flush=True,
+    )
+    print(
         "simulation_box_visualization_metadata_path="
         f"{result.simulation_box_visualization_metadata_path}",
         flush=True,

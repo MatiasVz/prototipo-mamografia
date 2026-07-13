@@ -292,6 +292,15 @@ def _build_map_sections(results_dir, results_view, styles):
             Paragraph(result_map["description"], styles["body"]),
             Paragraph(result_map["reading"], styles["muted"]),
         ]
+        if result_map.get("stat"):
+            stat = result_map["stat"]
+            block.append(
+                Paragraph(
+                    f"{_safe_text(stat['label'])}: <b>{_safe_text(stat['value'])}</b> "
+                    f"({_safe_text(stat['detail'])})",
+                    styles["body"],
+                )
+            )
         if result_map.get("sampling_note"):
             block.append(Paragraph(result_map["sampling_note"], styles["muted"]))
         if result_map.get("legend"):
