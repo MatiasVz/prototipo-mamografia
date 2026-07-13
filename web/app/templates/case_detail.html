@@ -187,18 +187,24 @@
               </section>
             {% endif %}
 
-            {% if mpc_results.domain_maps %}
-              <section class="result-section" aria-labelledby="domain-results-title">
-                <h4 id="domain-results-title">Dominio y obst&aacute;culos</h4>
+            {% if mpc_results.concentration_maps %}
+              <section class="result-section" aria-labelledby="concentration-results-title">
+                <h4 id="concentration-results-title">Mapas de concentraci&oacute;n</h4>
                 <p class="result-section__note">
-                  La ROI se delimita y sus intensidades se transforman en el modelo
-                  de simulaci&oacute;n.
+                  Muestran c&oacute;mo se distribuyeron las part&iacute;culas durante la simulaci&oacute;n.
                 </p>
                 <div class="result-map-grid">
-                  {% for result_map in mpc_results.domain_maps %}
+                  {% for result_map in mpc_results.concentration_maps %}
                     <article class="result-map-card">
                       <h5>{{ result_map.title }}</h5>
-                      <div class="result-map-card__frame">
+                      {% if result_map.stat %}
+                        <div class="result-map-card__stat{% if result_map.stat.empty %} result-map-card__stat--empty{% endif %}">
+                          <span>{{ result_map.stat.label }}</span>
+                          <strong>{{ result_map.stat.value }}</strong>
+                          <small>{{ result_map.stat.detail }}</small>
+                        </div>
+                      {% endif %}
+                      <div class="result-map-card__frame{% if result_map.scientific %} result-map-card__frame--scientific{% endif %}">
                         <img
                           src="{{ result_map.url }}"
                           alt="{{ result_map.title }} del caso #{{ case.id }}"
@@ -225,64 +231,81 @@
               </section>
             {% endif %}
 
-            {% if mpc_results.concentration_maps %}
-              <section class="result-section" aria-labelledby="concentration-results-title">
-                <h4 id="concentration-results-title">Mapas de concentraci&oacute;n</h4>
-                <p class="result-section__note">
-                  Muestran c&oacute;mo se distribuyeron las part&iacute;culas durante la simulaci&oacute;n.
-                </p>
-                <div class="result-map-grid">
-                  {% for result_map in mpc_results.concentration_maps %}
-                    <article class="result-map-card">
-                      <h5>{{ result_map.title }}</h5>
-                      {% if result_map.stat %}
-                        <div class="result-map-card__stat{% if result_map.stat.empty %} result-map-card__stat--empty{% endif %}">
-                          <span>{{ result_map.stat.label }}</span>
-                          <strong>{{ result_map.stat.value }}</strong>
-                          <small>{{ result_map.stat.detail }}</small>
-                        </div>
-                      {% endif %}
-                      <div class="result-map-card__frame">
-                        <img
-                          src="{{ result_map.url }}"
-                          alt="{{ result_map.title }} del caso #{{ case.id }}"
-                        >
-                      </div>
-                      <p>{{ result_map.description }}</p>
-                      {% if result_map.legend %}
-                        <ul class="result-map-card__legend" aria-label="Leyenda del mapa">
-                          {% for legend_item in result_map.legend %}
-                            <li>{{ legend_item }}</li>
-                          {% endfor %}
-                        </ul>
-                      {% endif %}
-                      <details class="result-map-card__help">
-                        <summary>Ayuda para interpretar</summary>
-                        <p>{{ result_map.reading }}</p>
-                      </details>
-                    </article>
-                  {% endfor %}
-                </div>
-              </section>
-            {% endif %}
-
-            {% if mpc_results.autocorrelation_rows %}
+            {% if mpc_results.autocorrelation_chart %}
               <section class="result-section" aria-labelledby="autocorrelation-title">
                 <h4 id="autocorrelation-title">Memoria del movimiento (Cv)</h4>
                 <p class="result-section__note">
-                  Cv muestra si el movimiento conserva su direcci&oacute;n inicial o pierde
-                  memoria por colisiones.
+                  Cv muestra cu&aacute;nto conserva el movimiento su direcci&oacute;n inicial.
+                  {% if mpc_results.autocorrelation_chart.fit_available %}
+                    El ajuste exponencial permite estimar el tiempo caracter&iacute;stico tauC.
+                  {% endif %}
                 </p>
-                <ol class="autocorrelation-list" aria-label="Evoluci&oacute;n de Cv">
-                  {% for row in mpc_results.autocorrelation_rows %}
-                    <li>
-                      <span class="autocorrelation-list__time">t={{ row.time }}</span>
-                      <strong>{{ row.cv }}</strong>
-                      <span>{{ row.meaning }}</span>
-                    </li>
-                  {% endfor %}
-                </ol>
+                <article class="result-map-card result-map-card--wide">
+                  <div class="result-map-card__frame result-map-card__frame--chart">
+                    <img
+                      src="{{ mpc_results.autocorrelation_chart.url }}"
+                      alt="Gr&aacute;fica de autocorrelaci&oacute;n Cv del caso #{{ case.id }}"
+                    >
+                  </div>
+                  <p>{{ mpc_results.autocorrelation_chart.description }}</p>
+                  {% if mpc_results.autocorrelation_chart.legend %}
+                    <ul class="result-map-card__legend" aria-label="Leyenda de Cv">
+                      {% for legend_item in mpc_results.autocorrelation_chart.legend %}
+                        <li>{{ legend_item }}</li>
+                      {% endfor %}
+                    </ul>
+                  {% endif %}
+                  {% if mpc_results.autocorrelation_chart.sampling_note %}
+                    <p class="result-map-card__sampling">
+                      {{ mpc_results.autocorrelation_chart.sampling_note }}
+                    </p>
+                  {% endif %}
+                  <details class="result-map-card__help">
+                    <summary>Ayuda para interpretar</summary>
+                    <p>{{ mpc_results.autocorrelation_chart.reading }}</p>
+                  </details>
+                </article>
               </section>
+            {% endif %}
+
+            {% if mpc_results.domain_maps %}
+              <details class="model-setup">
+                <summary>Construcci&oacute;n del modelo de simulaci&oacute;n</summary>
+                <div class="model-setup__body">
+                  <p class="result-section__note">
+                    Vistas complementarias de la delimitaci&oacute;n de la ROI, la caja y
+                    los obst&aacute;culos derivados de sus intensidades.
+                  </p>
+                  <div class="result-map-grid">
+                    {% for result_map in mpc_results.domain_maps %}
+                      <article class="result-map-card">
+                        <h5>{{ result_map.title }}</h5>
+                        <div class="result-map-card__frame">
+                          <img
+                            src="{{ result_map.url }}"
+                            alt="{{ result_map.title }} del caso #{{ case.id }}"
+                          >
+                        </div>
+                        <p>{{ result_map.description }}</p>
+                        {% if result_map.legend %}
+                          <ul class="result-map-card__legend" aria-label="Leyenda del mapa">
+                            {% for legend_item in result_map.legend %}
+                              <li>{{ legend_item }}</li>
+                            {% endfor %}
+                          </ul>
+                        {% endif %}
+                        {% if result_map.sampling_note %}
+                          <p class="result-map-card__sampling">{{ result_map.sampling_note }}</p>
+                        {% endif %}
+                        <details class="result-map-card__help">
+                          <summary>Ayuda para interpretar</summary>
+                          <p>{{ result_map.reading }}</p>
+                        </details>
+                      </article>
+                    {% endfor %}
+                  </div>
+                </div>
+              </details>
             {% endif %}
 
             {% if mpc_results.parameter_items %}

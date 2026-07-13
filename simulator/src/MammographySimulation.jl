@@ -725,11 +725,14 @@ function run_case(config::SimulationRunConfig)
         mpc_concentration_times_path = mpc_concentration_outputs.times_path,
         mpc_concentration_representative_initial_map_path = mpc_concentration_outputs.representative_initial_map_path,
         mpc_concentration_representative_final_map_path = mpc_concentration_outputs.representative_final_map_path,
+        mpc_concentration_scientific_initial_map_path = mpc_concentration_outputs.scientific_initial_map_path,
+        mpc_concentration_scientific_final_map_path = mpc_concentration_outputs.scientific_final_map_path,
         mpc_concentration_mean_initial_map_path = mpc_concentration_outputs.mean_initial_map_path,
         mpc_concentration_mean_final_map_path = mpc_concentration_outputs.mean_final_map_path,
         mpc_high_concentration_mean_initial_map_path = mpc_concentration_outputs.mean_initial_high_map_path,
         mpc_high_concentration_mean_final_map_path = mpc_concentration_outputs.mean_final_high_map_path,
         mpc_concentration_representative_time_map_paths = mpc_concentration_outputs.representative_time_map_paths,
+        mpc_concentration_scientific_time_map_paths = mpc_concentration_outputs.scientific_time_map_paths,
         mpc_concentration_mean_time_map_paths = mpc_concentration_outputs.mean_time_map_paths,
         mpc_high_concentration_mean_time_map_paths = mpc_concentration_outputs.mean_time_high_map_paths,
         velocity_autocorrelation_path = velocity_autocorrelation_outputs.autocorrelation_path,
@@ -784,6 +787,8 @@ function cli_main(args::Vector{String} = ARGS)
         println("mpc_concentration_times_path=$(result.mpc_concentration_times_path)")
         println("mpc_concentration_representative_initial_map_path=$(result.mpc_concentration_representative_initial_map_path)")
         println("mpc_concentration_representative_final_map_path=$(result.mpc_concentration_representative_final_map_path)")
+        println("mpc_concentration_scientific_initial_map_path=$(result.mpc_concentration_scientific_initial_map_path)")
+        println("mpc_concentration_scientific_final_map_path=$(result.mpc_concentration_scientific_final_map_path)")
         println("mpc_concentration_mean_initial_map_path=$(result.mpc_concentration_mean_initial_map_path)")
         println("mpc_concentration_mean_final_map_path=$(result.mpc_concentration_mean_final_map_path)")
         println("mpc_high_concentration_mean_initial_map_path=$(result.mpc_high_concentration_mean_initial_map_path)")
@@ -1275,39 +1280,48 @@ function stream_single_mpc_particle!(
         event_count += 1
 
         if event_count > event_limit
-            throw(ArgumentError("Se supero el limite de eventos durante el streaming MPC."))
+            cell_x, cell_y = particle_cell_indices(particle, space)
+            throw(ArgumentError(
+                "La particula MPC $(particle.id) supero $(event_limit) eventos " *
+                "durante un paso en celda ($(cell_x), $(cell_y)), con tiempo " *
+                "restante $(remaining_time).",
+            ))
         end
 
         boundary_time, boundary_axis = next_periodic_boundary_event(particle, space, remaining_time)
-        collision_time, _obstacle = next_cylinder_collision_event(particle, space, remaining_time)
+        collision_time, obstacle = next_cylinder_collision_event(particle, space, remaining_time)
 
         if collision_time !== nothing && collision_time <= boundary_time + epsilon
             advance_mpc_particle!(particle, collision_time)
             apply_periodic_boundaries!(particle, space)
-            particle.vx = -particle.vx
-            particle.vy = -particle.vy
-            particle.vz = -particle.vz
+            reflect_particle_on_cylinder!(particle, obstacle)
             obstacle_collisions += 1
-            remaining_time -= collision_time
+            remaining_time = max(remaining_time - collision_time, 0.0)
+            planar_speed = hypot(particle.vx, particle.vy)
+            separation_time = min(
+                remaining_time,
+                max(epsilon, 1.0e-8 * space.cell_length / max(planar_speed, eps(Float64))),
+            )
             domain_boundary_collisions += advance_mpc_particle_guarded!(
                 particle,
                 space,
-                min(epsilon, remaining_time),
+                separation_time,
             )
-            remaining_time -= min(epsilon, max(remaining_time, 0.0))
+            remaining_time = max(remaining_time - separation_time, 0.0)
             continue
         end
 
         if boundary_axis !== nothing && boundary_time <= remaining_time + epsilon
-            domain_boundary_collisions += advance_mpc_particle_guarded!(
+            boundary_domain_collisions = advance_mpc_particle_guarded!(
                 particle,
                 space,
                 boundary_time,
             )
+            domain_boundary_collisions += boundary_domain_collisions
 
-            if boundary_axis == :x
+            if iszero(boundary_domain_collisions) && boundary_axis == :x
                 boundary_crossings_x += 1
-            elseif boundary_axis == :y
+            elseif iszero(boundary_domain_collisions) && boundary_axis == :y
                 boundary_crossings_y += 1
             end
 
@@ -1326,6 +1340,27 @@ function stream_single_mpc_particle!(
     return obstacle_collisions, domain_boundary_collisions, boundary_crossings_x, boundary_crossings_y
 end
 
+function reflect_particle_on_cylinder!(
+    particle::MpcParticle,
+    obstacle::SimulationObstacle,
+)
+    normal_x = particle.x - obstacle.center_x
+    normal_y = particle.y - obstacle.center_y
+    normal_length = hypot(normal_x, normal_y)
+
+    if normal_length <= eps(Float64)
+        particle.vx = -particle.vx
+        particle.vy = -particle.vy
+        return
+    end
+
+    normal_x /= normal_length
+    normal_y /= normal_length
+    normal_velocity = particle.vx * normal_x + particle.vy * normal_y
+    particle.vx -= 2 * normal_velocity * normal_x
+    particle.vy -= 2 * normal_velocity * normal_y
+end
+
 function advance_mpc_particle!(particle::MpcParticle, delta_time::Float64)
     particle.x += particle.vx * delta_time
     particle.y += particle.vy * delta_time
@@ -1341,32 +1376,156 @@ function advance_mpc_particle_guarded!(
         return 0
     end
 
-    max_displacement = max(abs(particle.vx * delta_time), abs(particle.vy * delta_time))
-    substep_length = max(space.cell_length / 2, eps(Float64))
-    substeps = max(1, ceil(Int, max_displacement / substep_length))
-    sub_delta_time = delta_time / substeps
+    remaining_time = delta_time
     domain_boundary_collisions = 0
+    event_count = 0
+    event_limit = max(1000, 8 * (space.width + space.height))
+    time_epsilon = 1.0e-10
 
-    for _substep in 1:substeps
-        previous_x = particle.x
-        previous_y = particle.y
-        previous_z = particle.z
+    # Even sub-epsilon intervals must be consumed. They occur when a particle is
+    # extremely close to a periodic edge; skipping them would rediscover the same
+    # boundary forever without changing its position.
+    while remaining_time > 0.0
+        event_count += 1
+        if event_count > event_limit
+            throw(ArgumentError("Se supero el limite de eventos contra el borde de la ROI."))
+        end
 
-        advance_mpc_particle!(particle, sub_delta_time)
-        apply_periodic_boundaries!(particle, space)
+        collision_time, reflect_x, reflect_y = next_domain_boundary_event(
+            particle,
+            space,
+            remaining_time,
+        )
 
-        if particle_inside_excluded_background(particle, space)
-            particle.x = previous_x
-            particle.y = previous_y
-            particle.z = previous_z
-            particle.vx = -particle.vx
-            particle.vy = -particle.vy
-            domain_boundary_collisions += 1
+        if collision_time === nothing
+            advance_mpc_particle!(particle, remaining_time)
+            apply_periodic_boundaries!(particle, space)
+            remaining_time = 0.0
             break
         end
+
+        safe_time = max(collision_time - time_epsilon, 0.0)
+        advance_mpc_particle!(particle, safe_time)
+        apply_periodic_boundaries!(particle, space)
+
+        spatial_epsilon = max(1.0e-9 * space.cell_length, 100 * eps(Float64))
+        if reflect_x
+            particle.x = wrap_coordinate(
+                particle.x - copysign(spatial_epsilon, particle.vx),
+                space.lx,
+            )
+        end
+        if reflect_y
+            particle.y = wrap_coordinate(
+                particle.y - copysign(spatial_epsilon, particle.vy),
+                space.ly,
+            )
+        end
+
+        if reflect_x
+            particle.vx = -particle.vx
+        end
+        if reflect_y
+            particle.vy = -particle.vy
+        end
+
+        domain_boundary_collisions += 1
+        remaining_time = max(remaining_time - collision_time, 0.0)
+    end
+
+    if particle_inside_excluded_background(particle, space)
+        cell_x, cell_y = particle_cell_indices(particle, space)
+        throw(ArgumentError(
+            "La particula MPC $(particle.id) termino fuera del dominio mamario " *
+            "en celda ($(cell_x), $(cell_y)), posicion ($(particle.x), $(particle.y)).",
+        ))
     end
 
     return domain_boundary_collisions
+end
+
+function next_domain_boundary_event(
+    particle::MpcParticle,
+    space::SimulationSpace,
+    max_time::Float64,
+)
+    if max_time <= 0 || (iszero(particle.vx) && iszero(particle.vy))
+        return nothing, false, false
+    end
+
+    cell_x, cell_y = particle_cell_indices(particle, space)
+    if !space.domain_mask[cell_y + 1, cell_x + 1]
+        throw(ArgumentError("La particula MPC inicio fuera del dominio mamario valido."))
+    end
+
+    step_x = particle.vx > 0 ? 1 : particle.vx < 0 ? -1 : 0
+    step_y = particle.vy > 0 ? 1 : particle.vy < 0 ? -1 : 0
+    time_to_x = first_cell_boundary_time(
+        particle.x,
+        particle.vx,
+        cell_x,
+        space.cell_length,
+    )
+    time_to_y = first_cell_boundary_time(
+        particle.y,
+        particle.vy,
+        cell_y,
+        space.cell_length,
+    )
+    time_step_x = iszero(particle.vx) ? Inf : space.cell_length / abs(particle.vx)
+    time_step_y = iszero(particle.vy) ? Inf : space.cell_length / abs(particle.vy)
+    event_epsilon = 1.0e-10
+
+    while true
+        event_time = min(time_to_x, time_to_y)
+        if !isfinite(event_time) || event_time > max_time + event_epsilon
+            return nothing, false, false
+        end
+
+        crosses_x = abs(time_to_x - event_time) <= event_epsilon
+        crosses_y = abs(time_to_y - event_time) <= event_epsilon
+        next_x = crosses_x ? mod(cell_x + step_x, space.width) : cell_x
+        next_y = crosses_y ? mod(cell_y + step_y, space.height) : cell_y
+
+        if crosses_x && crosses_y
+            x_blocked = !space.domain_mask[cell_y + 1, next_x + 1]
+            y_blocked = !space.domain_mask[next_y + 1, cell_x + 1]
+            diagonal_blocked = !space.domain_mask[next_y + 1, next_x + 1]
+
+            if x_blocked || y_blocked || diagonal_blocked
+                reflect_both = diagonal_blocked && !x_blocked && !y_blocked
+                return event_time, x_blocked || reflect_both, y_blocked || reflect_both
+            end
+        elseif !space.domain_mask[next_y + 1, next_x + 1]
+            return event_time, crosses_x, crosses_y
+        end
+
+        cell_x = next_x
+        cell_y = next_y
+        if crosses_x
+            time_to_x += time_step_x
+        end
+        if crosses_y
+            time_to_y += time_step_y
+        end
+    end
+end
+
+function first_cell_boundary_time(
+    position::Float64,
+    velocity::Float64,
+    cell_index::Int,
+    cell_length::Float64,
+)
+    if velocity > 0
+        boundary = (cell_index + 1) * cell_length
+        return max((boundary - position) / velocity, 0.0)
+    elseif velocity < 0
+        boundary = cell_index * cell_length
+        return max((position - boundary) / -velocity, 0.0)
+    end
+
+    return Inf
 end
 
 function particle_inside_excluded_background(particle::MpcParticle, space::SimulationSpace)
@@ -2876,7 +3035,7 @@ function write_mpc_config_json(
         append!(
             fields,
             [
-                ("mpc_streaming_model", "free_translation_periodic_boundaries_bounce_back"),
+                ("mpc_streaming_model", "free_translation_periodic_boundaries_specular_reflection"),
                 ("mpc_streaming_steps", mpc_streaming.steps),
                 ("mpc_streaming_tau", mpc_streaming.tau),
                 ("mpc_streaming_obstacle_collision_count", mpc_streaming.obstacle_collision_count),
@@ -4030,7 +4189,7 @@ end
 
 function write_mpc_streaming_summary(path::AbstractString, streaming::MpcStreamingResult)
     open(path, "w") do io
-        println(io, "mpc_streaming_model=free_translation_periodic_boundaries_bounce_back")
+        println(io, "mpc_streaming_model=free_translation_periodic_boundaries_specular_reflection")
         println(io, "steps=$(streaming.steps)")
         println(io, "tau=$(streaming.tau)")
         println(io, "particle_count=$(streaming.particle_count)")
@@ -4107,7 +4266,10 @@ function write_mpc_concentration_outputs(
     mean_final_map_path = joinpath(output_dir, "mpc_concentration_mean_final.pgm")
     mean_initial_high_map_path = joinpath(output_dir, "mpc_high_concentration_mean_initial.pgm")
     mean_final_high_map_path = joinpath(output_dir, "mpc_high_concentration_mean_final.pgm")
+    scientific_initial_map_path = joinpath(output_dir, "mpc_concentration_scientific_initial.ppm")
+    scientific_final_map_path = joinpath(output_dir, "mpc_concentration_scientific_final.ppm")
     representative_time_map_paths = String[]
+    scientific_time_map_paths = String[]
     mean_time_map_paths = String[]
     mean_time_high_map_paths = String[]
 
@@ -4122,6 +4284,10 @@ function write_mpc_concentration_outputs(
             output_dir,
             "mpc_concentration_representative_t_$(representative_snapshot.time).pgm",
         )
+        scientific_time_map_path = joinpath(
+            output_dir,
+            "mpc_concentration_scientific_t_$(representative_snapshot.time).ppm",
+        )
         mean_time_map_path = joinpath(output_dir, "mpc_concentration_mean_t_$(mean_snapshot.time).pgm")
         mean_high_map_path = joinpath(output_dir, "mpc_high_concentration_mean_t_$(mean_snapshot.time).pgm")
 
@@ -4132,6 +4298,14 @@ function write_mpc_concentration_outputs(
             concentration.high_concentration_threshold;
             aggregation = "representative_realization",
         )
+        write_mpc_scientific_concentration_map_ppm(
+            scientific_time_map_path,
+            representative_snapshot,
+            space,
+            concentration.high_concentration_threshold;
+            realization_index = concentration.representative_realization_index,
+            seed = concentration.representative_seed,
+        )
         write_mpc_concentration_map_pgm(
             mean_time_map_path,
             mean_snapshot,
@@ -4141,6 +4315,7 @@ function write_mpc_concentration_outputs(
         )
         write_mpc_high_concentration_map_pgm(mean_high_map_path, mean_snapshot, space)
         push!(representative_time_map_paths, representative_time_map_path)
+        push!(scientific_time_map_paths, scientific_time_map_path)
         push!(mean_time_map_paths, mean_time_map_path)
         push!(mean_time_high_map_paths, mean_high_map_path)
     end
@@ -4155,6 +4330,22 @@ function write_mpc_concentration_outputs(
     write_mpc_concentration_map_pgm(mean_final_map_path, mean_final_snapshot, space, concentration.high_concentration_threshold; aggregation = "mean_across_realizations")
     write_mpc_high_concentration_map_pgm(mean_initial_high_map_path, mean_initial_snapshot, space)
     write_mpc_high_concentration_map_pgm(mean_final_high_map_path, mean_final_snapshot, space)
+    write_mpc_scientific_concentration_map_ppm(
+        scientific_initial_map_path,
+        representative_initial_snapshot,
+        space,
+        concentration.high_concentration_threshold;
+        realization_index = concentration.representative_realization_index,
+        seed = concentration.representative_seed,
+    )
+    write_mpc_scientific_concentration_map_ppm(
+        scientific_final_map_path,
+        representative_final_snapshot,
+        space,
+        concentration.high_concentration_threshold;
+        realization_index = concentration.representative_realization_index,
+        seed = concentration.representative_seed,
+    )
 
     return (
         summary_path = summary_path,
@@ -4165,7 +4356,10 @@ function write_mpc_concentration_outputs(
         mean_final_map_path = mean_final_map_path,
         mean_initial_high_map_path = mean_initial_high_map_path,
         mean_final_high_map_path = mean_final_high_map_path,
+        scientific_initial_map_path = scientific_initial_map_path,
+        scientific_final_map_path = scientific_final_map_path,
         representative_time_map_paths = representative_time_map_paths,
+        scientific_time_map_paths = scientific_time_map_paths,
         mean_time_map_paths = mean_time_map_paths,
         mean_time_high_map_paths = mean_time_high_map_paths,
     )
@@ -4201,6 +4395,11 @@ function write_mpc_concentration_summary(
             println(io, "snapshot_t_$(snapshot.time)_particle_sum=$(compact_numeric_value(snapshot.particle_count))")
             println(io, "snapshot_t_$(snapshot.time)_max_concentration=$(compact_numeric_value(snapshot.max_concentration))")
             println(io, "snapshot_t_$(snapshot.time)_high_concentration_cell_count=$(snapshot.high_concentration_cell_count)")
+        end
+        for snapshot in concentration.representative_snapshots
+            println(io, "representative_t_$(snapshot.time)_particle_sum=$(compact_numeric_value(snapshot.particle_count))")
+            println(io, "representative_t_$(snapshot.time)_max_concentration=$(compact_numeric_value(snapshot.max_concentration))")
+            println(io, "representative_t_$(snapshot.time)_high_concentration_cell_count=$(snapshot.high_concentration_cell_count)")
         end
     end
 end
@@ -4292,6 +4491,47 @@ function write_mpc_high_concentration_map_pgm(
                 end
                 for x_index in 1:width
             ]
+            println(io, join(row, " "))
+        end
+    end
+end
+
+function write_mpc_scientific_concentration_map_ppm(
+    path::AbstractString,
+    snapshot::MpcConcentrationSnapshot,
+    space::SimulationSpace,
+    high_threshold::Float64;
+    realization_index::Int,
+    seed::Int,
+)
+    if high_threshold <= 0
+        throw(ArgumentError("El umbral del mapa cientifico debe ser positivo."))
+    end
+
+    height, width = size(snapshot.density_grid)
+    open(path, "w") do io
+        println(io, "P3")
+        println(io, "# Mapa MPC reproducible t=$(snapshot.time) realization=$(realization_index) seed=$(seed)")
+        println(io, "# exterior=18,28,43 zero=0,0,0 concentration=amarillo high=220,36,31 threshold=$(high_threshold)")
+        println(io, "$(width) $(height)")
+        println(io, "255")
+
+        for y_index in 1:height
+            row = String[]
+            for x_index in 1:width
+                density = snapshot.density_grid[y_index, x_index]
+                color = if !space.domain_mask[y_index, x_index]
+                    (18, 28, 43)
+                elseif density <= 0
+                    (0, 0, 0)
+                elseif density > high_threshold
+                    (220, 36, 31)
+                else
+                    yellow = 72 + round(Int, 183 * clamp(density / high_threshold, 0.0, 1.0))
+                    (yellow, yellow, 0)
+                end
+                append!(row, string.(color))
+            end
             println(io, join(row, " "))
         end
     end
@@ -4688,7 +4928,7 @@ function write_simulation_summary(
             end
         end
         if mpc_streaming !== nothing
-            println(io, "mpc_streaming_model=free_translation_periodic_boundaries_bounce_back")
+            println(io, "mpc_streaming_model=free_translation_periodic_boundaries_specular_reflection")
             println(io, "mpc_streaming_steps=$(mpc_streaming.steps)")
             println(io, "mpc_streaming_tau=$(mpc_streaming.tau)")
             println(io, "mpc_streaming_obstacle_collision_count=$(mpc_streaming.obstacle_collision_count)")

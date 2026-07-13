@@ -2451,6 +2451,24 @@ select:focus-visible {
   width: 100%;
 }
 
+.result-map-card--wide {
+  max-width: 100%;
+}
+
+.result-map-card__frame--chart {
+  aspect-ratio: 16 / 9;
+  background: #ffffff;
+  border-color: var(--color-border);
+}
+
+.result-map-card__frame--chart img {
+  object-fit: contain;
+}
+
+.result-map-card__frame--scientific img {
+  image-rendering: pixelated;
+}
+
 .density-map {
   display: grid;
   gap: 10px;

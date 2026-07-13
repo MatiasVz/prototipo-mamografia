@@ -1,10 +1,31 @@
 import csv
 import json
+import math
 import re
 from pathlib import Path
 
+from PIL import Image, ImageDraw, ImageFont
+
 
 STATIC_RESULT_IMAGES = {
+    "velocity_autocorrelation_chart": {
+        "filename": "velocity_autocorrelation_chart.png",
+        "title": "Memoria del movimiento (Cv)",
+        "description": (
+            "Evolucion normalizada de la memoria de velocidad y ajuste exponencial "
+            "usado para estimar el tiempo caracteristico tauC."
+        ),
+        "reading": (
+            "La curva azul muestra el resultado MPC promedio. La curva roja es el "
+            "ajuste exp(-t/tauC): una caida mas rapida indica que las particulas "
+            "pierden antes la memoria de su direccion inicial."
+        ),
+        "legend": (
+            "Azul: Cv normalizada calculada",
+            "Rojo: ajuste exponencial exp(-t/tauC)",
+            "Linea gris: referencia Cv=0",
+        ),
+    },
     "simulation_box_3d": {
         "filename": "simulation_box_3d.png",
         "title": "Caja de simulacion mesoscopica",
@@ -212,7 +233,7 @@ RESULT_READING_STEPS = (
 )
 
 CONCENTRATION_KEY_PATTERN = re.compile(
-    r"^mpc_concentration_(representative|mean)_t_(\d+)$",
+    r"^mpc_concentration_(representative|mean|scientific)_t_(\d+)$",
 )
 HIGH_CONCENTRATION_KEY_PATTERN = re.compile(r"^mpc_high_concentration_mean_t_(\d+)$")
 
@@ -242,6 +263,10 @@ def build_mpc_results_view(results_dir: Path | None):
     autocorrelation_rows = _read_autocorrelation_rows(
         results_dir / "velocity_autocorrelation.tsv",
     )
+    autocorrelation_chart = _build_autocorrelation_chart(
+        results_dir,
+        velocity_summary,
+    )
     technical_files = _build_technical_files(results_dir)
     velocity_summary_items = _build_velocity_summary(velocity_summary)
     interpretation_items = _build_interpretation_items(metrics, config, diffusion)
@@ -251,6 +276,7 @@ def build_mpc_results_view(results_dir: Path | None):
         or concentration_summary
         or velocity_summary
         or autocorrelation_rows
+        or autocorrelation_chart
         or concentration_maps
         or domain_maps
     )
@@ -262,6 +288,7 @@ def build_mpc_results_view(results_dir: Path | None):
         "domain_maps": domain_maps,
         "concentration_maps": concentration_maps,
         "autocorrelation_rows": autocorrelation_rows,
+        "autocorrelation_chart": autocorrelation_chart,
         "technical_files": technical_files,
         "velocity_summary": velocity_summary_items,
         "interpretation_items": interpretation_items,
@@ -286,7 +313,8 @@ def get_result_image_path(results_dir: Path, result_key: str):
     match = CONCENTRATION_KEY_PATTERN.match(result_key)
     if match:
         aggregation, time_value = match.groups()
-        return results_dir / f"mpc_concentration_{aggregation}_t_{time_value}.pgm"
+        extension = "ppm" if aggregation == "scientific" else "pgm"
+        return results_dir / f"mpc_concentration_{aggregation}_t_{time_value}.{extension}"
 
     high_match = HIGH_CONCENTRATION_KEY_PATTERN.match(result_key)
     if high_match:
@@ -303,6 +331,7 @@ def _empty_results_view():
         "domain_maps": (),
         "concentration_maps": (),
         "autocorrelation_rows": (),
+        "autocorrelation_chart": None,
         "technical_files": (),
         "velocity_summary": (),
         "interpretation_items": (),
@@ -327,99 +356,190 @@ def _build_domain_maps(results_dir):
 
 def _build_concentration_maps(results_dir, concentration_summary, config):
     captured_times = _parse_int_csv(concentration_summary.get("captured_output_times"))
-    domain_cell_count = _int_or_none(config.get("domain_cell_count"))
     threshold = _float_or_none(
         concentration_summary.get("high_concentration_threshold")
         or config.get("mpc_concentration_high_threshold")
     )
-    realization_count = _int_or_none(
-        concentration_summary.get("realizations")
-        or config.get("mpc_concentration_realizations")
+    representative_index = _int_or_none(
+        concentration_summary.get("representative_realization_index")
     )
+    representative_seed = _int_or_none(concentration_summary.get("representative_seed"))
     maps = []
 
-    for time_value in captured_times:
-        for aggregation, label in (
-            ("representative", "Realizacion representativa"),
-            ("mean", "Promedio de realizaciones"),
-        ):
-            key = f"mpc_concentration_{aggregation}_t_{time_value}"
-            path = get_result_image_path(results_dir, key)
-            if path is not None and path.exists():
-                maps.append(
-                    {
-                        "key": key,
-                        "title": f"{label} en t={time_value}",
-                        "description": (
-                            "Conteo de particulas MPC por celda con una escala visual "
-                            "estable basada en el umbral 2 x n0."
-                        ),
-                        "reading": (
-                            "La realizacion representativa muestra una corrida real; "
-                            "el promedio resume todas las corridas configuradas. El "
-                            "fondo negro queda fuera del dominio mamario."
-                        ),
-                    }
-                )
+    selected_times = tuple(dict.fromkeys(captured_times[:1] + captured_times[-1:]))
+    for time_value in selected_times:
+        scientific_key = f"mpc_concentration_scientific_t_{time_value}"
+        representative_key = f"mpc_concentration_representative_t_{time_value}"
+        key = (
+            scientific_key
+            if get_result_image_path(results_dir, scientific_key).exists()
+            else representative_key
+        )
+        path = get_result_image_path(results_dir, key)
+        if path is None or not path.exists():
+            continue
 
-        high_key = f"mpc_high_concentration_mean_t_{time_value}"
-        high_path = get_result_image_path(results_dir, high_key)
-        if high_path is not None and high_path.exists():
-            high_cell_count = _int_or_none(
-                concentration_summary.get(
-                    f"snapshot_t_{time_value}_high_concentration_cell_count"
-                )
+        moment = "inicial" if time_value == selected_times[0] else "final"
+        map_card = {
+            "key": key,
+            "scientific": key == scientific_key,
+            "title": f"Concentracion {moment} en t={time_value}",
+            "description": (
+                "Instantanea reproducible de particulas MPC por celda tomada de "
+                "una realizacion individual."
+            ),
+            "reading": (
+                "El exterior de la ROI se distingue del negro interno sin particulas. "
+                "El amarillo aumenta con la concentracion y el rojo identifica "
+                "celdas que superan 2 x n0."
+            ),
+        }
+        if key == scientific_key:
+            map_card["legend"] = (
+                "Azul oscuro: exterior de la ROI",
+                "Negro: celda valida sin particulas",
+                "Amarillo: concentracion de particulas",
+                "Rojo: concentracion superior a 2 x n0",
             )
-            high_fraction = (
-                high_cell_count / domain_cell_count
-                if high_cell_count is not None and domain_cell_count
-                else None
+        if representative_index is not None and representative_seed is not None:
+            map_card["sampling_note"] = (
+                f"Realizacion reproducible {representative_index}; "
+                f"semilla {representative_seed}; umbral {threshold:g}."
+                if threshold is not None
+                else f"Realizacion reproducible {representative_index}; semilla {representative_seed}."
             )
-            count_label = (
-                f"{_format_value(high_cell_count, 'integer')} de "
-                f"{_format_value(domain_cell_count, 'integer')} celdas"
-                if high_cell_count is not None and domain_cell_count is not None
-                else "Conteo no disponible"
-            )
-            percentage_label = (
-                _format_percent_value(high_fraction)
-                if high_fraction is not None
-                else "Porcentaje no disponible"
-            )
-            maps.append(
-                {
-                    "key": high_key,
-                    "title": f"Zonas sobre el umbral en t={time_value}",
-                    "description": (
-                        f"Promedio de {realization_count or '?'} realizaciones; "
-                        f"umbral de concentracion {threshold:g}."
-                        if threshold is not None
-                        else "Celdas cuyo promedio supera el umbral 2 x n0."
-                    ),
-                    "stat": {
-                        "value": count_label,
-                        "detail": percentage_label,
-                        "empty": high_cell_count == 0,
-                        "label": (
-                            "Ninguna celda supero el umbral"
-                            if high_cell_count == 0
-                            else "Celdas que superaron el umbral"
-                        ),
-                    },
-                    "legend": (
-                        "Negro: fondo fuera del dominio",
-                        "Gris: dominio valido bajo el umbral",
-                        "Blanco: celdas por encima del umbral",
-                    ),
-                    "reading": (
-                        "Que el mapa tenga pocas o ninguna celda blanca es un resultado "
-                        "valido. El umbral no se ajusta para aclarar la imagen y no "
-                        "representa una clasificacion clinica."
-                    ),
-                }
-            )
+        maps.append(map_card)
 
     return tuple(maps)
+
+
+def _build_autocorrelation_chart(results_dir, velocity_summary):
+    source_path = results_dir / "velocity_autocorrelation.tsv"
+    chart_path = results_dir / STATIC_RESULT_IMAGES["velocity_autocorrelation_chart"]["filename"]
+    characteristic_time = _float_or_none(velocity_summary.get("characteristic_time"))
+
+    if not source_path.exists():
+        return None
+
+    source_mtime = max(
+        source_path.stat().st_mtime,
+        (results_dir / "velocity_autocorrelation_summary.txt").stat().st_mtime
+        if (results_dir / "velocity_autocorrelation_summary.txt").exists()
+        else 0,
+    )
+    if not chart_path.exists() or chart_path.stat().st_mtime < source_mtime:
+        series = _read_autocorrelation_series(source_path)
+        if not series or not _write_autocorrelation_chart(
+            chart_path,
+            series,
+            characteristic_time,
+        ):
+            return None
+
+    card = _build_image_card(results_dir, "velocity_autocorrelation_chart")
+    card["fit_available"] = characteristic_time is not None
+    if characteristic_time is not None:
+        card["sampling_note"] = f"Tiempo caracteristico estimado: tauC = {characteristic_time:.4g}."
+    else:
+        card["description"] = (
+            "Evolucion normalizada de la memoria de velocidad calculada por el "
+            "simulador MPC."
+        )
+        card["legend"] = (
+            "Azul: Cv normalizada calculada",
+            "Linea gris: referencia Cv=0",
+        )
+        card["reading"] = (
+            "La curva azul muestra el resultado MPC promedio. En esta corrida la "
+            "resolucion temporal no permitio obtener un ajuste exponencial estable, "
+            "por lo que tauC no se informa."
+        )
+    return card
+
+
+def _read_autocorrelation_series(path):
+    try:
+        with path.open("r", encoding="utf-8", newline="") as file:
+            rows = []
+            for row in csv.DictReader(file, delimiter="\t"):
+                time_value = _float_or_none(row.get("time"))
+                cv_value = _float_or_none(
+                    row.get("cv_normalized") or row.get("cv") or row.get("cv_raw")
+                )
+                if time_value is not None and cv_value is not None:
+                    rows.append((time_value, cv_value))
+            return tuple(rows)
+    except OSError:
+        return ()
+
+
+def _write_autocorrelation_chart(path, series, characteristic_time):
+    width, height = 1100, 620
+    left, top, right, bottom = 100, 55, 1050, 520
+    image = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(image)
+    font = _chart_font(20)
+    small_font = _chart_font(16)
+    title_font = _chart_font(25, bold=True)
+    x_values = [item[0] for item in series]
+    y_values = [item[1] for item in series]
+    x_min, x_max = min(x_values), max(x_values)
+    if x_max <= x_min:
+        x_max = x_min + 1
+    y_min = min(-0.1, min(y_values))
+    y_max = max(1.05, max(y_values))
+    if y_max <= y_min:
+        y_max = y_min + 1
+
+    def point(x_value, y_value):
+        x = left + (x_value - x_min) * (right - left) / (x_max - x_min)
+        y = bottom - (y_value - y_min) * (bottom - top) / (y_max - y_min)
+        return round(x), round(y)
+
+    draw.text((left, 15), "Autocorrelacion normalizada de velocidades Cv", fill="#0b4866", font=title_font)
+    for tick_index in range(6):
+        x_value = x_min + tick_index * (x_max - x_min) / 5
+        x, _ = point(x_value, y_min)
+        draw.line((x, top, x, bottom), fill="#e1e8ef", width=1)
+        draw.text((x - 14, bottom + 12), f"{x_value:g}", fill="#4a5d72", font=small_font)
+    for tick_index in range(6):
+        y_value = y_min + tick_index * (y_max - y_min) / 5
+        _, y = point(x_min, y_value)
+        draw.line((left, y, right, y), fill="#e1e8ef", width=1)
+        draw.text((20, y - 10), f"{y_value:.2f}", fill="#4a5d72", font=small_font)
+
+    zero_y = point(x_min, 0)[1]
+    draw.line((left, zero_y, right, zero_y), fill="#8c99a8", width=2)
+    draw.line((left, top, left, bottom), fill="#243b53", width=2)
+    draw.line((left, bottom, right, bottom), fill="#243b53", width=2)
+    cv_points = [point(x_value, y_value) for x_value, y_value in series]
+    if len(cv_points) > 1:
+        draw.line(cv_points, fill="#0875b7", width=4, joint="curve")
+    for x, y in cv_points:
+        draw.ellipse((x - 4, y - 4, x + 4, y + 4), fill="#0875b7")
+
+    if characteristic_time is not None and characteristic_time > 0:
+        fit_points = [
+            point(x_value, math.exp(-x_value / characteristic_time))
+            for x_value in x_values
+        ]
+        if len(fit_points) > 1:
+            draw.line(fit_points, fill="#c9332b", width=4)
+
+    draw.text((right - 300, 70), "Cv calculada", fill="#0875b7", font=font)
+    if characteristic_time is not None and characteristic_time > 0:
+        draw.text((right - 300, 102), "Ajuste exp(-t/tauC)", fill="#c9332b", font=font)
+    draw.text(((left + right) // 2 - 55, height - 55), "Tiempo t", fill="#243b53", font=font)
+    image.save(path, format="PNG")
+    return True
+
+
+def _chart_font(size, bold=False):
+    font_name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    try:
+        return ImageFont.truetype(font_name, size)
+    except OSError:
+        return ImageFont.load_default()
 
 
 def _build_image_card(results_dir, key):
