@@ -1394,6 +1394,14 @@ def _get_mpc_results(case):
             result_key=result_map["key"],
         )
 
+    autocorrelation_chart = results_view.get("autocorrelation_chart")
+    if autocorrelation_chart:
+        autocorrelation_chart["url"] = url_for(
+            "upload.case_simulation_result_image",
+            case_id=case.id,
+            result_key=autocorrelation_chart["key"],
+        )
+
     return results_view
 
 

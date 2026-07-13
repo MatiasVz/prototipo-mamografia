@@ -275,11 +275,32 @@ def _build_map_sections(results_dir, results_view, styles):
     if results_dir is None:
         return []
 
-    maps = list(results_view["domain_maps"]) + list(results_view["concentration_maps"])
-    if not maps:
+    primary_maps = list(results_view["concentration_maps"])
+    if results_view.get("autocorrelation_chart"):
+        primary_maps.append(results_view["autocorrelation_chart"])
+    model_maps = list(results_view["domain_maps"])
+    if not primary_maps and not model_maps:
         return []
 
-    story = [PageBreak(), Paragraph("Imagenes principales de resultados", styles["section"])]
+    story = [PageBreak()]
+    if primary_maps:
+        story.append(Paragraph("Imagenes principales de resultados", styles["section"]))
+        _append_result_maps(story, results_dir, primary_maps, styles)
+    if model_maps:
+        story.append(Paragraph("Construccion del modelo de simulacion", styles["section"]))
+        story.append(
+            Paragraph(
+                "Estas vistas explican como la ROI se delimito y se transformo en "
+                "la caja y los obstaculos usados por el simulador.",
+                styles["muted"],
+            )
+        )
+        _append_result_maps(story, results_dir, model_maps, styles)
+
+    return story
+
+
+def _append_result_maps(story, results_dir, maps, styles):
 
     for result_map in maps:
         path = get_result_image_path(results_dir, result_map["key"])
@@ -315,8 +336,6 @@ def _build_map_sections(results_dir, results_view, styles):
 
         block.append(Spacer(1, 10))
         story.append(KeepTogether(block))
-
-    return story
 
 
 def _build_glossary_section(results_view, styles):

@@ -30,12 +30,14 @@ class VelocityAutocorrelationResultTests(unittest.TestCase):
 
 
 class MpcConcentrationResultTests(unittest.TestCase):
-    def test_builds_distinct_representative_mean_and_threshold_maps(self):
+    def test_builds_only_initial_and_final_scientific_maps(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             results_dir = Path(temporary_directory)
             (results_dir / "mpc_concentration_summary.txt").write_text(
                 "captured_output_times=0,100\n"
                 "realizations=3\n"
+                "representative_realization_index=1\n"
+                "representative_seed=1234\n"
                 "high_concentration_threshold=20\n"
                 "snapshot_t_0_high_concentration_cell_count=0\n"
                 "snapshot_t_100_high_concentration_cell_count=2\n",
@@ -47,6 +49,7 @@ class MpcConcentrationResultTests(unittest.TestCase):
             )
             for time_value in (0, 100):
                 for filename in (
+                    f"mpc_concentration_scientific_t_{time_value}.ppm",
                     f"mpc_concentration_representative_t_{time_value}.pgm",
                     f"mpc_concentration_mean_t_{time_value}.pgm",
                     f"mpc_high_concentration_mean_t_{time_value}.pgm",
@@ -57,20 +60,46 @@ class MpcConcentrationResultTests(unittest.TestCase):
             keys = {result_map["key"] for result_map in view["concentration_maps"]}
 
             self.assertTrue(view["available"])
-            self.assertEqual(len(keys), 6)
-            self.assertIn("mpc_concentration_representative_t_100", keys)
-            self.assertIn("mpc_concentration_mean_t_100", keys)
-            self.assertIn("mpc_high_concentration_mean_t_100", keys)
+            self.assertEqual(len(keys), 2)
+            self.assertEqual(
+                keys,
+                {
+                    "mpc_concentration_scientific_t_0",
+                    "mpc_concentration_scientific_t_100",
+                },
+            )
+            final_map = next(
+                result_map
+                for result_map in view["concentration_maps"]
+                if result_map["key"] == "mpc_concentration_scientific_t_100"
+            )
+            self.assertIn("Rojo", final_map["legend"][-1])
+            self.assertIn("semilla 1234", final_map["sampling_note"])
 
-            maps = {result_map["key"]: result_map for result_map in view["concentration_maps"]}
-            initial_high = maps["mpc_high_concentration_mean_t_0"]
-            final_high = maps["mpc_high_concentration_mean_t_100"]
-            self.assertTrue(initial_high["stat"]["empty"])
-            self.assertEqual(initial_high["stat"]["value"], "0 de 10 celdas")
-            self.assertEqual(initial_high["stat"]["detail"], "0.0%")
-            self.assertFalse(final_high["stat"]["empty"])
-            self.assertEqual(final_high["stat"]["value"], "2 de 10 celdas")
-            self.assertEqual(final_high["stat"]["detail"], "20.0%")
+    def test_generates_normalized_cv_chart_with_characteristic_time(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            results_dir = Path(temporary_directory)
+            (results_dir / "velocity_autocorrelation.tsv").write_text(
+                "lag\ttime\tcv_raw\tcv_normalized\tsample_count\tmdc_cumulative\n"
+                "0\t0\t2.0\t1.0\t1500\t0\n"
+                "1\t1\t0.7\t0.35\t1500\t0.5\n"
+                "2\t2\t0.2\t0.1\t1500\t0.7\n",
+                encoding="utf-8",
+            )
+            (results_dir / "velocity_autocorrelation_summary.txt").write_text(
+                "characteristic_time=0.75\n",
+                encoding="utf-8",
+            )
+
+            view = build_mpc_results_view(results_dir)
+
+            self.assertIsNotNone(view["autocorrelation_chart"])
+            self.assertEqual(
+                view["autocorrelation_chart"]["key"],
+                "velocity_autocorrelation_chart",
+            )
+            self.assertIn("0.75", view["autocorrelation_chart"]["sampling_note"])
+            self.assertTrue((results_dir / "velocity_autocorrelation_chart.png").exists())
 
     def test_includes_radius_top_view_with_visualization_metadata(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
