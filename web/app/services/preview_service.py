@@ -6,6 +6,8 @@ from pydicom.errors import InvalidDicomError
 from pydicom.filereader import dcmread
 from pydicom.uid import ExplicitVRBigEndian
 
+from .storage_service import resolve_stored_path
+
 
 DIRECT_PREVIEW_EXTENSIONS = {"png", "jpg", "jpeg"}
 GENERATED_PREVIEW_EXTENSIONS = {"bmp", "tif", "tiff", "pgm", "ppm"}
@@ -112,8 +114,7 @@ def ensure_preview_for_path(original_path: Path):
 
 
 def _case_original_path(case, upload_folder: str):
-    original_filename = Path(case.original_file_path).name
-    return Path(upload_folder) / f"case_{case.id}" / original_filename
+    return resolve_stored_path(case.original_file_path, upload_folder)
 
 
 def _generate_image_png_preview(original_path: Path, preview_path: Path):

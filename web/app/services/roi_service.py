@@ -25,7 +25,12 @@ def crop_roi_for_case(case, upload_folder: str, crop: RoiCrop):
         image = image.convert("RGB")
         crop_box = _build_crop_box(crop, image.size)
         roi_image = image.crop(crop_box)
-        stored_roi = store_generated_roi_image(roi_image, case.id, upload_folder)
+        stored_roi = store_generated_roi_image(
+            roi_image,
+            case.id,
+            upload_folder,
+            user_id=getattr(case, "user_id", None),
+        )
 
     _update_case_roi(case, stored_roi)
     return stored_roi

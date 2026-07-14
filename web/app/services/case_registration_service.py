@@ -7,7 +7,12 @@ from ..extensions import db
 from ..models import Case, CaseStatus, InputMode
 from .file_validation import FileValidationResult
 from .preview_service import ensure_preview_for_stored_file
-from .storage_service import StoredFile, store_original_file, store_roi_file
+from .storage_service import (
+    StoredFile,
+    remove_case_storage_directory,
+    store_original_file,
+    store_roi_file,
+)
 
 
 @dataclass
@@ -45,6 +50,7 @@ def register_case_upload(
             case.id,
             validation_result.extension or "",
             upload_folder,
+            user_id=user_id,
         )
 
         case.original_filename = stored_file.original_filename
@@ -58,6 +64,7 @@ def register_case_upload(
                 case.id,
                 validation_result.extension or "",
                 upload_folder,
+                user_id=user_id,
             )
             case.roi_filename = stored_roi_file.original_filename
             case.roi_file_path = stored_roi_file.relative_path
@@ -69,8 +76,15 @@ def register_case_upload(
         db.session.commit()
     except (OSError, SQLAlchemyError):
         db.session.rollback()
-        if stored_file is not None:
-            _remove_stored_file(stored_file)
+        if "case" in locals() and case.id is not None:
+            try:
+                remove_case_storage_directory(
+                    case.id,
+                    upload_folder,
+                    user_id=user_id,
+                )
+            except OSError:
+                pass
         raise
 
     return CaseRegistrationResult(
@@ -91,20 +105,3 @@ def register_mammogram_upload(
         upload_folder,
         input_mode=InputMode.MAMMOGRAM,
     )
-
-
-def _remove_stored_file(stored_file: StoredFile):
-    try:
-        case_directory = stored_file.absolute_path.parent
-        for stored_path in case_directory.rglob("*"):
-            if stored_path.is_file():
-                stored_path.unlink()
-
-        for stored_path in sorted(case_directory.rglob("*"), reverse=True):
-            if stored_path.is_dir():
-                stored_path.rmdir()
-
-        if case_directory.exists() and not any(case_directory.iterdir()):
-            case_directory.rmdir()
-    except OSError:
-        pass

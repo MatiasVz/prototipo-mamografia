@@ -22,6 +22,7 @@ from reportlab.platypus import (
 
 from .preview_service import ensure_preview_for_path
 from .simulation_results_service import build_mpc_results_view, get_result_image_path
+from .storage_service import resolve_stored_directory, resolve_stored_path
 
 
 @dataclass(frozen=True)
@@ -456,14 +457,17 @@ def _build_case_paths(case, upload_folder):
     case_dir = upload_folder_path / f"case_{case.id}"
 
     return {
-        "original": _resolve_stored_path(case.original_file_path, upload_folder_path),
-        "roi": _resolve_stored_path(case.roi_file_path, upload_folder_path),
+        "original": resolve_stored_path(case.original_file_path, str(upload_folder_path)),
+        "roi": resolve_stored_path(case.roi_file_path, str(upload_folder_path)),
         "results_dir": _resolve_results_dir(case, upload_folder_path, case_dir),
     }
 
 
 def _resolve_results_dir(case, upload_folder_path, case_dir):
-    configured_dir = _resolve_stored_path(case.simulation_results_path, upload_folder_path)
+    configured_dir = resolve_stored_directory(
+        case.simulation_results_path,
+        str(upload_folder_path),
+    )
 
     if configured_dir is not None and configured_dir.exists():
         return configured_dir
@@ -473,28 +477,6 @@ def _resolve_results_dir(case, upload_folder_path, case_dir):
         return fallback_dir
 
     return None
-
-
-def _resolve_stored_path(stored_path, upload_folder_path):
-    if not stored_path:
-        return None
-
-    path = Path(stored_path)
-
-    if path.is_absolute():
-        return path
-
-    cwd_candidate = Path.cwd() / path
-    if cwd_candidate.exists():
-        return cwd_candidate
-
-    parts = path.parts
-    if "uploads" in parts:
-        uploads_index = parts.index("uploads")
-        relative_to_uploads = Path(*parts[uploads_index + 1 :])
-        return upload_folder_path / relative_to_uploads
-
-    return upload_folder_path / path
 
 
 def _safe_text(value):
