@@ -42,7 +42,13 @@ from ..services.simulation_results_service import (
     get_result_image_path,
 )
 from ..services.auth_service import get_current_user, require_authenticated_user
-from ..services.storage_service import get_case_roi_directory
+from ..services.storage_service import (
+    create_presigned_download_url,
+    is_r2_reference,
+    remove_case_temporary_files_if_cloud,
+    resolve_stored_directory,
+    resolve_stored_path,
+)
 from ..services.upload_error_service import (
     safe_register_request_size_error,
     safe_register_upload_error,
@@ -203,6 +209,7 @@ def upload_mammogram():
                 )
             else:
                 case = registration.case
+                _cleanup_cloud_case_temporary_files(case)
                 flash(_format_success_message(case), "success")
                 return redirect(url_for("upload.case_detail", case_id=case.id))
         else:
@@ -460,6 +467,7 @@ def prepare_case_simulation_input(case_id):
     try:
         prepare_simulation_input_for_case(case, current_app.config["UPLOAD_FOLDER"])
         db.session.commit()
+        _cleanup_cloud_case_temporary_files(case)
         queued_job = enqueue_case_simulation(case, current_app.config)
     except (OSError, SQLAlchemyError, ValueError) as exc:
         db.session.rollback()
@@ -532,6 +540,7 @@ def crop_case_roi(case_id):
             )
             flash(str(exc), "error")
         else:
+            _cleanup_cloud_case_temporary_files(case)
             flash(
                 "Recorte guardado como ROI del caso. Revisala y confirmala para "
                 "preparar la simulacion automaticamente.",
@@ -578,6 +587,7 @@ def _auto_prepare_simulation_input(case):
     try:
         prepare_simulation_input_for_case(case, current_app.config["UPLOAD_FOLDER"])
         db.session.commit()
+        _cleanup_cloud_case_temporary_files(case)
     except (OSError, SQLAlchemyError, ValueError) as exc:
         db.session.rollback()
         current_app.logger.warning(
@@ -623,6 +633,13 @@ def case_roi_preview(case_id):
 
     if case is None:
         abort(404)
+
+    temporary_url = _get_temporary_browser_image_url(
+        case.roi_file_path,
+        case.roi_filename,
+    )
+    if temporary_url:
+        return redirect(temporary_url)
 
     roi_path = _get_case_roi_path(case)
 
@@ -688,6 +705,13 @@ def case_preview(case_id):
 
     if case is None:
         abort(404)
+
+    temporary_url = _get_temporary_browser_image_url(
+        case.original_file_path,
+        case.original_filename,
+    )
+    if temporary_url:
+        return redirect(temporary_url)
 
     preview = _get_case_preview(case)
 
@@ -1432,7 +1456,10 @@ def _get_comparable_case_options():
 
 
 def _get_case_simulation_results_path(case):
-    return _resolve_storage_path(case.simulation_results_path)
+    return resolve_stored_directory(
+        case.simulation_results_path,
+        current_app.config["UPLOAD_FOLDER"],
+    )
 
 
 def _has_simulation_results(case):
@@ -1502,40 +1529,46 @@ def _get_case_roi_path(case):
     if not case.roi_file_path:
         return None
 
-    roi_filename = Path(case.roi_file_path).name
-
-    return get_case_roi_directory(
-        case.id,
+    return resolve_stored_path(
+        case.roi_file_path,
         current_app.config["UPLOAD_FOLDER"],
-    ) / roi_filename
+    )
 
 
 def _resolve_storage_path(stored_path):
-    if not stored_path:
+    return resolve_stored_path(
+        stored_path,
+        current_app.config["UPLOAD_FOLDER"],
+    )
+
+
+def _get_temporary_browser_image_url(stored_path, filename):
+    if not is_r2_reference(stored_path):
         return None
 
-    path = Path(stored_path)
+    extension = Path(filename or "").suffix.lower().lstrip(".")
+    if extension not in {"png", "jpg", "jpeg"}:
+        return None
 
-    if path.is_absolute():
-        return path
+    return create_presigned_download_url(
+        stored_path,
+        current_app.config["R2_PRESIGNED_URL_TTL_SECONDS"],
+    )
 
-    cwd_candidate = Path.cwd() / path
-    if cwd_candidate.exists():
-        return cwd_candidate
 
-    repo_candidate = Path.cwd().parent / path
-    if repo_candidate.exists():
-        return repo_candidate
-
-    upload_folder = Path(current_app.config["UPLOAD_FOLDER"])
-    parts = path.parts
-
-    if "uploads" in parts:
-        uploads_index = parts.index("uploads")
-        relative_to_uploads = Path(*parts[uploads_index + 1 :])
-        return upload_folder / relative_to_uploads
-
-    return upload_folder / path
+def _cleanup_cloud_case_temporary_files(case):
+    try:
+        remove_case_temporary_files_if_cloud(
+            case.user_id,
+            case.id,
+            current_app.config["UPLOAD_FOLDER"],
+        )
+    except OSError:
+        current_app.logger.warning(
+            "No se pudieron limpiar los archivos temporales del caso %s.",
+            case.id,
+            exc_info=True,
+        )
 
 
 def _get_case_preview(case):

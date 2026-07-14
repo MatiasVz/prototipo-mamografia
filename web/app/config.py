@@ -18,6 +18,16 @@ def build_database_url():
     return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{database}"
 
 
+def normalize_database_url(value):
+    """Select psycopg 3 when providers publish a generic PostgreSQL URL."""
+    database_url = str(value or "").strip()
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    return database_url
+
+
 def build_redis_url():
     host = os.getenv("REDIS_HOST", "localhost")
     port = os.getenv("REDIS_PORT", "6379")
@@ -68,8 +78,23 @@ class Config:
     PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", 50 * 1024 * 1024))
     UPLOAD_FOLDER = build_upload_folder()
-    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", build_database_url())
+    SQLALCHEMY_DATABASE_URI = normalize_database_url(
+        os.getenv("DATABASE_URL", build_database_url())
+    )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": int(os.getenv("DATABASE_POOL_RECYCLE_SECONDS", "300")),
+    }
+    STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").strip().lower()
+    R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "")
+    R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "")
+    R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
+    R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
+    R2_REGION = os.getenv("R2_REGION", "auto")
+    R2_PRESIGNED_URL_TTL_SECONDS = int(
+        os.getenv("R2_PRESIGNED_URL_TTL_SECONDS", "300")
+    )
     JULIA_EXECUTABLE = os.getenv("JULIA_EXECUTABLE", "julia")
     SIMULATOR_PROJECT_PATH = build_repo_path("SIMULATOR_PROJECT_PATH", "simulator")
     SIMULATOR_RUN_SCRIPT_PATH = build_repo_path(
@@ -127,6 +152,13 @@ class Config:
         "yes",
     }
     MAIL_SENDER = os.getenv("MAIL_SENDER", "")
+    BREVO_API_URL = os.getenv(
+        "BREVO_API_URL",
+        "https://api.brevo.com/v3/smtp/email",
+    )
+    BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+    BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "")
+    BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "")
     # Validez del enlace de recuperacion de contraseña, en segundos (1 hora).
     PASSWORD_RESET_TOKEN_MAX_AGE = int(
         os.getenv("PASSWORD_RESET_TOKEN_MAX_AGE", "3600")

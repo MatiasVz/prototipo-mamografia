@@ -19,7 +19,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-mamografias_db}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-1234}@db:5432/${POSTGRES_DB:-mamografias_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:1234@db:5432/mamografias_db}
+      DATABASE_POOL_RECYCLE_SECONDS: ${DATABASE_POOL_RECYCLE_SECONDS:-300}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+      R2_ENDPOINT_URL: ${R2_ENDPOINT_URL:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_REGION: ${R2_REGION:-auto}
+      R2_PRESIGNED_URL_TTL_SECONDS: ${R2_PRESIGNED_URL_TTL_SECONDS:-300}
       JULIA_EXECUTABLE: julia
       SIMULATOR_PROJECT_PATH: /app/simulator
       SIMULATOR_RUN_SCRIPT_PATH: /app/simulator/scripts/run_case.jl
@@ -39,7 +47,7 @@ services:
       SIMULATION_CPU_THREADS: ${SIMULATION_CPU_THREADS:-6}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       SIMULATION_QUEUE_NAME: ${SIMULATION_QUEUE_NAME:-simulation_jobs}
       MAIL_BACKEND: ${MAIL_BACKEND:-console}
       MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-}
@@ -48,6 +56,10 @@ services:
       MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
       MAIL_SMTP_USE_TLS: ${MAIL_SMTP_USE_TLS:-true}
       MAIL_SENDER: ${MAIL_SENDER:-}
+      BREVO_API_URL: ${BREVO_API_URL:-https://api.brevo.com/v3/smtp/email}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-Prototipo Mamografico}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:-}
       PASSWORD_RESET_TOKEN_MAX_AGE: ${PASSWORD_RESET_TOKEN_MAX_AGE:-3600}
     ports:
       - "${WEB_PORT:-5000}:5000"
@@ -86,7 +98,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-mamografias_db}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-1234}@db:5432/${POSTGRES_DB:-mamografias_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:1234@db:5432/mamografias_db}
+      DATABASE_POOL_RECYCLE_SECONDS: ${DATABASE_POOL_RECYCLE_SECONDS:-300}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+      R2_ENDPOINT_URL: ${R2_ENDPOINT_URL:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_REGION: ${R2_REGION:-auto}
+      R2_PRESIGNED_URL_TTL_SECONDS: ${R2_PRESIGNED_URL_TTL_SECONDS:-300}
       JULIA_EXECUTABLE: julia
       SIMULATOR_PROJECT_PATH: /app/simulator
       SIMULATOR_RUN_SCRIPT_PATH: /app/simulator/scripts/run_case.jl
@@ -106,7 +126,7 @@ services:
       SIMULATION_CPU_THREADS: ${SIMULATION_CPU_THREADS:-6}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       SIMULATION_QUEUE_NAME: ${SIMULATION_QUEUE_NAME:-simulation_jobs}
       MAIL_BACKEND: ${MAIL_BACKEND:-console}
       MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-}
@@ -115,6 +135,10 @@ services:
       MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
       MAIL_SMTP_USE_TLS: ${MAIL_SMTP_USE_TLS:-true}
       MAIL_SENDER: ${MAIL_SENDER:-}
+      BREVO_API_URL: ${BREVO_API_URL:-https://api.brevo.com/v3/smtp/email}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-Prototipo Mamografico}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:-}
       PASSWORD_RESET_TOKEN_MAX_AGE: ${PASSWORD_RESET_TOKEN_MAX_AGE:-3600}
     volumes:
       - ./storage/uploads:/app/storage/uploads

@@ -41,6 +41,7 @@ def delete_case(case, upload_folder):
         return CaseDeletionResult(case_id=case.id, processing_active=True)
 
     case_id = case.id
+    user_id = case.user_id
 
     try:
         db.session.delete(case)
@@ -50,7 +51,11 @@ def delete_case(case, upload_folder):
         raise
 
     try:
-        remove_case_storage_directory(case_id, upload_folder)
+        remove_case_storage_directory(
+            case_id,
+            upload_folder,
+            user_id=user_id,
+        )
     except OSError:
         current_app.logger.exception(
             "El caso %s fue eliminado de la base de datos, pero no se pudo limpiar su almacenamiento.",

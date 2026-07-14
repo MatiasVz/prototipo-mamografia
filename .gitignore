@@ -2,6 +2,8 @@
 docs/
 explicacion_articulo_tesis_mamografias.md
 .env
+.env.*
+!.env.example
 venv/
 __pycache__/
 *.pyc

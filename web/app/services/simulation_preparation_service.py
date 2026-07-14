@@ -7,11 +7,10 @@ from ..models import CaseStatus
 from .preview_service import load_processing_image_for_path
 from .storage_service import (
     StoredFile,
-    get_case_roi_directory,
+    resolve_stored_path,
     store_simulation_grayscale_png,
     store_simulation_input_pgm,
     store_simulation_preparation_metadata,
-    to_relative_storage_path,
 )
 
 
@@ -40,11 +39,13 @@ def prepare_simulation_input_for_case(case, upload_folder: str):
                 simulation_image,
                 case.id,
                 upload_folder,
+                user_id=getattr(case, "user_id", None),
             )
             stored_input = store_simulation_input_pgm(
                 simulation_image,
                 case.id,
                 upload_folder,
+                user_id=getattr(case, "user_id", None),
             )
         finally:
             simulation_image.close()
@@ -66,11 +67,16 @@ def prepare_simulation_input_for_case(case, upload_folder: str):
         "alpha_background": "black",
         "contrast_normalization": "none",
         "resolution_policy": "full_source_resolution",
-        "grayscale_path": to_relative_storage_path(grayscale_path),
+        "grayscale_path": grayscale_path.relative_path,
         "simulation_input_path": stored_input.relative_path,
         "simulation_input_sha256": _sha256(stored_input.absolute_path),
     }
-    store_simulation_preparation_metadata(metadata, case.id, upload_folder)
+    store_simulation_preparation_metadata(
+        metadata,
+        case.id,
+        upload_folder,
+        user_id=getattr(case, "user_id", None),
+    )
 
     _update_case_simulation_input(case, stored_input)
     return stored_input
@@ -119,8 +125,7 @@ def _ensure_case_is_ready(case):
 
 
 def _get_case_roi_path(case, upload_folder: str):
-    roi_filename = Path(case.roi_file_path).name
-    return get_case_roi_directory(case.id, upload_folder) / roi_filename
+    return resolve_stored_path(case.roi_file_path, upload_folder)
 
 
 def _update_case_simulation_input(case, stored_input: StoredFile):

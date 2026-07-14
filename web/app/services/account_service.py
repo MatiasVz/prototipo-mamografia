@@ -29,7 +29,7 @@ def delete_account(user, password, upload_folder):
         return DeleteAccountResult(password_invalid=True)
 
     # Se capturan antes de borrar: tras eliminar el usuario, la relacion ya no existe.
-    case_ids = [case.id for case in user.cases]
+    case_ids = [(case.id, user.id) for case in user.cases]
 
     try:
         db.session.delete(user)
@@ -46,9 +46,13 @@ def _remove_case_storage(case_ids, upload_folder):
     """Borrar las carpetas de los casos en disco. Best-effort tras el commit."""
     orphaned = []
 
-    for case_id in case_ids:
+    for case_id, user_id in case_ids:
         try:
-            remove_case_storage_directory(case_id, upload_folder)
+            remove_case_storage_directory(
+                case_id,
+                upload_folder,
+                user_id=user_id,
+            )
         except OSError:
             current_app.logger.exception(
                 "No se pudieron borrar los archivos del caso id=%s", case_id

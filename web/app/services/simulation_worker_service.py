@@ -8,9 +8,14 @@ from ..extensions import db
 from ..models import CaseStatus, Result
 from .case_notification_service import notify_case_completed
 from .storage_service import (
+    build_case_storage_reference,
     get_case_simulation_results_directory,
-    get_case_upload_directory,
-    to_relative_storage_path,
+    get_storage_backend,
+    join_storage_reference,
+    publish_case_results_directory,
+    remove_case_materialized_cache,
+    remove_local_case_storage_directory,
+    resolve_stored_path,
 )
 
 
@@ -105,11 +110,16 @@ def process_case_simulation(
             timeout_seconds=_get_process_timeout(app_config),
             app_config=app_config,
         )
-        _mark_case_error(case, exc.user_message, output_dir=output_dir)
+        _mark_case_error(
+            case,
+            exc.user_message,
+            output_dir=output_dir,
+            upload_folder=upload_folder,
+        )
         db.session.commit()
         raise
 
-    _mark_case_processing(case, output_dir)
+    _mark_case_processing(case, output_dir, upload_folder)
     db.session.commit()
 
     try:
@@ -136,7 +146,12 @@ def process_case_simulation(
             timeout_seconds=_get_process_timeout(app_config),
             app_config=app_config,
         )
-        _mark_case_error(case, message)
+        _mark_case_error(
+            case,
+            message,
+            output_dir=output_dir,
+            upload_folder=upload_folder,
+        )
         db.session.commit()
         raise SimulationWorkerError(message, category="julia_executable") from exc
     except subprocess.TimeoutExpired as exc:
@@ -156,7 +171,12 @@ def process_case_simulation(
             timeout_seconds=_get_process_timeout(app_config),
             app_config=app_config,
         )
-        _mark_case_error(case, message)
+        _mark_case_error(
+            case,
+            message,
+            output_dir=output_dir,
+            upload_folder=upload_folder,
+        )
         db.session.commit()
         raise SimulationWorkerError(message, category="timeout") from exc
 
@@ -179,7 +199,12 @@ def process_case_simulation(
             "El simulador Julia finalizo con codigo "
             f"{completed_process.returncode}. Revisa worker_execution.log."
         )
-        _mark_case_error(case, message)
+        _mark_case_error(
+            case,
+            message,
+            output_dir=output_dir,
+            upload_folder=upload_folder,
+        )
         db.session.commit()
         raise SimulationWorkerError(
             message,
@@ -198,13 +223,32 @@ def process_case_simulation(
             exc.category,
             exc.technical_message,
         )
-        _mark_case_error(case, exc.user_message)
+        _mark_case_error(
+            case,
+            exc.user_message,
+            output_dir=output_dir,
+            upload_folder=upload_folder,
+        )
         db.session.commit()
         raise
 
-    _update_case_simulation_results(case, output_dir, result_paths)
+    _update_case_simulation_results(
+        case,
+        output_dir,
+        result_paths,
+        upload_folder,
+    )
     db.session.commit()
     notify_case_completed(case)
+
+    if get_storage_backend().name == "r2":
+        try:
+            remove_local_case_storage_directory(case.id, upload_folder)
+            remove_case_materialized_cache(case.user_id, case.id, upload_folder)
+        except OSError:
+            # R2 ya contiene la entrada y los resultados. Una copia temporal que
+            # no pudo limpiarse no invalida una simulacion completada.
+            pass
 
     return SimulationWorkerResult(
         case_id=case.id,
@@ -316,16 +360,7 @@ def _build_julia_command(app_config, input_path, output_dir, *, seed, steps):
 def _resolve_simulation_input_path(case, upload_folder):
     _ensure_case_can_be_processed(case)
 
-    stored_path = Path(case.simulation_input_file_path)
-
-    if stored_path.is_absolute():
-        input_path = stored_path
-    else:
-        direct_path = Path.cwd() / stored_path
-        if direct_path.exists():
-            input_path = direct_path
-        else:
-            input_path = get_case_upload_directory(case.id, upload_folder) / stored_path.name
+    input_path = resolve_stored_path(case.simulation_input_file_path, upload_folder)
 
     if not input_path.exists():
         raise SimulationWorkerError(
@@ -604,32 +639,62 @@ def _ensure_non_negative_output_times(value):
         )
 
 
-def _mark_case_processing(case, output_dir):
+def _mark_case_processing(case, output_dir, upload_folder):
     case.status = CaseStatus.PROCESSING
     case.error_message = None
     if not case.simulation_results_path:
-        case.simulation_results_path = to_relative_storage_path(output_dir)
+        case.simulation_results_path = build_case_storage_reference(
+            case.user_id,
+            case.id,
+            "results",
+            upload_folder,
+        )
 
 
-def _mark_case_error(case, message, *, output_dir=None):
+def _mark_case_error(case, message, *, output_dir=None, upload_folder=None):
     case.status = CaseStatus.ERROR
     case.error_message = message
     if output_dir is not None and not case.simulation_results_path:
-        case.simulation_results_path = to_relative_storage_path(output_dir)
+        case.simulation_results_path = build_case_storage_reference(
+            case.user_id,
+            case.id,
+            "results",
+            upload_folder,
+        )
+
+    if output_dir is not None and upload_folder is not None:
+        try:
+            publish_case_results_directory(
+                output_dir,
+                case_id=case.id,
+                user_id=case.user_id,
+                upload_folder=upload_folder,
+            )
+        except OSError:
+            pass
 
 
-def _update_case_simulation_results(case, output_dir, result_paths):
+def _update_case_simulation_results(case, output_dir, result_paths, upload_folder):
+    results_reference = publish_case_results_directory(
+        output_dir,
+        case_id=case.id,
+        user_id=case.user_id,
+        upload_folder=upload_folder,
+    )
     case.status = CaseStatus.COMPLETED
     case.error_message = None
-    case.simulation_results_path = to_relative_storage_path(output_dir)
-    case.simulation_metrics_file_path = to_relative_storage_path(
-        result_paths["diffusion_metrics_json"],
+    case.simulation_results_path = results_reference
+    case.simulation_metrics_file_path = join_storage_reference(
+        results_reference,
+        result_paths["diffusion_metrics_json"].name,
     )
-    case.simulation_density_map_file_path = to_relative_storage_path(
-        result_paths["mpc_concentration_representative_final_map"],
+    case.simulation_density_map_file_path = join_storage_reference(
+        results_reference,
+        result_paths["mpc_concentration_representative_final_map"].name,
     )
-    case.simulation_log_file_path = to_relative_storage_path(
-        result_paths["simulation_log"],
+    case.simulation_log_file_path = join_storage_reference(
+        results_reference,
+        result_paths["simulation_log"].name,
     )
     _store_diffusion_metrics(case, result_paths)
 

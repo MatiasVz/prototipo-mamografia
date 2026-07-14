@@ -1,5 +1,8 @@
+import json
 import smtplib
 from email.message import EmailMessage
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from flask import current_app
 
@@ -25,6 +28,8 @@ def send_email(to_address, subject, body):
 
     if backend == "smtp":
         _send_via_smtp(to_address, subject, body)
+    elif backend == "brevo":
+        _send_via_brevo(to_address, subject, body)
     else:
         _send_via_console(to_address, subject, body)
 
@@ -69,3 +74,51 @@ def _send_via_smtp(to_address, subject, body):
         # Se traduce a una excepcion propia para que la capa superior la maneje
         # sin exponer detalles internos al usuario.
         raise EmailDeliveryError(str(error)) from error
+
+
+def _send_via_brevo(to_address, subject, body):
+    config = current_app.config
+    api_url = config.get("BREVO_API_URL")
+    api_key = config.get("BREVO_API_KEY")
+    sender_name = config.get("BREVO_SENDER_NAME")
+    sender_email = config.get("BREVO_SENDER_EMAIL")
+
+    if not api_url or not api_key or not sender_email:
+        raise EmailDeliveryError(
+            "Configuracion Brevo incompleta: define API, clave y remitente verificado."
+        )
+
+    payload = {
+        "sender": {
+            "name": sender_name or current_app.config.get("APP_NAME", "Prototipo"),
+            "email": sender_email,
+        },
+        "to": [{"email": to_address}],
+        "subject": subject,
+        "textContent": body,
+    }
+    request = Request(
+        api_url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "accept": "application/json",
+            "api-key": api_key,
+            "content-type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=20) as response:
+            if not 200 <= response.status < 300:
+                raise EmailDeliveryError(
+                    f"Brevo rechazo el correo con estado HTTP {response.status}."
+                )
+    except HTTPError as error:
+        raise EmailDeliveryError(
+            f"Brevo rechazo el correo con estado HTTP {error.code}."
+        ) from error
+    except (OSError, URLError) as error:
+        raise EmailDeliveryError(
+            "No se pudo conectar con el servicio de correo transaccional."
+        ) from error
