@@ -9,7 +9,6 @@ services:
     dockerContext: .
     healthCheckPath: /health/live
     autoDeployTrigger: off
-    maxShutdownDelaySeconds: 30
     envVars:
       - key: APP_NAME
         value: Prototipo Mamografico
