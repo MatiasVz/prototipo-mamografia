@@ -1,8 +1,9 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from deploy.validate_env import load_environment, validate_environment
+from deploy.validate_env import load_environment, main, validate_environment
 
 
 class DeploymentEnvironmentTests(unittest.TestCase):
@@ -33,6 +34,10 @@ class DeploymentEnvironmentTests(unittest.TestCase):
             values["DATABASE_URL"],
             "postgresql://user:secret@db.example/db?sslmode=require",
         )
+
+    def test_current_environment_mode_validates_process_values(self):
+        with patch.dict("os.environ", self._valid_values(), clear=True):
+            self.assertEqual(main(["--current-environment"]), 0)
 
     @staticmethod
     def _valid_values():

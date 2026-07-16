@@ -1,40 +1,173 @@
-# Despliegue contenedorizado
+# Despliegue distribuido y controlado
 
-Esta configuracion usa la misma imagen para la aplicacion Flask y el worker Python/Julia. La imagen inicia la web con Gunicorn por defecto; el Compose del servidor reemplaza el comando para ejecutar solamente el listener de la cola.
+La aplicacion se despliega como dos componentes independientes construidos a
+partir del mismo repositorio:
 
-## Distribucion prevista
-
-- Web: imagen Docker desplegada en el proveedor web, sin simulaciones locales.
-- Worker universitario: `docker-compose.worker.yml`, sin puertos publicados.
-- PostgreSQL: Neon mediante `DATABASE_URL` con TLS.
-- Cola Redis: Upstash mediante `REDIS_URL` con TLS.
+- Web Flask: Render mediante `Dockerfile.web`.
+- Worker Python/Julia: servidor universitario mediante
+  `docker-compose.worker.yml`.
+- PostgreSQL: Neon con conexion TLS.
+- Cola Redis: Upstash con conexion TLS.
 - Archivos privados: Cloudflare R2.
-- Correos: API HTTPS de Brevo.
+- Correos transaccionales: Brevo mediante HTTPS.
 
-El servidor universitario no crea contenedores PostgreSQL ni Redis. El worker utiliza CPU, tiene un limite de 30 cores autorizado por el responsable del servidor y no solicita acceso a GPU.
+La web no ejecuta simulaciones. Registra la tarea en Redis y el worker del
+servidor la procesa con CPU. El worker no publica puertos y no crea servicios
+PostgreSQL o Redis locales.
 
-## Preparacion del servidor
+## Controles de seguridad
 
-1. Clonar el repositorio dentro del directorio personal del usuario.
-2. Crear `.env.production` a partir de `deploy/production.env.example`.
-3. Completar las credenciales directamente en el servidor y proteger el archivo:
+- Los secretos no se incluyen en imagenes, Compose, Git ni artefactos.
+- El contenedor utiliza un usuario sin privilegios, elimina capabilities y
+  activa `no-new-privileges`.
+- El proyecto Compose remoto siempre se llama `mamografia-<usuario>`.
+- Los archivos del despliegue permanecen en el directorio personal del usuario.
+- Cada imagen remota se fija por digest `sha256`; no se despliegan etiquetas
+  mutables como `latest`.
+- Un bloqueo impide ejecutar dos despliegues al mismo tiempo.
+- Si el worker nuevo no queda saludable, se restaura la version anterior.
+- Ningun script contiene operaciones globales como `docker system prune`,
+  `docker stop $(docker ps ...)` o eliminacion de contenedores ajenos.
+
+## Validacion continua
+
+`.github/workflows/ci.yml` se ejecuta en Pull Requests y cambios de `develop` o
+`main`. Verifica:
+
+1. Ausencia de secretos versionados.
+2. Pruebas y sintaxis Python.
+3. Pruebas del simulador Julia.
+4. Construccion de las imagenes web y worker sin publicarlas.
+
+Las acciones externas estan fijadas a commits concretos para que el pipeline
+sea reproducible.
+
+## Preparacion unica del servidor
+
+El bootstrap solo crea directorios privados. No inicia, detiene ni modifica
+contenedores:
 
 ```bash
-chmod 600 .env.production
+bash deploy/server-bootstrap.sh
 ```
 
-4. Confirmar que Docker esta disponible para el usuario:
+La estructura resultante es:
+
+```text
+~/apps/prototipo-mamografia/
+|-- current -> releases/<commit>
+|-- previous -> releases/<commit-anterior>
+|-- releases/
+`-- shared/
+    |-- .env.production
+    `-- runtime/
+```
+
+Crear manualmente
+`~/apps/prototipo-mamografia/shared/.env.production` a partir de
+`deploy/production.env.example` y protegerlo:
 
 ```bash
-docker info
-docker compose version
+chmod 600 ~/apps/prototipo-mamografia/shared/.env.production
 ```
 
-No se deben copiar secretos dentro del Dockerfile, el Compose, GitHub ni los logs.
+Antes del primer despliegue se valida sin revelar valores:
 
-## Operacion
+```bash
+python3 deploy/validate_env.py \
+  ~/apps/prototipo-mamografia/shared/.env.production
+```
 
-Ejecutar los comandos desde la raiz del repositorio:
+## Acceso automatizado por SSH
+
+GitHub Actions utiliza una clave exclusiva para despliegue. La clave publica se
+agrega a `~/.ssh/authorized_keys` del usuario universitario. La clave privada no
+se copia al servidor ni al repositorio.
+
+En GitHub se crea el Environment `production` con aprobacion manual y estos
+secrets:
+
+- `PRODUCTION_SSH_HOST`
+- `PRODUCTION_SSH_PORT`
+- `PRODUCTION_SSH_USER`
+- `PRODUCTION_SSH_PRIVATE_KEY`
+- `PRODUCTION_SSH_KNOWN_HOSTS`
+- `RENDER_DEPLOY_HOOK_URL`
+
+Tambien se configura la variable `PRODUCTION_WEB_URL` con la URL publica de
+Render. Neon, Upstash, R2 y Brevo no se guardan en GitHub: sus valores se
+mantienen solamente en Render y en el `.env.production` privado del servidor.
+
+## Aplicacion web en Render
+
+`render.yaml` define un Web Service Docker gratuito sobre `develop` durante la
+validacion inicial. El servicio usa `/health/live` como healthcheck y mantiene
+el despliegue automatico desactivado. GitHub Actions solicita cada despliegue
+mediante un Deploy Hook protegido.
+
+Al crear el Blueprint se completan en el panel de Render las variables marcadas
+con `sync: false`. `PUBLIC_BASE_URL` debe coincidir con la URL HTTPS asignada al
+servicio. El arranque valida el entorno, crea de forma idempotente las tablas y
+despues inicia Gunicorn.
+
+Una vez validada la infraestructura, la rama del servicio puede cambiarse de
+`develop` a `main` como promocion estable.
+
+## Despliegue manual aprobado
+
+Mientras `main` conserva el respaldo anterior al despliegue, el workflow se
+inicia mediante una etiqueta sobre la punta actual de `develop`:
+
+```bash
+git switch develop
+git pull origin develop
+git tag deploy-develop-YYYYMMDD-HHMM
+git push origin deploy-develop-YYYYMMDD-HHMM
+```
+
+La ejecucion espera la aprobacion del Environment `production`. Cuando el
+workflow exista tambien en la rama predeterminada, puede iniciarse con
+`Run workflow`, eligiendo la rama y escribiendo `DESPLEGAR`.
+
+El workflow vuelve a ejecutar las pruebas, publica el worker en GHCR, transfiere
+solo los archivos de control, inicia exclusivamente el proyecto Compose del
+usuario, espera su healthcheck y valida `/health/live` y `/health/ready` de la
+web. Al finalizar conserva un artefacto no sensible llamado
+`deployment-evidence`.
+
+## Parametros de produccion
+
+- 200 pasos de simulacion.
+- 3 realizaciones.
+- 500 particulas etiquetadas para Cv/MDC.
+- 30 hilos Julia y limite de 30 CPU autorizado para el contenedor.
+- Sin limite artificial de tiempo (`SIMULATION_TIMEOUT_SECONDS=0`).
+- Tiempos de salida `0,200`.
+
+## Operacion y recuperacion
+
+Consultar el estado sin modificar el worker:
+
+```bash
+bash ~/apps/prototipo-mamografia/current/deploy/remote-worker.sh \
+  status _ _
+```
+
+Revertir manualmente a la entrega anterior:
+
+```bash
+bash ~/apps/prototipo-mamografia/current/deploy/remote-worker.sh \
+  rollback _ _
+```
+
+El rollback solo reemplaza el servicio `worker` del proyecto Compose del
+usuario. La base de datos y los archivos definitivos permanecen en los
+proveedores externos.
+
+## Operacion local de contingencia
+
+`deploy/worker.sh` permanece disponible para construir y validar el worker
+manualmente desde una copia completa del repositorio:
 
 ```bash
 bash deploy/worker.sh config
@@ -45,67 +178,9 @@ bash deploy/worker.sh status
 bash deploy/worker.sh logs
 ```
 
-Para detener o reiniciar exclusivamente este proyecto:
-
-```bash
-bash deploy/worker.sh stop
-bash deploy/worker.sh restart
-```
-
-Para traer la version mas reciente de `develop`, reconstruir y volver a iniciar:
-
-```bash
-bash deploy/worker.sh update
-```
-
-El nombre Compose incluye al usuario y evita interferir con contenedores de otros proyectos. Los archivos temporales quedan en `runtime/`, dentro del repositorio del usuario, con permisos privados. Los resultados definitivos se publican en R2 y las copias temporales se limpian al terminar cada caso.
-
-## Parametros del worker
-
-La configuracion de produccion esperada es:
-
-- 200 pasos de simulacion.
-- 3 realizaciones.
-- 500 particulas etiquetadas para Cv/MDC.
-- 30 hilos Julia y limite de 30 CPU para el contenedor.
-- Tiempo de simulacion sin limite artificial (`SIMULATION_TIMEOUT_SECONDS=0`).
-- Tiempos de salida `0,200`.
-
-Estos valores se definen mediante el archivo de entorno y pueden auditarse en la linea de inicio del worker sin mostrar secretos.
-
-Si la imagen se valida en una computadora con menos de 30 CPU disponibles, se
-puede reducir temporalmente el limite solo para esa ejecucion local, sin editar
-el perfil de produccion:
+En un equipo con menos de 30 CPU se puede reducir el limite solo para la prueba
+local:
 
 ```bash
 SIMULATION_CPU_THREADS=8 WORKER_CPU_LIMIT=8 bash deploy/worker.sh test
 ```
-
-## Salud y diagnostico
-
-La imagen web expone:
-
-- `/health/live`: confirma que el proceso web responde.
-- `/health/ready`: comprueba PostgreSQL, Redis y la configuracion del almacenamiento.
-
-El worker tiene un healthcheck equivalente. Para revisar su estado y sus ultimos mensajes:
-
-```bash
-bash deploy/worker.sh status
-LOG_TAIL=500 bash deploy/worker.sh logs
-```
-
-Los logs Docker rotan en cinco archivos de 20 MB y no imprimen URLs ni credenciales cloud.
-
-## Recuperacion
-
-Si una actualizacion no inicia correctamente:
-
-1. Revisar `bash deploy/worker.sh logs`.
-2. Detener solo este proyecto con `bash deploy/worker.sh stop`.
-3. Identificar el commit estable anterior con `git log --oneline`.
-4. Cambiar temporalmente a ese commit con `git switch --detach <commit>`.
-5. Ejecutar `bash deploy/worker.sh build` y `bash deploy/worker.sh start`.
-6. Tras resolver el problema, volver con `git switch develop` y actualizar.
-
-La base de datos y los archivos permanecen en los proveedores externos, por lo que reconstruir el contenedor no elimina los casos almacenados.

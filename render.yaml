@@ -1,0 +1,97 @@
+services:
+  - type: web
+    name: prototipo-mamografia
+    runtime: docker
+    plan: free
+    region: virginia
+    branch: develop
+    dockerfilePath: ./Dockerfile.web
+    dockerContext: .
+    healthCheckPath: /health/live
+    autoDeployTrigger: off
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: APP_NAME
+        value: Prototipo Mamografico
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: MAX_CONTENT_LENGTH
+        value: "52428800"
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_POOL_RECYCLE_SECONDS
+        value: "300"
+      - key: REDIS_URL
+        sync: false
+      - key: SIMULATION_QUEUE_NAME
+        value: simulation_jobs
+      - key: STORAGE_BACKEND
+        value: r2
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_REGION
+        value: auto
+      - key: R2_PRESIGNED_URL_TTL_SECONDS
+        value: "300"
+      - key: MAIL_BACKEND
+        value: brevo
+      - key: BREVO_API_URL
+        value: https://api.brevo.com/v3/smtp/email
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_NAME
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
+      - key: PASSWORD_RESET_TOKEN_MAX_AGE
+        value: "3600"
+      - key: UPLOAD_FOLDER
+        value: /app/runtime/uploads
+      - key: WEB_WORKERS
+        value: "2"
+      - key: WEB_THREADS
+        value: "4"
+      - key: WEB_REQUEST_TIMEOUT_SECONDS
+        value: "120"
+      - key: WEB_GRACEFUL_TIMEOUT_SECONDS
+        value: "30"
+      - key: WEB_WORKER_TMP_DIR
+        value: /dev/shm
+      - key: SIMULATION_DEFAULT_SEED
+        value: "1234"
+      - key: SIMULATION_DEFAULT_STEPS
+        value: "200"
+      - key: SIMULATION_DEFAULT_N0
+        value: "10"
+      - key: SIMULATION_DEFAULT_MASS
+        value: "1"
+      - key: SIMULATION_DEFAULT_KBT
+        value: "1"
+      - key: SIMULATION_DEFAULT_TAU
+        value: "1"
+      - key: SIMULATION_DEFAULT_ROTATION_ANGLE
+        value: "1.5707963267948966"
+      - key: SIMULATION_DEFAULT_REALIZATIONS
+        value: "3"
+      - key: SIMULATION_DEFAULT_LABELED_PARTICLES
+        value: "500"
+      - key: SIMULATION_CORRELATION_INITIAL_TIMES
+        value: "50"
+      - key: SIMULATION_DEFAULT_OUTPUT_TIMES
+        value: 0,200
+      - key: SIMULATION_GRID_SHIFT_ENABLED
+        value: "false"
+      - key: SIMULATION_TIMEOUT_SECONDS
+        value: "0"
+      - key: SIMULATION_CPU_THREADS
+        value: "30"
+      - key: WORKER_CPU_LIMIT
+        value: "30"
