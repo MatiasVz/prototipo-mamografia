@@ -1,6 +1,7 @@
 .git
 .vscode
 .env
+.env.*
 docs
 storage/uploads
 web/.venv
@@ -11,3 +12,5 @@ __pycache__
 .pytest_cache
 .mypy_cache
 .ruff_cache
+runtime
+outputs

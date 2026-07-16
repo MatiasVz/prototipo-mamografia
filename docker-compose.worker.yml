@@ -1,0 +1,48 @@
+name: ${COMPOSE_PROJECT_NAME:-mamografia-mvelasquez}
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${APP_IMAGE_NAME:-prototipo-mamografia-app}:${APP_IMAGE_TAG:-develop}
+    restart: unless-stopped
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    command: ["python3", "worker/worker.py", "listen", "--timeout", "5"]
+    env_file:
+      - ${APP_ENV_FILE:-.env.production}
+    environment:
+      UPLOAD_FOLDER: /app/runtime/uploads
+      SIMULATOR_PROJECT_PATH: /app/simulator
+      SIMULATOR_RUN_SCRIPT_PATH: /app/simulator/scripts/run_case.jl
+      JULIA_EXECUTABLE: julia
+      JULIA_DEPOT_PATH: /app/runtime/julia-depot:/opt/julia-depot
+      JULIA_NUM_THREADS: ${SIMULATION_CPU_THREADS:-30}
+      SIMULATION_DEFAULT_STEPS: ${SIMULATION_DEFAULT_STEPS:-200}
+      SIMULATION_DEFAULT_REALIZATIONS: ${SIMULATION_DEFAULT_REALIZATIONS:-3}
+      SIMULATION_DEFAULT_LABELED_PARTICLES: ${SIMULATION_DEFAULT_LABELED_PARTICLES:-500}
+      SIMULATION_DEFAULT_OUTPUT_TIMES: ${SIMULATION_DEFAULT_OUTPUT_TIMES:-0,200}
+      SIMULATION_CPU_THREADS: ${SIMULATION_CPU_THREADS:-30}
+      SIMULATION_TIMEOUT_SECONDS: ${SIMULATION_TIMEOUT_SECONDS:-0}
+      TMPDIR: /app/runtime/tmp
+      XDG_CACHE_HOME: /app/runtime/cache
+    volumes:
+      - ${WORKER_RUNTIME_DIR:-./runtime}:/app/runtime
+    cpus: ${WORKER_CPU_LIMIT:-30}
+    pids_limit: 1024
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30m
+    healthcheck:
+      test: ["CMD", "python3", "worker/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

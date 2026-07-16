@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+import signal
 import sys
 import time
 
@@ -23,6 +24,10 @@ from app.services.simulation_worker_service import (  # noqa: E402
     SimulationWorkerError,
     process_case_simulation,
 )
+
+
+class WorkerShutdownRequested(Exception):
+    pass
 
 
 def main(argv=None):
@@ -183,26 +188,65 @@ def _process_case_id(case_id, flask_app, *, seed=None, steps=None):
 
 def listen(args):
     flask_app = create_app()
+    stop_requested = False
+    processing_case = False
+
+    def request_stop(signum, _frame):
+        nonlocal stop_requested, processing_case
+        stop_requested = True
+        print(
+            f"Senal {signum} recibida. El worker terminara al concluir el caso activo.",
+            flush=True,
+        )
+        if not processing_case:
+            raise WorkerShutdownRequested
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+
     print("Worker listo. Escuchando cola Redis de simulaciones.", flush=True)
+    print(
+        "Configuracion: "
+        f"storage={flask_app.config['STORAGE_BACKEND']} "
+        f"steps={flask_app.config['SIMULATION_DEFAULT_STEPS']} "
+        f"realizations={flask_app.config['SIMULATION_DEFAULT_REALIZATIONS']} "
+        f"labeled_particles={flask_app.config['SIMULATION_DEFAULT_LABELED_PARTICLES']} "
+        f"cpu_threads={flask_app.config['SIMULATION_CPU_THREADS']} "
+        f"timeout={'unlimited' if flask_app.config['SIMULATION_TIMEOUT_SECONDS'] is None else flask_app.config['SIMULATION_TIMEOUT_SECONDS']}",
+        flush=True,
+    )
 
-    with flask_app.app_context():
-        while True:
-            try:
-                case_id = pop_queued_case_id(
-                    flask_app.config,
-                    timeout_seconds=args.timeout,
-                )
-            except SimulationQueueError as exc:
-                print(f"Error de cola: {exc}", file=sys.stderr, flush=True)
-                time.sleep(max(1, args.timeout))
-                continue
+    try:
+        with flask_app.app_context():
+            while not stop_requested:
+                try:
+                    case_id = pop_queued_case_id(
+                        flask_app.config,
+                        timeout_seconds=args.timeout,
+                    )
+                except SimulationQueueError as exc:
+                    print(f"Error de cola: {exc}", file=sys.stderr, flush=True)
+                    time.sleep(max(1, args.timeout))
+                    continue
 
-            if case_id is None:
-                continue
+                if case_id is None:
+                    continue
 
-            print(f"Caso recibido desde Redis. case_id={case_id}", flush=True)
-            _process_case_id(case_id, flask_app)
+                print(f"Caso recibido desde Redis. case_id={case_id}", flush=True)
+                processing_case = True
+                try:
+                    _process_case_id(case_id, flask_app)
+                finally:
+                    processing_case = False
+                    db.session.remove()
+    except WorkerShutdownRequested:
+        pass
+    finally:
+        with flask_app.app_context():
             db.session.remove()
+
+    print("Worker detenido de forma controlada.", flush=True)
+    return 0
 
 
 def idle(args):

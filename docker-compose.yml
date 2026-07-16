@@ -65,6 +65,16 @@ services:
       - "${WEB_PORT:-5000}:5000"
     volumes:
       - ./storage/uploads:/app/storage/uploads
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health/live', timeout=3)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       db:
         condition: service_healthy
@@ -78,8 +88,7 @@ services:
       dockerfile: Dockerfile
     container_name: mamografias_worker
     restart: unless-stopped
-    entrypoint: ["python3", "worker/worker.py"]
-    command: ["listen"]
+    command: ["python3", "worker/worker.py", "listen"]
     # Limite duro de cores que el worker puede usar en el host. Red de seguridad para que
     # la simulacion no deje la maquina inutilizable. Ajustar segun la maquina (en el
     # servidor se puede subir o quitar). Conviene mantenerlo alineado con SIMULATION_CPU_THREADS.
@@ -142,6 +151,12 @@ services:
       PASSWORD_RESET_TOKEN_MAX_AGE: ${PASSWORD_RESET_TOKEN_MAX_AGE:-3600}
     volumes:
       - ./storage/uploads:/app/storage/uploads
+    healthcheck:
+      test: ["CMD", "python3", "worker/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       db:
         condition: service_healthy
