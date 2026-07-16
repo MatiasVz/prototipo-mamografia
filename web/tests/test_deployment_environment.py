@@ -4,6 +4,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from deploy.validate_env import load_environment, main, validate_environment
+from web.app.config import resolve_app_version
 
 
 class DeploymentEnvironmentTests(unittest.TestCase):
@@ -38,6 +39,29 @@ class DeploymentEnvironmentTests(unittest.TestCase):
     def test_current_environment_mode_validates_process_values(self):
         with patch.dict("os.environ", self._valid_values(), clear=True):
             self.assertEqual(main(["--current-environment"]), 0)
+
+    def test_render_commit_identifies_the_deployed_version(self):
+        with patch.dict(
+            "os.environ",
+            {"RENDER_GIT_COMMIT": "12781b6abcdef"},
+            clear=True,
+        ):
+            self.assertEqual(resolve_app_version(), "12781b6abcdef")
+
+    def test_explicit_version_has_priority_over_render_commit(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "APP_VERSION": "release-1",
+                "RENDER_GIT_COMMIT": "12781b6abcdef",
+            },
+            clear=True,
+        ):
+            self.assertEqual(resolve_app_version(), "release-1")
+
+    def test_local_version_uses_development_fallback(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(resolve_app_version(), "development")
 
     @staticmethod
     def _valid_values():
