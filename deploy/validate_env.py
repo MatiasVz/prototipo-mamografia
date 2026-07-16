@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import sys
 from urllib.parse import urlsplit
 
@@ -82,15 +83,23 @@ def _validate_url(values, key, allowed_schemes, errors):
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 1:
-        print("Uso: python3 deploy/validate_env.py <archivo-env>", file=sys.stderr)
+        print(
+            "Uso: python3 deploy/validate_env.py "
+            "<archivo-env|--current-environment>",
+            file=sys.stderr,
+        )
         return 2
 
-    path = Path(args[0]).expanduser()
-    if not path.is_file():
-        print(f"No existe el archivo de entorno: {path}", file=sys.stderr)
-        return 2
+    if args[0] == "--current-environment":
+        values = dict(os.environ)
+    else:
+        path = Path(args[0]).expanduser()
+        if not path.is_file():
+            print(f"No existe el archivo de entorno: {path}", file=sys.stderr)
+            return 2
+        values = load_environment(path)
 
-    errors = validate_environment(load_environment(path))
+    errors = validate_environment(values)
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)

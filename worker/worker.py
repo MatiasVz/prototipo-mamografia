@@ -207,6 +207,7 @@ def listen(args):
     print("Worker listo. Escuchando cola Redis de simulaciones.", flush=True)
     print(
         "Configuracion: "
+        f"version={flask_app.config['APP_VERSION']} "
         f"storage={flask_app.config['STORAGE_BACKEND']} "
         f"steps={flask_app.config['SIMULATION_DEFAULT_STEPS']} "
         f"realizations={flask_app.config['SIMULATION_DEFAULT_REALIZATIONS']} "

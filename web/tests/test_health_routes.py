@@ -13,6 +13,7 @@ class HealthTestConfig:
     SQLALCHEMY_ENGINE_OPTIONS = {}
     REDIS_URL = "redis://localhost:6379/0"
     STORAGE_BACKEND = "local"
+    APP_VERSION = "test-version"
 
 
 class HealthRouteTests(unittest.TestCase):
@@ -24,7 +25,10 @@ class HealthRouteTests(unittest.TestCase):
         response = self.client.get("/health/live")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json(), {"status": "ok"})
+        self.assertEqual(
+            response.get_json(),
+            {"status": "ok", "version": "test-version"},
+        )
 
     def test_readiness_reports_available_dependencies(self):
         health = RuntimeHealth(database=True, queue=True, storage=True)
@@ -37,6 +41,7 @@ class HealthRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["status"], "ready")
+        self.assertEqual(response.get_json()["version"], "test-version")
         self.assertEqual(
             response.get_json()["checks"],
             {"database": "ok", "queue": "ok", "storage": "ok"},

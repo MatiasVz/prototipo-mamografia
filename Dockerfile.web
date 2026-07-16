@@ -1,0 +1,38 @@
+FROM python:3.13.5-slim-bookworm@sha256:a7cb177dc60dfa77b223192cd0d9e6ce1aac7cf9a569023d68e7c91b6371a718
+
+ARG APP_VERSION=development
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app:/app/web \
+    APP_VERSION=${APP_VERSION}
+
+LABEL org.opencontainers.image.title="Prototipo Mamografico - Web" \
+      org.opencontainers.image.description="Aplicacion web Flask para analisis mamografico" \
+      org.opencontainers.image.revision="${APP_VERSION}"
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY web/requirements.lock.txt /tmp/requirements.lock.txt
+RUN python3 -m pip install --no-cache-dir -r /tmp/requirements.lock.txt \
+    && python3 -m pip check
+
+COPY deploy /app/deploy
+COPY web /app/web
+
+RUN groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --create-home --shell /usr/sbin/nologin app \
+    && mkdir -p /app/runtime/uploads \
+    && chmod 755 /app/deploy/web-entrypoint.sh \
+    && chown -R app:app /app/runtime
+
+USER app
+
+EXPOSE 10000
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/app/deploy/web-entrypoint.sh"]

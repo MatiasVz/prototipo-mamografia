@@ -1,0 +1,289 @@
+name: Despliegue controlado
+
+on:
+  push:
+    tags:
+      - deploy-develop-*
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: Rama validada que se desplegara
+        required: true
+        default: develop
+        type: choice
+        options:
+          - develop
+          - main
+      confirmation:
+        description: Escriba DESPLEGAR para confirmar
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validar entrega
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.source.outputs.version }}
+      source_branch: ${{ steps.source.outputs.source_branch }}
+    steps:
+      - name: Confirmar operacion
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [ "$CONFIRMATION" != "DESPLEGAR" ]; then
+            echo "La confirmacion escrita no coincide con DESPLEGAR." >&2
+            exit 1
+          fi
+
+      - name: Obtener rama autorizada
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || github.sha }}
+          fetch-depth: 0
+
+      - name: Registrar y verificar version exacta
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_BRANCH: ${{ inputs.source_branch }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ]; then
+            source_branch=develop
+          else
+            source_branch="$REQUESTED_BRANCH"
+          fi
+          git fetch origin "$source_branch"
+          version="$(git rev-parse HEAD)"
+          branch_tip="$(git rev-parse "origin/${source_branch}")"
+          if [ "$version" != "$branch_tip" ]; then
+            echo "La entrega no coincide con la punta actual de ${source_branch}." >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "source_branch=${source_branch}" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: 3.13.5
+          cache: pip
+          cache-dependency-path: web/requirements.lock.txt
+
+      - name: Instalar dependencias Python
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r web/requirements.lock.txt
+          python -m pip check
+
+      - name: Verificar secretos y pruebas Python
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/web
+        run: |
+          python deploy/check_repository_secrets.py
+          python -m unittest discover -s web/tests -v
+
+      - name: Configurar Julia
+        uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9
+        with:
+          version: 1.12.6
+
+      - name: Verificar simulador Julia
+        run: |
+          julia --project=simulator -e 'using Pkg; Pkg.instantiate()'
+          julia --project=simulator simulator/test/runtests.jl
+
+  publish-worker:
+    name: Publicar imagen inmutable
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      image_reference: ${{ steps.reference.outputs.image_reference }}
+      version: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Obtener version validada
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.validate.outputs.version }}
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Iniciar sesion temporal en GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Definir nombre de imagen
+        id: image
+        shell: bash
+        run: |
+          name="ghcr.io/${GITHUB_REPOSITORY_OWNER}/prototipo-mamografia-worker"
+          echo "name=${name,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Construir y publicar worker
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ needs.validate.outputs.version }}
+          build-args: APP_VERSION=${{ needs.validate.outputs.version }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+      - name: Fijar referencia por contenido
+        id: reference
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "image_reference=${IMAGE_NAME}@${IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Desplegar worker y validar web
+    needs:
+      - validate
+      - publish-worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      VERSION: ${{ needs.publish-worker.outputs.version }}
+      IMAGE_REFERENCE: ${{ needs.publish-worker.outputs.image_reference }}
+      SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+      SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
+      SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GHCR_USERNAME: ${{ github.actor }}
+      PRODUCTION_WEB_URL: ${{ vars.PRODUCTION_WEB_URL }}
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+    steps:
+      - name: Obtener version validada
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.publish-worker.outputs.version }}
+
+      - name: Verificar configuracion protegida
+        shell: bash
+        run: |
+          required=(SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS RENDER_DEPLOY_HOOK_URL)
+          for name in "${required[@]}"; do
+            if [ -z "${!name}" ]; then
+              echo "Falta configurar ${name} en el entorno production." >&2
+              exit 1
+            fi
+          done
+          if [ -z "$PRODUCTION_WEB_URL" ]; then
+            echo "Falta la variable PRODUCTION_WEB_URL en el entorno production." >&2
+            exit 1
+          fi
+
+      - name: Preparar conexion SSH verificada
+        shell: bash
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/pro93_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/pro93_deploy_key" "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<EOF
+          Host pro93-server
+            HostName ${SSH_HOST}
+            Port ${SSH_PORT}
+            User ${SSH_USER}
+            IdentityFile ${HOME}/.ssh/pro93_deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ${HOME}/.ssh/known_hosts
+            ConnectTimeout 20
+          EOF
+          chmod 600 "$HOME/.ssh/config"
+          ssh pro93-server 'printf "Conexion SSH verificada para %s en %s.\n" "$USER" "$(hostname)"'
+
+      - name: Solicitar despliegue web en Render
+        shell: bash
+        run: |
+          curl --fail --silent --show-error \
+            --output /dev/null \
+            "$RENDER_DEPLOY_HOOK_URL"
+          echo "Render acepto la solicitud de despliegue."
+
+      - name: Transferir entrega aislada
+        shell: bash
+        run: |
+          remote_release="apps/prototipo-mamografia/releases/${VERSION}"
+          # La ruta se calcula con un hash Git validado.
+          # shellcheck disable=SC2029
+          ssh pro93-server "umask 077; mkdir -p '${remote_release}/deploy'"
+          scp docker-compose.worker.yml "pro93-server:${remote_release}/docker-compose.worker.yml"
+          scp deploy/validate_env.py deploy/remote-worker.sh "pro93-server:${remote_release}/deploy/"
+
+      - name: Desplegar worker con rollback automatico
+        shell: bash
+        run: |
+          remote_script="apps/prototipo-mamografia/releases/${VERSION}/deploy/remote-worker.sh"
+          # Se envian referencias generadas por el workflow.
+          # shellcheck disable=SC2029
+          printf '%s' "$GHCR_TOKEN" | ssh pro93-server \
+            "set -Eeuo pipefail; \
+             export DOCKER_CONFIG=\$(mktemp -d); \
+             trap 'rm -rf \"\$DOCKER_CONFIG\"' EXIT; \
+             docker login ghcr.io --username '${GHCR_USERNAME}' --password-stdin >/dev/null; \
+             bash '${remote_script}' deploy '${IMAGE_REFERENCE}' '${VERSION}'"
+
+      - name: Registrar estado del worker
+        shell: bash
+        run: |
+          remote_script="apps/prototipo-mamografia/releases/${VERSION}/deploy/remote-worker.sh"
+          {
+            echo "version=${VERSION}"
+            echo "image=${IMAGE_REFERENCE}"
+            echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            # La ruta se deriva del commit validado.
+            # shellcheck disable=SC2029
+            ssh pro93-server "bash '${remote_script}' status _ _"
+          } | tee deployment-evidence.txt
+
+      - name: Validar web y servicios administrados
+        run: |
+          python deploy/smoke_test.py \
+            --base-url "$PRODUCTION_WEB_URL" \
+            --attempts 24 \
+            --interval 10 | tee -a deployment-evidence.txt
+
+      - name: Publicar resumen de ejecucion
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Despliegue controlado"
+            echo "- Rama: ${{ needs.validate.outputs.source_branch }}"
+            echo "- Commit: ${VERSION}"
+            echo "- Worker: imagen fijada por digest"
+            echo "- Servidor: proyecto Compose aislado por usuario"
+            echo "- Evidencia: artefacto deployment-evidence"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Conservar evidencia no sensible
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: deployment-evidence-${{ needs.publish-worker.outputs.version }}
+          path: deployment-evidence.txt
+          if-no-files-found: warn
+          retention-days: 30
