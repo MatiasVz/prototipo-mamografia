@@ -13,6 +13,31 @@ function synthetic_roi_image()
     return PgmImage(5, 5, 255, SYNTHETIC_ROI_PIXELS)
 end
 
+@testset "CLI error diagnostics" begin
+    captured = IOBuffer()
+    captured_error = nothing
+    captured_backtrace = nothing
+
+    try
+        @sync begin
+            @async error("causa interna de prueba")
+        end
+    catch error
+        captured_error = error
+        captured_backtrace = catch_backtrace()
+    end
+
+    MammographySimulation._write_cli_error(
+        captured,
+        captured_error,
+        captured_backtrace,
+    )
+    output = String(take!(captured))
+
+    @test occursin("causa interna de prueba", output)
+    @test occursin("Stacktrace:", output)
+end
+
 function empty_mpc_space(width = 10, height = 10)
     return SimulationSpace(
         width,

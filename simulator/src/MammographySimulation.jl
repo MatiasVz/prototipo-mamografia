@@ -442,24 +442,32 @@ function run_case(config::SimulationRunConfig)
     input_path = abspath(config.input_path)
     output_dir = abspath(config.output_dir)
     pgm_image = read_pgm(input_path)
+    println("stage=input_loaded")
     simulation_space = build_simulation_space(pgm_image; mpc_config = config.mpc_config)
+    println("stage=simulation_space_ready")
     mpc_initialization = initialize_mpc_particles(
         simulation_space,
         config.mpc_config;
         seed = config.seed,
     )
+    println("stage=particle_initialization_ready")
+    println("stage=streaming_started")
     mpc_streaming = stream_mpc_particles(
         mpc_initialization,
         simulation_space,
         config.mpc_config;
         steps = config.steps,
     )
+    println("stage=streaming_completed")
+    println("stage=collision_started")
     mpc_collision = collide_mpc_particles(
         mpc_streaming,
         simulation_space,
         config.mpc_config;
         seed = config.seed,
     )
+    println("stage=collision_completed")
+    println("stage=concentration_maps_started")
     mpc_concentration = generate_mpc_concentration_maps(
         mpc_initialization,
         simulation_space,
@@ -467,16 +475,20 @@ function run_case(config::SimulationRunConfig)
         steps = config.steps,
         seed = config.seed,
     )
+    println("stage=concentration_maps_completed")
+    println("stage=velocity_autocorrelation_started")
     mpc_velocity_autocorrelation = calculate_mpc_velocity_autocorrelation(
         simulation_space,
         config.mpc_config;
         steps = config.steps,
         seed = config.seed,
     )
+    println("stage=velocity_autocorrelation_completed")
     mpc_diffusion_metrics = build_comparable_diffusion_metrics(
         mpc_velocity_autocorrelation,
         config.mpc_config,
     )
+    println("stage=diffusion_metrics_ready")
     mkpath(output_dir)
     for legacy_filename in (
         "metrics.json",
@@ -803,11 +815,17 @@ function cli_main(args::Vector{String} = ARGS)
         println("domain_mask_path=$(result.domain_mask_path)")
         return 0
     catch error
-        println(stderr, "Error: $(error)")
-        println(stderr)
+        _write_cli_error(stderr, error, catch_backtrace())
         println(stderr, USAGE)
         return 1
     end
+end
+
+function _write_cli_error(io::IO, error, backtrace)
+    println(io, "Error:")
+    Base.showerror(io, error, backtrace)
+    println(io)
+    println(io)
 end
 
 function parse_integer_option(value::AbstractString, option_name::String)
