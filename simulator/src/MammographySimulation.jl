@@ -1638,6 +1638,7 @@ function next_cylinder_collision_event(
         end
 
         if epsilon < collision_time <= max_time + epsilon &&
+            is_incoming_cylinder_collision(particle, obstacle, collision_time) &&
             (best_time === nothing || collision_time < best_time)
             best_time = collision_time
             best_obstacle = obstacle
@@ -1645,6 +1646,32 @@ function next_cylinder_collision_event(
     end
 
     return best_time, best_obstacle
+end
+
+function is_incoming_cylinder_collision(
+    particle::MpcParticle,
+    obstacle::SimulationObstacle,
+    collision_time::Float64,
+)
+    impact_x = particle.x + particle.vx * collision_time
+    impact_y = particle.y + particle.vy * collision_time
+    normal_x = impact_x - obstacle.center_x
+    normal_y = impact_y - obstacle.center_y
+    normal_length = hypot(normal_x, normal_y)
+
+    if normal_length <= eps(Float64)
+        return false
+    end
+
+    normal_velocity = (
+        particle.vx * normal_x + particle.vy * normal_y
+    ) / normal_length
+    planar_speed = hypot(particle.vx, particle.vy)
+    approach_tolerance = max(100 * eps(Float64), 1.0e-12 * planar_speed)
+
+    # Una raiz positiva tambien puede describir la salida desde el interior o un roce
+    # tangencial. Solo se refleja cuando la trayectoria cruza hacia el cilindro.
+    return normal_velocity < -approach_tolerance
 end
 
 function ray_circle_collision_time(

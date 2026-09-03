@@ -649,6 +649,37 @@ end
     @test isapprox(bounced_particle.vx, -4.0)
     @test isapprox(bounced_particle.vy, -0.0)
 
+    grazing_initialization = MpcParticleInitialization(
+        1,
+        1,
+        100.0,
+        1.0,
+        0,
+        [MpcParticle(2, 3.0, 4.0, 0.5, 2.0, 0.0, 0.0, 1.0, "fluid", false)],
+    )
+    grazing_streamed = stream_mpc_particles(
+        grazing_initialization,
+        bounce_space,
+        MpcModelConfig(tau = 2.0);
+        steps = 1,
+    )
+    grazing_particle = only(grazing_streamed.particles)
+
+    @test grazing_streamed.obstacle_collision_count == 0
+    @test isapprox(grazing_particle.x, 7.0; atol = 1.0e-8)
+    @test isapprox(grazing_particle.y, 4.0; atol = 1.0e-8)
+    @test isapprox(grazing_particle.vx, 2.0; atol = 1.0e-8)
+
+    exiting_particle = MpcParticle(3, 5.0, 5.0, 0.5, 1.0, 0.0, 0.0, 1.0, "fluid", false)
+    exit_time, exit_obstacle = MammographySimulation.next_cylinder_collision_event(
+        exiting_particle,
+        bounce_space,
+        2.0,
+    )
+
+    @test exit_time === nothing
+    @test exit_obstacle === nothing
+
     oblique_particle = MpcParticle(
         2,
         4.2928932188,
